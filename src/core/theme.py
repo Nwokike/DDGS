@@ -84,20 +84,26 @@ class AppTheme:
             ),
             filled_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.Padding(left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD),
+                padding=ft.Padding(
+                    left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD
+                ),
                 text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_600),
                 bgcolor=AppColors.PRIMARY,
                 color=ft.Colors.WHITE,
             ),
             outlined_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.Padding(left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD),
+                padding=ft.Padding(
+                    left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD
+                ),
                 text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_500),
                 side=ft.BorderSide(1, AppColors.OUTLINE),
             ),
             text_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
-                padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
+                padding=ft.Padding(
+                    left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM
+                ),
                 text_style=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
             ),
             card_theme=ft.CardTheme(
@@ -143,20 +149,26 @@ class AppTheme:
             ),
             filled_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.Padding(left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD),
+                padding=ft.Padding(
+                    left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD
+                ),
                 text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_600),
                 bgcolor="#8AB4F8",
                 color=ft.Colors.BLACK,
             ),
             outlined_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.Padding(left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD),
+                padding=ft.Padding(
+                    left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD
+                ),
                 text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_500),
                 side=ft.BorderSide(1, ft.Colors.OUTLINE),
             ),
             text_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
-                padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
+                padding=ft.Padding(
+                    left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM
+                ),
                 text_style=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
             ),
             card_theme=ft.CardTheme(

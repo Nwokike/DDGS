@@ -138,7 +138,9 @@ def build_home_view(
                     spacing=SPACING_XS,
                     tight=True,
                 ),
-                padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
+                padding=ft.Padding(
+                    left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM
+                ),
                 border_radius=BORDER_RADIUS_MD,
                 bgcolor=AppColors.PRIMARY_LIGHT if is_active else None,
                 ink=True,
@@ -158,7 +160,9 @@ def build_home_view(
         on_change=lambda e: page.run_task(_set_backend, e.control.value),
         filled=True,
         text_size=FONT_XS,
-        content_padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
+        content_padding=ft.Padding(
+            left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM
+        ),
         border_radius=BORDER_RADIUS_MD,
         width=150,
     )
@@ -169,7 +173,9 @@ def build_home_view(
         on_change=lambda e: page.run_task(_set_timelimit, e.control.value),
         filled=True,
         text_size=FONT_XS,
-        content_padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
+        content_padding=ft.Padding(
+            left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM
+        ),
         border_radius=BORDER_RADIUS_MD,
         width=130,
     )
@@ -196,7 +202,9 @@ def build_home_view(
         on_click=lambda _: do_search(),
         style=ft.ButtonStyle(
             shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-            padding=ft.Padding(left=SPACING_XL, top=SPACING_MD, right=SPACING_XL, bottom=SPACING_MD),
+            padding=ft.Padding(
+                left=SPACING_XL, top=SPACING_MD, right=SPACING_XL, bottom=SPACING_MD
+            ),
         ),
     )
 
@@ -274,7 +282,9 @@ def build_home_view(
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=SPACING_XS,
                     ),
-                    padding=ft.Padding(left=0, top=SPACING_XL, right=0, bottom=SPACING_MD),
+                    padding=ft.Padding(
+                        left=0, top=SPACING_XL, right=0, bottom=SPACING_MD
+                    ),
                 ),
                 # Search bar
                 ft.Container(
@@ -290,7 +300,9 @@ def build_home_view(
                         spacing=SPACING_SM,
                         tight=True,
                     ),
-                    padding=ft.Padding(left=SPACING_LG, top=0, right=SPACING_LG, bottom=0),
+                    padding=ft.Padding(
+                        left=SPACING_LG, top=0, right=SPACING_LG, bottom=0
+                    ),
                 ),
                 # Tabs
                 ft.Container(
@@ -299,8 +311,12 @@ def build_home_view(
                         alignment=ft.MainAxisAlignment.SPACE_EVENLY,
                         spacing=SPACING_XS,
                     ),
-                    padding=ft.Padding(left=SPACING_SM, top=0, right=SPACING_SM, bottom=0),
-                    margin=ft.Margin(left=0, top=SPACING_SM, right=0, bottom=SPACING_SM),
+                    padding=ft.Padding(
+                        left=SPACING_SM, top=0, right=SPACING_SM, bottom=0
+                    ),
+                    margin=ft.Margin(
+                        left=0, top=SPACING_SM, right=0, bottom=SPACING_SM
+                    ),
                 ),
                 # Recent
                 ft.Container(
@@ -309,7 +325,9 @@ def build_home_view(
                         scroll=ft.ScrollMode.AUTO,
                         spacing=SPACING_SM,
                     ),
-                    padding=ft.Padding(left=SPACING_LG, top=0, right=SPACING_LG, bottom=0),
+                    padding=ft.Padding(
+                        left=SPACING_LG, top=0, right=SPACING_LG, bottom=0
+                    ),
                     expand=True,
                 ),
             ],

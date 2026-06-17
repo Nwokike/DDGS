@@ -56,7 +56,12 @@ def build_history_view(
                             content=ft.Icon(
                                 icon, size=ICON_MD, color=AppColors.PRIMARY
                             ),
-                            padding=ft.Padding(left=SPACING_SM, top=SPACING_SM, right=SPACING_SM, bottom=SPACING_SM),
+                            padding=ft.Padding(
+                                left=SPACING_SM,
+                                top=SPACING_SM,
+                                right=SPACING_SM,
+                                bottom=SPACING_SM,
+                            ),
                             bgcolor=AppColors.PRIMARY_LIGHT,
                             border_radius=BORDER_RADIUS_MD,
                         ),
@@ -107,9 +112,11 @@ def build_history_view(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=SPACING_SM,
             ),
-            padding=ft.Padding(left=SPACING_XL, top=SPACING_XL, right=SPACING_XL, bottom=SPACING_XL),
+            padding=ft.Padding(
+                left=SPACING_XL, top=SPACING_XL, right=SPACING_XL, bottom=SPACING_XL
+            ),
             expand=True,
-            alignment=ft.alignment.center,
+            alignment=ft.alignment.Alignment(0, 0),
         )
 
     def _show_clear_dialog(e):
@@ -162,7 +169,12 @@ def build_history_view(
                             ),
                         ]
                     ),
-                    padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
+                    padding=ft.Padding(
+                        left=SPACING_MD,
+                        top=SPACING_SM,
+                        right=SPACING_MD,
+                        bottom=SPACING_SM,
+                    ),
                 ),
                 history_list,
             ],
