@@ -1,0 +1,38 @@
+[project]
+name = "ddgs-app"
+version = "1.0.0"
+description = "DDGS — Dux Distributed Global Search. Metasearch across 14 engines with DuckDuckGo privacy."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "ddgs>=9.14.4",
+    "flet>=0.85.3",
+]
+
+[tool.flet]
+org = "ng.kiri"
+product = "DDGS"
+build_number = 1
+
+[tool.flet.app]
+path = "src"
+
+[tool.flet.app.boot_screen]
+show = true
+message = "Initializing DDGS..."
+
+[tool.flet.app.startup_screen]
+show = true
+message = "Dux Distributed Global Search"
+
+[tool.flet.android]
+bundle_id = "ng.kiri.ddgs"
+
+[tool.flet.android.permission]
+"android.permission.INTERNET" = true
+"android.permission.ACCESS_NETWORK_STATE" = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.17",
+]

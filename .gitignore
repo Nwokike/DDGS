@@ -1,0 +1,12 @@
+.venv/
+.ruff_cache/
+__pycache__/
+*.pyc
+storage/
+build/
+dist/
+*.spec
+.DS_Store
+Thumbs.db
+*.log
+upload-key.jks
