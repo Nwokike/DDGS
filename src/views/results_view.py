@@ -59,7 +59,7 @@ def _text_card(r: SearchResult, i: int) -> ft.Container:
             spacing=SPACING_XS,
             tight=True,
         ),
-        padding=ft.padding.all(SPACING_MD),
+        padding=ft.Padding(left=SPACING_MD, top=SPACING_MD, right=SPACING_MD, bottom=SPACING_MD),
         border_radius=BORDER_RADIUS_MD,
         ink=True,
         on_click=lambda _: launch_url(r.url),
@@ -102,7 +102,7 @@ def _image_card(r: SearchResult, i: int) -> ft.Container:
             tight=True,
         ),
         width=180,
-        padding=ft.padding.all(SPACING_SM),
+        padding=ft.Padding(left=SPACING_SM, top=SPACING_SM, right=SPACING_SM, bottom=SPACING_SM),
         border_radius=BORDER_RADIUS_MD,
         ink=True,
         on_click=lambda _: launch_url(r.url),
@@ -142,7 +142,7 @@ def _video_card(r: SearchResult, i: int) -> ft.Container:
                                     color=ft.Colors.WHITE,
                                     weight=ft.FontWeight.W_600,
                                 ),
-                                padding=ft.padding.all(SPACING_XS),
+                                padding=ft.Padding(left=SPACING_XS, top=SPACING_XS, right=SPACING_XS, bottom=SPACING_XS),
                                 bgcolor=ft.Colors.BLACK54,
                                 border_radius=BORDER_RADIUS_MD,
                                 right=SPACING_XS,
@@ -187,7 +187,7 @@ def _video_card(r: SearchResult, i: int) -> ft.Container:
             ],
             spacing=SPACING_MD,
         ),
-        padding=ft.padding.all(SPACING_MD),
+        padding=ft.Padding(left=SPACING_MD, top=SPACING_MD, right=SPACING_MD, bottom=SPACING_MD),
         border_radius=BORDER_RADIUS_MD,
         ink=True,
         on_click=lambda _: launch_url(r.url),
@@ -253,7 +253,7 @@ def _news_card(r: SearchResult, i: int) -> ft.Container:
             ],
             spacing=SPACING_MD,
         ),
-        padding=ft.padding.all(SPACING_MD),
+        padding=ft.Padding(left=SPACING_MD, top=SPACING_MD, right=SPACING_MD, bottom=SPACING_MD),
         border_radius=BORDER_RADIUS_MD,
         ink=True,
         on_click=lambda _: launch_url(r.url),
@@ -279,7 +279,7 @@ def _books_card(r: SearchResult, i: int) -> ft.Container:
             spacing=SPACING_XS,
             tight=True,
         ),
-        padding=ft.padding.all(SPACING_MD),
+        padding=ft.Padding(left=SPACING_MD, top=SPACING_MD, right=SPACING_MD, bottom=SPACING_MD),
         border_radius=BORDER_RADIUS_MD,
         ink=True,
         on_click=lambda _: launch_url(r.url),
@@ -293,7 +293,7 @@ def _extract_card(result: dict | None) -> ft.Container:
             content=ft.Text(
                 "No content extracted", size=FONT_MD, color=ft.Colors.ON_SURFACE_VARIANT
             ),
-            padding=ft.padding.all(SPACING_XL),
+            padding=ft.Padding(left=SPACING_XL, top=SPACING_XL, right=SPACING_XL, bottom=SPACING_XL),
         )
     content = result.get("content", "")
     url = result.get("url", "")
@@ -326,7 +326,7 @@ def _extract_card(result: dict | None) -> ft.Container:
             spacing=SPACING_XS,
             scroll=ft.ScrollMode.AUTO,
         ),
-        padding=ft.padding.all(SPACING_MD),
+        padding=ft.Padding(left=SPACING_MD, top=SPACING_MD, right=SPACING_MD, bottom=SPACING_MD),
         border_radius=BORDER_RADIUS_MD,
         bgcolor=ft.Colors.SURFACE_CONTAINER,
     )
@@ -395,8 +395,13 @@ def build_results_view(
             ],
             spacing=SPACING_SM,
         ),
-        padding=ft.padding.symmetric(horizontal=SPACING_MD, vertical=SPACING_SM),
-        border=ft.border.only(bottom=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)),
+        padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
+        border=ft.Border(
+            top=ft.BorderSide(0, ft.Colors.TRANSPARENT),
+            right=ft.BorderSide(0, ft.Colors.TRANSPARENT),
+            bottom=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT),
+            left=ft.BorderSide(0, ft.Colors.TRANSPARENT),
+        ),
     )
 
     # ── Loading ──
@@ -416,7 +421,7 @@ def build_results_view(
             spacing=SPACING_SM,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        padding=ft.padding.all(SPACING_LG),
+        padding=ft.Padding(left=SPACING_LG, top=SPACING_LG, right=SPACING_LG, bottom=SPACING_LG),
         visible=is_running,
     )
 
@@ -448,7 +453,7 @@ def build_results_view(
             spacing=SPACING_MD,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        padding=ft.padding.all(SPACING_XL),
+        padding=ft.Padding(left=SPACING_XL, top=SPACING_XL, right=SPACING_XL, bottom=SPACING_XL),
         visible=bool(error) and not is_running,
     )
 
@@ -484,13 +489,13 @@ def build_results_view(
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 text_align=ft.TextAlign.CENTER,
             ),
-            padding=ft.padding.all(SPACING_XL),
+            padding=ft.Padding(left=SPACING_XL, top=SPACING_XL, right=SPACING_XL, bottom=SPACING_XL),
             expand=True,
         )
 
     results_container = ft.Container(
         content=results_content,
-        padding=ft.padding.symmetric(horizontal=SPACING_MD, vertical=SPACING_SM),
+        padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
         expand=True,
     )
 

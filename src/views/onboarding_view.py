@@ -68,7 +68,7 @@ def build_onboarding_view(
                             content=ft.Icon(
                                 icon, size=ICON_LG, color=AppColors.PRIMARY
                             ),
-                            padding=ft.padding.all(SPACING_MD),
+                            padding=ft.Padding(left=SPACING_MD, top=SPACING_MD, right=SPACING_MD, bottom=SPACING_MD),
                             bgcolor=AppColors.PRIMARY_LIGHT,
                             border_radius=BORDER_RADIUS_LG,
                         ),
@@ -89,7 +89,7 @@ def build_onboarding_view(
                     ],
                     spacing=SPACING_MD,
                 ),
-                padding=ft.padding.all(SPACING_MD),
+                padding=ft.Padding(left=SPACING_MD, top=SPACING_MD, right=SPACING_MD, bottom=SPACING_MD),
                 border_radius=BORDER_RADIUS_LG,
                 bgcolor=AppColors.SURFACE,
             )
@@ -122,7 +122,7 @@ def build_onboarding_view(
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=SPACING_XS,
                     ),
-                    padding=ft.padding.only(bottom=SPACING_XL),
+                    padding=ft.Padding(left=0, top=0, right=0, bottom=SPACING_XL),
                 ),
                 ft.Column(controls=cards, spacing=SPACING_MD),
                 ft.Container(expand=True),
@@ -134,12 +134,10 @@ def build_onboarding_view(
                         on_click=finish,
                         style=ft.ButtonStyle(
                             shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_LG),
-                            padding=ft.padding.symmetric(
-                                horizontal=SPACING_XL * 2, vertical=SPACING_MD
-                            ),
+                            padding=ft.Padding(left=SPACING_XL * 2, top=SPACING_MD, right=SPACING_XL * 2, bottom=SPACING_MD),
                         ),
                     ),
-                    padding=ft.padding.only(bottom=SPACING_XL),
+                    padding=ft.Padding(left=0, top=0, right=0, bottom=SPACING_XL),
                     alignment=ft.alignment.center,
                 ),
             ],

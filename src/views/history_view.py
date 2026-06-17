@@ -56,7 +56,7 @@ def build_history_view(
                             content=ft.Icon(
                                 icon, size=ICON_MD, color=AppColors.PRIMARY
                             ),
-                            padding=ft.padding.all(SPACING_SM),
+                            padding=ft.Padding(left=SPACING_SM, top=SPACING_SM, right=SPACING_SM, bottom=SPACING_SM),
                             bgcolor=AppColors.PRIMARY_LIGHT,
                             border_radius=BORDER_RADIUS_MD,
                         ),
@@ -76,8 +76,11 @@ def build_history_view(
                         on_click=lambda _, qq=q: on_search(qq),
                         dense=True,
                     ),
-                    border=ft.border.only(
-                        bottom=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT)
+                    border=ft.Border(
+                        top=ft.BorderSide(0, ft.Colors.TRANSPARENT),
+                        right=ft.BorderSide(0, ft.Colors.TRANSPARENT),
+                        bottom=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT),
+                        left=ft.BorderSide(0, ft.Colors.TRANSPARENT),
                     )
                     if i < len(history) - 1
                     else None,
@@ -104,7 +107,7 @@ def build_history_view(
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 spacing=SPACING_SM,
             ),
-            padding=ft.padding.all(SPACING_XL),
+            padding=ft.Padding(left=SPACING_XL, top=SPACING_XL, right=SPACING_XL, bottom=SPACING_XL),
             expand=True,
             alignment=ft.alignment.center,
         )
@@ -159,9 +162,7 @@ def build_history_view(
                             ),
                         ]
                     ),
-                    padding=ft.padding.symmetric(
-                        horizontal=SPACING_MD, vertical=SPACING_SM
-                    ),
+                    padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
                 ),
                 history_list,
             ],

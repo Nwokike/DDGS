@@ -82,68 +82,28 @@ class AppTheme:
                 label_medium=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
                 label_small=ft.TextStyle(size=FONT_XS, weight=ft.FontWeight.W_500),
             ),
-            elevated_button_theme=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.padding.symmetric(
-                    horizontal=SPACING_LG, vertical=SPACING_MD
-                ),
-                text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_600),
-            ),
             filled_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.padding.symmetric(
-                    horizontal=SPACING_LG, vertical=SPACING_MD
-                ),
+                padding=ft.Padding(left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD),
                 text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_600),
                 bgcolor=AppColors.PRIMARY,
                 color=ft.Colors.WHITE,
             ),
             outlined_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.padding.symmetric(
-                    horizontal=SPACING_LG, vertical=SPACING_MD
-                ),
+                padding=ft.Padding(left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD),
                 text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_500),
                 side=ft.BorderSide(1, AppColors.OUTLINE),
             ),
             text_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
-                padding=ft.padding.symmetric(
-                    horizontal=SPACING_MD, vertical=SPACING_SM
-                ),
+                padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
                 text_style=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
             ),
             card_theme=ft.CardTheme(
                 elevation=1,
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_LG),
                 color=AppColors.SURFACE,
-            ),
-            input_decor_theme=ft.InputDecorationTheme(
-                filled=True,
-                fill_color=AppColors.SURFACE,
-                border=ft.OutlineInputBorder(
-                    border_radius=BORDER_RADIUS_FULL,
-                    border_side=ft.BorderSide(1, AppColors.OUTLINE_VARIANT),
-                ),
-                enabled_border=ft.OutlineInputBorder(
-                    border_radius=BORDER_RADIUS_FULL,
-                    border_side=ft.BorderSide(1, AppColors.OUTLINE_VARIANT),
-                ),
-                focused_border=ft.OutlineInputBorder(
-                    border_radius=BORDER_RADIUS_FULL,
-                    border_side=ft.BorderSide(2, AppColors.PRIMARY),
-                ),
-                error_border=ft.OutlineInputBorder(
-                    border_radius=BORDER_RADIUS_FULL,
-                    border_side=ft.BorderSide(2, AppColors.ERROR),
-                ),
-                content_padding=ft.padding.symmetric(
-                    horizontal=SPACING_LG, vertical=SPACING_MD
-                ),
-                label_style=ft.TextStyle(size=FONT_MD, color=AppColors.ON_SURFACE),
-                hint_style=ft.TextStyle(
-                    size=FONT_MD, color=ft.Colors.ON_SURFACE_VARIANT
-                ),
             ),
         )
 
@@ -181,67 +141,27 @@ class AppTheme:
                 label_medium=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
                 label_small=ft.TextStyle(size=FONT_XS, weight=ft.FontWeight.W_500),
             ),
-            elevated_button_theme=ft.ButtonStyle(
-                shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.padding.symmetric(
-                    horizontal=SPACING_LG, vertical=SPACING_MD
-                ),
-                text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_600),
-            ),
             filled_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.padding.symmetric(
-                    horizontal=SPACING_LG, vertical=SPACING_MD
-                ),
+                padding=ft.Padding(left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD),
                 text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_600),
                 bgcolor="#8AB4F8",
                 color=ft.Colors.BLACK,
             ),
             outlined_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-                padding=ft.padding.symmetric(
-                    horizontal=SPACING_LG, vertical=SPACING_MD
-                ),
+                padding=ft.Padding(left=SPACING_LG, top=SPACING_MD, right=SPACING_LG, bottom=SPACING_MD),
                 text_style=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_500),
                 side=ft.BorderSide(1, ft.Colors.OUTLINE),
             ),
             text_button_theme=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
-                padding=ft.padding.symmetric(
-                    horizontal=SPACING_MD, vertical=SPACING_SM
-                ),
+                padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
                 text_style=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
             ),
             card_theme=ft.CardTheme(
                 elevation=1,
                 shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_LG),
                 color=ft.Colors.SURFACE_CONTAINER,
-            ),
-            input_decor_theme=ft.InputDecorationTheme(
-                filled=True,
-                fill_color=ft.Colors.SURFACE_CONTAINER,
-                border=ft.OutlineInputBorder(
-                    border_radius=BORDER_RADIUS_FULL,
-                    border_side=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT),
-                ),
-                enabled_border=ft.OutlineInputBorder(
-                    border_radius=BORDER_RADIUS_FULL,
-                    border_side=ft.BorderSide(1, ft.Colors.OUTLINE_VARIANT),
-                ),
-                focused_border=ft.OutlineInputBorder(
-                    border_radius=BORDER_RADIUS_FULL,
-                    border_side=ft.BorderSide(2, "#8AB4F8"),
-                ),
-                error_border=ft.OutlineInputBorder(
-                    border_radius=BORDER_RADIUS_FULL,
-                    border_side=ft.BorderSide(2, "#F28B82"),
-                ),
-                content_padding=ft.padding.symmetric(
-                    horizontal=SPACING_LG, vertical=SPACING_MD
-                ),
-                label_style=ft.TextStyle(size=FONT_MD, color=ft.Colors.ON_SURFACE),
-                hint_style=ft.TextStyle(
-                    size=FONT_MD, color=ft.Colors.ON_SURFACE_VARIANT
-                ),
             ),
         )

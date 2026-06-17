@@ -47,7 +47,7 @@ def _build_section(*controls, title: str = "") -> ft.Container:
             ],
             spacing=SPACING_MD,
         ),
-        padding=ft.padding.all(SPACING_LG),
+        padding=ft.Padding(left=SPACING_LG, top=SPACING_LG, right=SPACING_LG, bottom=SPACING_LG),
         bgcolor=AppColors.SURFACE,
         border_radius=BORDER_RADIUS_LG,
     )
@@ -337,9 +337,7 @@ def build_settings_view(page: ft.Page, storage: StorageService) -> ft.View:
                             ),
                         ]
                     ),
-                    padding=ft.padding.symmetric(
-                        horizontal=SPACING_MD, vertical=SPACING_SM
-                    ),
+                    padding=ft.Padding(left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM),
                 ),
                 ft.Column(
                     controls=sections,
