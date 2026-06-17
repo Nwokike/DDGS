@@ -1,15 +1,13 @@
-"""Global application state — mirrors every DDGS parameter."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
+import flet as ft
+
 
 @dataclass
 class SearchResult:
-    """Unified search result across all search types."""
-
     title: str
     url: str
     snippet: str
@@ -27,11 +25,19 @@ class SearchResult:
     date: str | None = None
     raw_data: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self):
+        raw = self.raw_data
+        if not self.publisher and raw.get("publisher"):
+            self.publisher = raw["publisher"]
+        if not self.views and raw.get("statistics"):
+            try:
+                self.views = int(raw["statistics"].get("viewCount", 0))
+            except (ValueError, AttributeError):
+                pass
+
 
 @dataclass
 class SearchProgress:
-    """Progress tracking for searches."""
-
     query: str
     search_type: str = "text"
     total_results: int = 0
@@ -43,10 +49,7 @@ class SearchProgress:
 
 
 class AppState:
-    """Singleton — mirrors every DDGS configuration option."""
-
     def __init__(self):
-        # Search settings
         self.safe_search: str = "moderate"
         self.region: str = "wt-wt"
         self.max_results: int = 20
@@ -54,25 +57,22 @@ class AppState:
         self.backend: str = "auto"
         self.page: int = 1
 
-        # Connection settings
         self.proxy: str = ""
         self.verify_ssl: bool = True
         self.threads: int = 0
 
-        # Extract settings
         self.extract_format: str = "text_markdown"
 
-        # Advanced (DHT network)
         self.api_url: str = ""
         self.spawn_api: bool = False
 
-        # UI state
         self.default_tab: str = "text"
         self.current_query: str = ""
         self.search_history: list[dict] = []
         self.search_progress: SearchProgress | None = None
         self.last_results: dict[str, list[SearchResult]] = {}
         self.extract_result: dict | None = None
+        self.theme_mode: ft.ThemeMode = ft.ThemeMode.SYSTEM
 
 
 state = AppState()

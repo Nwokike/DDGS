@@ -1,5 +1,3 @@
-"""Onboarding view — swipeable intro slides."""
-
 from __future__ import annotations
 
 from typing import Callable
@@ -23,14 +21,14 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
             "color": AppColors.PRIMARY,
             "title": "Search Across 14 Engines",
             "body": (
-                "Web, images, videos, news, and books — all from one place. "
+                "Web, images, videos, news, and books \u2014 all from one place. "
                 "Powered by DuckDuckGo with Brave, Google, Bing, Yahoo, "
                 "Yandex, Wikipedia, and more."
             ),
         },
         {
             "icon": ft.Icons.DOWNLOAD_ROUNDED,
-            "color": AppColors.SECONDARY,
+            "color": AppColors.SUCCESS,
             "title": "Extract Any Page",
             "body": (
                 "Pull content from any URL as Markdown, plain text, HTML, "
@@ -39,7 +37,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
         },
         {
             "icon": ft.Icons.TUNE_ROUNDED,
-            "color": AppColors.PRIMARY,
+            "color": AppColors.TERTIARY,
             "title": "Full Control",
             "body": (
                 "Choose your backend, set time filters, safe search, proxy, "
@@ -51,7 +49,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
     def _build_slide(s: dict) -> ft.Column:
         return ft.Column(
             [
-                ft.Container(height=80),
+                ft.Container(height=60),
                 ft.Container(
                     content=ft.Icon(s["icon"], size=ICON_SIZE, color=s["color"]),
                     width=ICON_CONTAINER_SIZE,
@@ -91,7 +89,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
                     bgcolor=ft.Colors.PRIMARY
                     if i == current_page["index"]
                     else ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE),
-                    animate=ft.Animation(200, "easeOut"),
+                    animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
                 )
             )
         return dots
@@ -107,13 +105,24 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
         if indicator_row.current:
             indicator_row.current.controls = _build_indicators()
         if button_ref.current:
-            button_ref.current.content = ft.Text(
-                "Get Started" if is_last else "Next",
-                size=14,
-                weight=ft.FontWeight.W_600,
-            )
-            button_ref.current.icon = (
-                ft.Icons.CHECK_ROUNDED if is_last else ft.Icons.ARROW_FORWARD_ROUNDED
+            button_ref.current.content = ft.Row(
+                [
+                    ft.Icon(
+                        ft.Icons.CHECK_ROUNDED
+                        if is_last
+                        else ft.Icons.ARROW_FORWARD_ROUNDED,
+                        size=18,
+                        color=ft.Colors.WHITE,
+                    ),
+                    ft.Text(
+                        "Get Started" if is_last else "Next",
+                        size=14,
+                        weight=ft.FontWeight.W_600,
+                        color=ft.Colors.WHITE,
+                    ),
+                ],
+                spacing=6,
+                tight=True,
             )
         page.update()
 
@@ -145,9 +154,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
             await storage.set_onboarding_done(True)
         on_done()
 
-    is_last = current_page["index"] == len(slides) - 1
-
-    view = ft.View(
+    return ft.View(
         route="/onboarding",
         controls=[
             ft.SafeArea(
@@ -164,7 +171,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
                                                 0.6, ft.Colors.ON_SURFACE
                                             )
                                         ),
-                                    ),
+                                    )
                                 ],
                                 alignment=ft.MainAxisAlignment.END,
                             ),
@@ -183,23 +190,35 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
                                 alignment=ft.MainAxisAlignment.CENTER,
                                 spacing=6,
                             ),
-                            ft.Container(height=32),
+                            ft.Container(height=24),
                             ft.Container(
                                 content=ft.Button(
                                     ref=button_ref,
-                                    content=ft.Text(
-                                        "Get Started" if is_last else "Next",
-                                        size=14,
-                                        weight=ft.FontWeight.W_600,
+                                    content=ft.Row(
+                                        [
+                                            ft.Icon(
+                                                ft.Icons.ARROW_FORWARD_ROUNDED,
+                                                size=18,
+                                                color=ft.Colors.WHITE,
+                                            ),
+                                            ft.Text(
+                                                "Next",
+                                                size=14,
+                                                weight=ft.FontWeight.W_600,
+                                                color=ft.Colors.WHITE,
+                                            ),
+                                        ],
+                                        spacing=6,
+                                        tight=True,
                                     ),
-                                    icon=ft.Icons.ARROW_FORWARD_ROUNDED,
                                     on_click=on_next,
-                                    width=200,
-                                    height=48,
+                                    width=220,
+                                    height=50,
                                     style=ft.ButtonStyle(
-                                        bgcolor=ft.Colors.PRIMARY,
+                                        bgcolor=AppColors.PRIMARY,
                                         color=ft.Colors.WHITE,
-                                        shape=ft.RoundedRectangleBorder(radius=24),
+                                        shape=ft.RoundedRectangleBorder(radius=25),
+                                        elevation=2,
                                     ),
                                 ),
                                 alignment=ft.alignment.Alignment(0, 0),
@@ -214,7 +233,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
                         end=ft.alignment.Alignment(1, 1),
                         colors=[
                             ft.Colors.SURFACE,
-                            ft.Colors.with_opacity(0.08, ft.Colors.PRIMARY),
+                            ft.Colors.with_opacity(0.08, AppColors.PRIMARY),
                         ],
                     ),
                     expand=True,
@@ -225,5 +244,3 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
         padding=0,
         spacing=0,
     )
-
-    return view

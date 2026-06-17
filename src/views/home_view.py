@@ -1,5 +1,3 @@
-"""Home view — search bar + 6 DDGS tabs + backend selector."""
-
 from __future__ import annotations
 
 from typing import Callable
@@ -15,17 +13,16 @@ from core.constants import (
     TIMELIMIT_OPTIONS,
 )
 from core.state import state
-from core.theme import AppColors
+from core.theme import AppColors, AppStyles
 from core.tokens import (
     FONT_XS,
     FONT_SM,
     FONT_MD,
-    SPACING_XS,
     SPACING_SM,
     SPACING_MD,
     SPACING_LG,
-    SPACING_XL,
     BORDER_RADIUS_MD,
+    BORDER_RADIUS_LG,
     BORDER_RADIUS_FULL,
     ICON_MD,
 )
@@ -61,8 +58,6 @@ def build_home_view(
     logger.info(f"[{LOG_TAG}] Building home view")
 
     active_tab = state.default_tab
-
-    # ── Search input ──
     search_field = ft.TextField(
         value=state.current_query,
         hint_text="Search DuckDuckGo..."
@@ -77,9 +72,7 @@ def build_home_view(
         border_radius=BORDER_RADIUS_FULL,
         border=ft.InputBorder.OUTLINE,
         filled=True,
-        fill_color=ft.Colors.SURFACE_CONTAINER_HIGHEST
-        if page.theme_mode == ft.ThemeMode.DARK
-        else ft.Colors.SURFACE,
+        bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
         cursor_color=AppColors.PRIMARY,
         autofocus=True,
     )
@@ -94,10 +87,89 @@ def build_home_view(
         on_search(query, active_tab)
 
     search_field.on_submit = lambda e: do_search()
-    search_field.suffix = ft.IconButton(
-        icon=ft.Icons.CLEAR_ROUNDED,
-        icon_size=ICON_MD,
-        on_click=lambda _: setattr(search_field, "value", "") or search_field.update(),
+
+    def _prefill_search(q: str, tab: str | None = None):
+        nonlocal active_tab
+        search_field.value = q
+        if tab and tab != active_tab:
+            active_tab = tab
+            state.default_tab = tab
+            page.run_task(storage.set_default_tab, tab)
+            search_field.hint_text = "Search DuckDuckGo..."
+            search_field.prefix_icon = ft.Icons.SEARCH_ROUNDED
+            search_field.update()
+        page.run_task(do_search, q)
+
+    # ── Theme toggle ──
+    def _toggle_theme(e):
+        if page.theme_mode == ft.ThemeMode.DARK:
+            page.theme_mode = ft.ThemeMode.LIGHT
+        elif page.theme_mode == ft.ThemeMode.LIGHT:
+            page.theme_mode = ft.ThemeMode.SYSTEM
+        else:
+            page.theme_mode = ft.ThemeMode.DARK
+        state.theme_mode = page.theme_mode
+        page.run_task(storage.set_theme, page.theme_mode.value)
+        page.views.clear()
+        page.views.append(build_home_view(page, on_navigate, storage, on_search))
+        page.update()
+
+    def _get_theme_icon():
+        if page.theme_mode == ft.ThemeMode.DARK:
+            return ft.Icons.DARK_MODE_ROUNDED
+        elif page.theme_mode == ft.ThemeMode.LIGHT:
+            return ft.Icons.LIGHT_MODE_ROUNDED
+        return ft.Icons.SETTINGS_SYSTEM_DAYDREAM_ROUNDED
+
+    # ── Header ──
+    header = ft.Container(
+        content=ft.Row(
+            [
+                ft.Row(
+                    [
+                        ft.Image(
+                            src="icon.png", width=32, height=32, fit=ft.BoxFit.CONTAIN
+                        ),
+                        ft.Text(
+                            "DDGS",
+                            size=18,
+                            weight=ft.FontWeight.BOLD,
+                            color=AppColors.PRIMARY,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                ft.Row(
+                    [
+                        ft.IconButton(
+                            icon=_get_theme_icon(),
+                            icon_size=20,
+                            on_click=_toggle_theme,
+                            style=ft.ButtonStyle(
+                                bgcolor=ft.Colors.with_opacity(0.08, AppColors.PRIMARY),
+                                shape=ft.RoundedRectangleBorder(
+                                    radius=BORDER_RADIUS_MD
+                                ),
+                            ),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.SETTINGS_ROUNDED,
+                            icon_size=20,
+                            on_click=lambda e: page.run_task(on_navigate, "/settings"),
+                            style=ft.ButtonStyle(
+                                bgcolor=ft.Colors.with_opacity(0.08, AppColors.PRIMARY),
+                                shape=ft.RoundedRectangleBorder(
+                                    radius=BORDER_RADIUS_MD
+                                ),
+                            ),
+                        ),
+                    ],
+                    spacing=6,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+        ),
+        padding=ft.Padding(16, 12, 16, 12),
     )
 
     # ── Tab selector ──
@@ -117,36 +189,41 @@ def build_home_view(
         tab_buttons.append(
             ft.Container(
                 content=ft.Column(
-                    controls=[
+                    [
                         ft.Icon(
                             tab["icon"],
                             size=ICON_MD,
-                            color=AppColors.PRIMARY if is_active else AppColors.OUTLINE,
+                            color=AppColors.PRIMARY
+                            if is_active
+                            else ft.Colors.ON_SURFACE_VARIANT,
                         ),
                         ft.Text(
                             tab["label"],
-                            size=FONT_XS,
+                            size=9,
                             weight=ft.FontWeight.W_600
                             if is_active
                             else ft.FontWeight.W_400,
-                            color=AppColors.PRIMARY if is_active else None,
+                            color=AppColors.PRIMARY
+                            if is_active
+                            else ft.Colors.ON_SURFACE_VARIANT,
                         ),
                     ],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=SPACING_XS,
+                    spacing=2,
                     tight=True,
                 ),
-                padding=ft.Padding(
-                    left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM
-                ),
+                padding=ft.Padding(8, 8, 8, 8),
                 border_radius=BORDER_RADIUS_MD,
-                bgcolor=AppColors.PRIMARY_LIGHT if is_active else None,
+                bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY)
+                if is_active
+                else None,
                 ink=True,
                 on_click=lambda _, k=tab["key"]: on_tab_change(k),
+                animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
             )
         )
 
-    # ── Backend / Time filter row (only for search types) ──
+    # ── Backend / Time filter row ──
     backend_options = BACKEND_OPTIONS_MAP.get(active_tab, BACKEND_OPTIONS_TEXT)
     current_backend = state.backend or "auto"
 
@@ -158,9 +235,7 @@ def build_home_view(
         on_select=lambda e: page.run_task(_set_backend, e.control.value),
         filled=True,
         text_size=FONT_XS,
-        content_padding=ft.Padding(
-            left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM
-        ),
+        content_padding=ft.Padding(left=12, top=8, right=12, bottom=8),
         border_radius=BORDER_RADIUS_MD,
         width=150,
     )
@@ -171,9 +246,7 @@ def build_home_view(
         on_select=lambda e: page.run_task(_set_timelimit, e.control.value),
         filled=True,
         text_size=FONT_XS,
-        content_padding=ft.Padding(
-            left=SPACING_MD, top=SPACING_SM, right=SPACING_MD, bottom=SPACING_SM
-        ),
+        content_padding=ft.Padding(left=12, top=8, right=12, bottom=8),
         border_radius=BORDER_RADIUS_MD,
         width=130,
     )
@@ -181,28 +254,30 @@ def build_home_view(
     async def _set_backend(val: str):
         state.backend = val
         await storage.set_backend(val)
-        logger.debug(f"[{LOG_TAG}] Backend: {val}")
 
     async def _set_timelimit(val: str):
         state.timelimit = val
         await storage.set_timelimit(val)
-        logger.debug(f"[{LOG_TAG}] Timelimit: {val}")
 
     # ── Search button ──
     search_button = ft.FilledButton(
         content=ft.Row(
-            controls=[
-                ft.Icon(ft.Icons.SEARCH_ROUNDED, size=ICON_MD),
-                ft.Text("Search", size=FONT_MD, weight=ft.FontWeight.W_600),
+            [
+                ft.Icon(ft.Icons.SEARCH_ROUNDED, size=ICON_MD, color=ft.Colors.WHITE),
+                ft.Text(
+                    "Search",
+                    size=FONT_MD,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.WHITE,
+                ),
             ],
-            spacing=SPACING_SM,
+            spacing=6,
+            tight=True,
         ),
         on_click=lambda _: do_search(),
         style=ft.ButtonStyle(
             shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_FULL),
-            padding=ft.Padding(
-                left=SPACING_XL, top=SPACING_MD, right=SPACING_XL, bottom=SPACING_MD
-            ),
+            padding=ft.Padding(24, 14, 24, 14),
         ),
     )
 
@@ -210,38 +285,160 @@ def build_home_view(
     recent_section = None
     if state.search_history:
         items = []
-        for entry in state.search_history[:5]:
+        for i, entry in enumerate(state.search_history[:5]):
             q = entry.get("query", "")
             st = entry.get("search_type", "text")
             ts = entry.get("timestamp", "")
             tab_info = next((t for t in SEARCH_TABS if t["key"] == st), SEARCH_TABS[0])
             items.append(
-                ft.ListTile(
-                    leading=ft.Icon(
-                        tab_info["icon"], size=ICON_MD, color=AppColors.OUTLINE
+                ft.Container(
+                    content=ft.ListTile(
+                        leading=ft.Container(
+                            content=ft.Icon(
+                                tab_info["icon"], size=16, color=AppColors.PRIMARY
+                            ),
+                            padding=ft.Padding(8, 8, 8, 8),
+                            bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY),
+                            border_radius=BORDER_RADIUS_MD,
+                        ),
+                        title=ft.Text(
+                            q,
+                            size=FONT_MD,
+                            no_wrap=False,
+                            max_lines=1,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                        subtitle=ft.Text(
+                            f"{tab_info['label']} \u00b7 {ts}",
+                            size=FONT_XS,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        on_click=lambda _, qq=q, st=st: _prefill_search(qq, st),
+                        dense=True,
                     ),
-                    title=ft.Text(q, size=FONT_MD, no_wrap=False, max_lines=1),
-                    subtitle=ft.Text(
-                        f"{tab_info['label']} · {ts}",
-                        size=FONT_XS,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                    ),
-                    on_click=lambda _, qq=q: do_search(qq),
-                    dense=True,
+                    border_radius=BORDER_RADIUS_MD,
+                    ink=True,
                 )
             )
         recent_section = ft.Container(
             content=ft.Column(
-                controls=[
+                [
+                    ft.Row(
+                        [
+                            ft.Icon(
+                                ft.Icons.HISTORY_ROUNDED,
+                                size=14,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ),
+                            ft.Text(
+                                "Recent",
+                                size=FONT_SM,
+                                weight=ft.FontWeight.W_600,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ),
+                        ],
+                        spacing=6,
+                    ),
+                    ft.Column(items, spacing=4),
+                ],
+                spacing=8,
+            ),
+            margin=ft.Margin(left=0, top=SPACING_LG, right=0, bottom=0),
+        )
+
+    # ── Quick tools (for extract) ──
+    quick_tools = None
+    if active_tab == "extract":
+        quick_tools = ft.Container(
+            content=ft.Column(
+                [
                     ft.Text(
-                        "Recent",
+                        "Try these tools",
                         size=FONT_SM,
                         weight=ft.FontWeight.W_600,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
-                    ft.Column(controls=items, spacing=0),
+                    ft.Row(
+                        [
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        ft.Icon(
+                                            ft.Icons.TRANSLATE_ROUNDED,
+                                            size=20,
+                                            color=AppColors.PRIMARY,
+                                        ),
+                                        ft.Text(
+                                            "Translate",
+                                            size=10,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                    ],
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                    spacing=4,
+                                ),
+                                padding=12,
+                                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                                border_radius=BORDER_RADIUS_LG,
+                                expand=True,
+                                ink=True,
+                                on_click=lambda _: _prefill_search(
+                                    "translate ", "text"
+                                ),
+                            ),
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        ft.Icon(
+                                            ft.Icons.MENU_BOOK_ROUNDED,
+                                            size=20,
+                                            color=AppColors.PRIMARY,
+                                        ),
+                                        ft.Text(
+                                            "Define",
+                                            size=10,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                    ],
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                    spacing=4,
+                                ),
+                                padding=12,
+                                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                                border_radius=BORDER_RADIUS_LG,
+                                expand=True,
+                                ink=True,
+                                on_click=lambda _: _prefill_search("define ", "text"),
+                            ),
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        ft.Icon(
+                                            ft.Icons.QUESTION_ANSWER_ROUNDED,
+                                            size=20,
+                                            color=AppColors.PRIMARY,
+                                        ),
+                                        ft.Text(
+                                            "Answers",
+                                            size=10,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                    ],
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                    spacing=4,
+                                ),
+                                padding=12,
+                                bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                                border_radius=BORDER_RADIUS_LG,
+                                expand=True,
+                                ink=True,
+                                on_click=lambda _: _prefill_search("", "text"),
+                            ),
+                        ],
+                        spacing=8,
+                    ),
                 ],
-                spacing=SPACING_SM,
+                spacing=8,
             ),
             margin=ft.Margin(left=0, top=SPACING_LG, right=0, bottom=0),
         )
@@ -255,66 +452,76 @@ def build_home_view(
 
     content = ft.SafeArea(
         content=ft.Column(
-            controls=[
-                # Header
+            [
+                header,
                 ft.Container(
                     content=ft.Column(
-                        controls=[
-                            ft.Image(
-                                src="icon.png",
-                                width=80,
-                                height=80,
-                                fit=ft.BoxFit.CONTAIN,
+                        [
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        ft.Image(
+                                            src="icon.png",
+                                            width=56,
+                                            height=56,
+                                            fit=ft.BoxFit.CONTAIN,
+                                        ),
+                                        ft.Text(
+                                            "Metasearch",
+                                            size=FONT_SM,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                    ],
+                                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                    spacing=4,
+                                ),
+                                padding=ft.Padding(0, SPACING_LG, 0, SPACING_MD),
+                                alignment=ft.alignment.Alignment(0, 0),
                             ),
-                            ft.Text(
-                                "Metasearch",
-                                size=FONT_SM,
-                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ft.Container(
+                                content=ft.Column(
+                                    [
+                                        search_field,
+                                        filter_row,
+                                        ft.Row(
+                                            [search_button],
+                                            alignment=ft.MainAxisAlignment.CENTER,
+                                        ),
+                                    ],
+                                    spacing=SPACING_SM,
+                                    tight=True,
+                                ),
+                                padding=ft.Padding(
+                                    left=SPACING_LG, top=0, right=SPACING_LG, bottom=0
+                                ),
+                            ),
+                            ft.Container(
+                                content=ft.Row(
+                                    tab_buttons,
+                                    alignment=ft.MainAxisAlignment.SPACE_EVENLY,
+                                    spacing=2,
+                                ),
+                                padding=ft.Padding(
+                                    left=12, top=SPACING_SM, right=12, bottom=0
+                                ),
+                                margin=ft.Margin(
+                                    left=0, top=SPACING_SM, right=0, bottom=0
+                                ),
                             ),
                         ],
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=SPACING_SM,
+                        spacing=0,
                     ),
-                    padding=ft.Padding(
-                        left=0, top=SPACING_XL, right=0, bottom=SPACING_MD
+                    gradient=AppStyles.brand_gradient(),
+                    border_radius=ft.BorderRadius(
+                        0, 0, BORDER_RADIUS_LG, BORDER_RADIUS_LG
                     ),
                 ),
-                # Search bar
                 ft.Container(
                     content=ft.Column(
-                        controls=[
-                            search_field,
-                            filter_row,
-                            ft.Row(
-                                controls=[search_button],
-                                alignment=ft.MainAxisAlignment.CENTER,
-                            ),
+                        [
+                            recent_section if recent_section else ft.Container(),
+                            quick_tools if quick_tools else ft.Container(),
                         ],
-                        spacing=SPACING_SM,
-                        tight=True,
-                    ),
-                    padding=ft.Padding(
-                        left=SPACING_LG, top=0, right=SPACING_LG, bottom=0
-                    ),
-                ),
-                # Tabs
-                ft.Container(
-                    content=ft.Row(
-                        controls=tab_buttons,
-                        alignment=ft.MainAxisAlignment.SPACE_EVENLY,
-                        spacing=SPACING_XS,
-                    ),
-                    padding=ft.Padding(
-                        left=SPACING_SM, top=0, right=SPACING_SM, bottom=0
-                    ),
-                    margin=ft.Margin(
-                        left=0, top=SPACING_SM, right=0, bottom=SPACING_SM
-                    ),
-                ),
-                # Recent
-                ft.Container(
-                    content=ft.Column(
-                        controls=[recent_section] if recent_section else [],
                         scroll=ft.ScrollMode.AUTO,
                         spacing=SPACING_SM,
                     ),
@@ -334,5 +541,5 @@ def build_home_view(
         controls=[content],
         padding=0,
         spacing=0,
-        bgcolor=AppColors.BACKGROUND,
+        bgcolor=ft.Colors.SURFACE,
     )

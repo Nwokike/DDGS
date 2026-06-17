@@ -1,5 +1,3 @@
-"""DDGS — Dux Distributed Global Search. Flet UI for the DDGS library."""
-
 from __future__ import annotations
 
 import time
@@ -42,13 +40,14 @@ async def main(page: ft.Page):
     storage = StorageService(page)
     search_service = SearchService()
 
-    # ── Load ALL settings ──
     try:
         t = await storage.get_theme()
         page.theme_mode = {
             "dark": ft.ThemeMode.DARK,
             "system": ft.ThemeMode.SYSTEM,
-        }.get(t, ft.ThemeMode.LIGHT)
+            "light": ft.ThemeMode.LIGHT,
+        }.get(t, ft.ThemeMode.SYSTEM)
+        state.theme_mode = page.theme_mode
 
         state.safe_search = await storage.get_safe_search()
         state.region = await storage.get_region()
@@ -65,15 +64,10 @@ async def main(page: ft.Page):
         state.default_tab = await storage.get_default_tab()
         state.search_history = await storage.get_history() or []
 
-        logger.info(
-            f"[{LOG_TAG}] Settings loaded: safe={state.safe_search} region={state.region} "
-            f"max={state.max_results} time={state.timelimit!r} backend={state.backend} "
-            f"proxy={bool(state.proxy)} verify={state.verify_ssl} threads={state.threads}"
-        )
+        logger.info(f"[{LOG_TAG}] Settings loaded")
     except Exception as e:
         log_error(f"[{LOG_TAG}] Settings load", e)
 
-    # ── Navigation helpers ──
     async def navigate(route: str):
         page.route = route
         await route_change()
@@ -121,7 +115,6 @@ async def main(page: ft.Page):
         bar.on_change = on_change
         return bar
 
-    # ── Extract ──
     async def run_extract(url: str):
         progress = SearchProgress(query=url, search_type="extract", is_running=True)
         state.search_progress = progress
@@ -145,7 +138,6 @@ async def main(page: ft.Page):
         progress.is_running = False
         state.extract_result = result
 
-        # Save to history
         try:
             await storage.add_history(
                 {
@@ -161,7 +153,6 @@ async def main(page: ft.Page):
 
         show_view(result)
 
-    # ── Search ──
     async def start_search(query: str, search_type: str = "text"):
         if not query or not query.strip():
             return
@@ -210,7 +201,7 @@ async def main(page: ft.Page):
 
             if progress.error and "primp" in str(progress.error).lower():
                 logger.critical(
-                    f"[{LOG_TAG}] PRIMP_CRASH: {search_type} — {progress.error}"
+                    f"[{LOG_TAG}] PRIMP_CRASH: {search_type} \u2014 {progress.error}"
                 )
 
         async def _refresh(progress: SearchProgress):
@@ -231,7 +222,6 @@ async def main(page: ft.Page):
                     v.navigation_bar = nb
             page.update()
 
-        # Show loading immediately
         loading = SearchProgress(
             query=query, search_type=search_type, total_results=0, is_running=True
         )
@@ -244,11 +234,9 @@ async def main(page: ft.Page):
         current_search_tasks.clear()
         await navigate("/home")
 
-    # ── Routing ──
     async def route_change(e=None):
         nonlocal current_search_tasks
         route = page.route
-        logger.info(f"[{LOG_TAG}] Route: {route}")
 
         onb = await storage.get_onboarding_done()
         if not onb and route != "/onboarding":
