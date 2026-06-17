@@ -126,7 +126,7 @@ def build_settings_view(page: ft.Page, storage: StorageService) -> ft.View:
             ft.Dropdown(
                 value=state.region,
                 options=[ft.dropdown.Option(r["key"], r["label"]) for r in REGIONS],
-                on_change=lambda e: page.run_task(_set, "region", e.control.value),
+                on_select=lambda e: page.run_task(_set, "region", e.control.value),
                 filled=True,
                 border_radius=BORDER_RADIUS_MD,
             ),
@@ -152,7 +152,7 @@ def build_settings_view(page: ft.Page, storage: StorageService) -> ft.View:
                 options=[
                     ft.dropdown.Option(o["key"], o["label"]) for o in TIMELIMIT_OPTIONS
                 ],
-                on_change=lambda e: page.run_task(_set, "timelimit", e.control.value),
+                on_select=lambda e: page.run_task(_set, "timelimit", e.control.value),
                 filled=True,
                 border_radius=BORDER_RADIUS_MD,
             ),
@@ -171,7 +171,7 @@ def build_settings_view(page: ft.Page, storage: StorageService) -> ft.View:
                     ft.dropdown.Option(b["key"], b["label"])
                     for b in BACKEND_OPTIONS_TEXT
                 ],
-                on_change=lambda e: page.run_task(_set, "backend", e.control.value),
+                on_select=lambda e: page.run_task(_set, "backend", e.control.value),
                 filled=True,
                 border_radius=BORDER_RADIUS_MD,
             ),
@@ -189,7 +189,7 @@ def build_settings_view(page: ft.Page, storage: StorageService) -> ft.View:
                 options=[
                     ft.dropdown.Option(f["key"], f["label"]) for f in EXTRACT_FORMATS
                 ],
-                on_change=lambda e: page.run_task(
+                on_select=lambda e: page.run_task(
                     _set, "extract_format", e.control.value
                 ),
                 filled=True,

@@ -20,7 +20,6 @@ from core.tokens import (
     FONT_XS,
     FONT_SM,
     FONT_MD,
-    FONT_XXL,
     SPACING_XS,
     SPACING_SM,
     SPACING_MD,
@@ -29,7 +28,6 @@ from core.tokens import (
     BORDER_RADIUS_MD,
     BORDER_RADIUS_FULL,
     ICON_MD,
-    ICON_XL,
 )
 from core.utils import logger
 from services.storage_service import StorageService
@@ -121,7 +119,7 @@ def build_home_view(
                 content=ft.Column(
                     controls=[
                         ft.Icon(
-                            name=tab["icon"],
+                            tab["icon"],
                             size=ICON_MD,
                             color=AppColors.PRIMARY if is_active else AppColors.OUTLINE,
                         ),
@@ -157,7 +155,7 @@ def build_home_view(
         if any(b["key"] == current_backend for b in backend_options)
         else "auto",
         options=[ft.dropdown.Option(b["key"], b["label"]) for b in backend_options],
-        on_change=lambda e: page.run_task(_set_backend, e.control.value),
+        on_select=lambda e: page.run_task(_set_backend, e.control.value),
         filled=True,
         text_size=FONT_XS,
         content_padding=ft.Padding(
@@ -170,7 +168,7 @@ def build_home_view(
     time_dropdown = ft.Dropdown(
         value=state.timelimit or "",
         options=[ft.dropdown.Option(o["key"], o["label"]) for o in TIMELIMIT_OPTIONS],
-        on_change=lambda e: page.run_task(_set_timelimit, e.control.value),
+        on_select=lambda e: page.run_task(_set_timelimit, e.control.value),
         filled=True,
         text_size=FONT_XS,
         content_padding=ft.Padding(
@@ -262,25 +260,20 @@ def build_home_view(
                 ft.Container(
                     content=ft.Column(
                         controls=[
-                            ft.Icon(
-                                ft.Icons.TRAVEL_EXPLORE_ROUNDED,
-                                size=ICON_XL * 2,
-                                color=AppColors.PRIMARY,
+                            ft.Image(
+                                src="icon.png",
+                                width=80,
+                                height=80,
+                                fit=ft.ImageFit.CONTAIN,
                             ),
                             ft.Text(
-                                "DDGS",
-                                size=FONT_XXL,
-                                weight=ft.FontWeight.BOLD,
-                                color=AppColors.PRIMARY,
-                            ),
-                            ft.Text(
-                                "DuckDuckGo + metasearch",
+                                "Metasearch",
                                 size=FONT_SM,
                                 color=ft.Colors.ON_SURFACE_VARIANT,
                             ),
                         ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=SPACING_XS,
+                        spacing=SPACING_SM,
                     ),
                     padding=ft.Padding(
                         left=0, top=SPACING_XL, right=0, bottom=SPACING_MD

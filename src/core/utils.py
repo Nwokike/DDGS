@@ -16,8 +16,8 @@ os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, f"app_{time.strftime('%Y%m%d_%H%M%S')}.log")
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     datefmt="%H:%M:%S",
     handlers=[
         logging.FileHandler(LOG_FILE, encoding="utf-8"),
@@ -27,6 +27,27 @@ logging.basicConfig(
 
 logger = logging.getLogger("duckduckgo_ui")
 logger.setLevel(logging.DEBUG)
+logger.propagate = False
+
+_file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+_file_handler.setLevel(logging.DEBUG)
+_file_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+)
+logger.addHandler(_file_handler)
+
+_console_handler = logging.StreamHandler(sys.stdout)
+_console_handler.setLevel(logging.INFO)
+_console_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+)
+logger.addHandler(_console_handler)
 
 
 def log_function_call(func: Callable) -> Callable:

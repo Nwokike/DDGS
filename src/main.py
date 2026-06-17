@@ -16,7 +16,7 @@ LOG_TAG = "Main"
 
 
 async def main(page: ft.Page):
-    page.title = "DDGS — Dux Distributed Global Search"
+    page.title = "DDGS"
     page.favicon = "icon.png"
 
     page.fonts = {
