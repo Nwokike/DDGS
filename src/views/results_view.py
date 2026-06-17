@@ -75,7 +75,7 @@ def _image_card(r: SearchResult, i: int) -> ft.Container:
                 ft.Container(
                     content=ft.Image(
                         src=r.thumbnail or r.image_url,
-                        fit=ft.ImageFit.COVER,
+                        fit=ft.BoxFit.COVER,
                         border_radius=BORDER_RADIUS_MD,
                         error_content=ft.Container(
                             content=ft.Icon(
@@ -122,7 +122,7 @@ def _video_card(r: SearchResult, i: int) -> ft.Container:
                         controls=[
                             ft.Image(
                                 src=r.thumbnail or "",
-                                fit=ft.ImageFit.COVER,
+                                fit=ft.BoxFit.COVER,
                                 width=160,
                                 height=90,
                                 border_radius=BORDER_RADIUS_MD,
@@ -212,7 +212,7 @@ def _news_card(r: SearchResult, i: int) -> ft.Container:
                 ft.Container(
                     content=ft.Image(
                         src=r.thumbnail or "",
-                        fit=ft.ImageFit.COVER,
+                        fit=ft.BoxFit.COVER,
                         width=80,
                         height=80,
                         border_radius=BORDER_RADIUS_MD,

@@ -264,7 +264,7 @@ def build_home_view(
                                 src="icon.png",
                                 width=80,
                                 height=80,
-                                fit=ft.ImageFit.CONTAIN,
+                                fit=ft.BoxFit.CONTAIN,
                             ),
                             ft.Text(
                                 "Metasearch",
