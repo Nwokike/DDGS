@@ -165,12 +165,12 @@ def build_settings_view(
         await storage.set_history([])
         _rebuild()
 
-    # ── Diagnostic Logs Modal ──
+    # ── Live Activity Terminal ──
     def _show_logs_dialog(e):
         logs = (
             "\n".join(in_memory_log_handler.records)
             if in_memory_log_handler.records
-            else "No logs recorded yet."
+            else "No activity recorded yet. Perform a search to see live output."
         )
 
         log_text_control = ft.Text(
@@ -184,24 +184,37 @@ def build_settings_view(
         def copy_logs(e):
             try:
                 page.set_clipboard(logs)
-                page.snack_bar = ft.SnackBar(ft.Text("Logs copied to clipboard!"))
+                page.snack_bar = ft.SnackBar(
+                    ft.Text("Activity log copied to clipboard!")
+                )
                 page.snack_bar.open = True
                 page.update()
             except Exception as ex:
                 logger.error(f"Copy logs failed: {ex}")
 
         dlg = ft.AlertDialog(
-            title=ft.Text(
-                "System Diagnostic Logs",
-                font_family="Outfit",
-                size=FONT_LG,
-                weight=ft.FontWeight.BOLD,
+            title=ft.Row(
+                [
+                    ft.Icon(
+                        ft.Icons.TERMINAL_ROUNDED,
+                        size=22,
+                        color=AppColors.PRIMARY,
+                    ),
+                    ft.Text(
+                        "Live Activity",
+                        font_family="Outfit",
+                        size=FONT_LG,
+                        weight=ft.FontWeight.BOLD,
+                    ),
+                ],
+                spacing=8,
             ),
             content=ft.Container(
                 content=ft.Column(
                     [
                         ft.Text(
-                            "Use these logs to diagnose connectivity or primp crash failures during stress testing:",
+                            "Real-time log of every search, connection, and response. "
+                            "Copy and share if you encounter errors.",
                             size=FONT_XS,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
@@ -226,7 +239,7 @@ def build_settings_view(
             actions=[
                 ft.IconButton(
                     icon=ft.Icons.COPY_ROUNDED,
-                    tooltip="Copy Logs",
+                    tooltip="Copy to Clipboard",
                     on_click=copy_logs,
                 ),
                 ft.TextButton("Close", on_click=_close_dialog),
@@ -516,24 +529,25 @@ def build_settings_view(
                 page=page,
             ),
             AppStyles.section_card(
-                "Diagnostics",
-                ft.Icons.BUG_REPORT_ROUNDED,
+                "Activity Terminal",
+                ft.Icons.TERMINAL_ROUNDED,
                 ft.Column(
                     [
                         ft.Text(
-                            "Stress Test Diagnostics",
+                            "Live Activity Terminal",
                             size=FONT_MD,
                             weight=ft.FontWeight.W_600,
                             font_family="Outfit",
                         ),
                         ft.Text(
-                            "Inspect runtime engine queries, exceptions, and performance logs:",
+                            "View real-time search activity, connection logs, and errors. "
+                            "Useful for troubleshooting on mobile.",
                             size=FONT_XS,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
                         ft.FilledButton(
-                            "View Diagnostic Logs",
-                            icon=ft.Icons.CODE_ROUNDED,
+                            "Open Terminal",
+                            icon=ft.Icons.TERMINAL_ROUNDED,
                             on_click=_show_logs_dialog,
                             style=ft.ButtonStyle(
                                 bgcolor=AppColors.PRIMARY,

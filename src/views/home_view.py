@@ -58,9 +58,9 @@ SEARCH_TABS = [
     },
     {
         "key": "extract",
-        "title": "URL Extract",
-        "desc": "Web scraper tool",
-        "icon": ft.Icons.DOWNLOAD_ROUNDED,
+        "title": "Fetch Page",
+        "desc": "Read any URL's content",
+        "icon": ft.Icons.LANGUAGE_ROUNDED,
         "color": AppColors.PRIMARY_DARK,
     },
 ]
@@ -196,7 +196,7 @@ def build_home_view(
                 ),
                 ft.Container(height=tokens.SPACE_SM),
                 ft.Text(
-                    "Distributed Metasearch Privacy Engine",
+                    "Search the web privately.\nFetch any webpage instantly.",
                     size=tokens.FONT_SM,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     text_align=ft.TextAlign.CENTER,
@@ -216,7 +216,7 @@ def build_home_view(
         value=state.current_query,
         hint_text="Search DuckDuckGo..."
         if active_tab != "extract"
-        else "Enter URL to extract...",
+        else "Paste a URL to fetch its content...",
         hint_style=ft.TextStyle(
             size=tokens.FONT_MD,
             weight=ft.FontWeight.W_400,
@@ -380,7 +380,7 @@ def build_home_view(
         padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
     )
 
-    # ── Privacy Banner (Reused from SpanInsight) ──
+    # ── Privacy Banner ──
     privacy_banner = ft.Container(
         content=ft.Row(
             controls=[
@@ -392,14 +392,14 @@ def build_home_view(
                 ft.Column(
                     controls=[
                         ft.Text(
-                            "100% Privacy-First Metasearch",
+                            "100% Privacy-First",
                             size=tokens.FONT_SM,
                             weight=ft.FontWeight.W_600,
                             font_family="Outfit",
                         ),
                         ft.Text(
-                            "All engine query requests are fetched through sandboxed "
-                            "proxies. We never track or store your personal identity.",
+                            "Your searches are never tracked, profiled, or stored. "
+                            "No ads, no filter bubbles, no data harvesting.",
                             size=tokens.FONT_XS,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             font_family="Outfit",
@@ -459,43 +459,215 @@ def build_home_view(
             padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
         )
 
-    # ── Quick tools for extraction (reused feature card styling) ──
-    quick_tools = None
-    if active_tab == "extract":
-        quick_tools = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(
-                        "Quick Query Builders",
-                        size=tokens.FONT_MD,
-                        weight=ft.FontWeight.W_600,
-                        font_family="Outfit",
-                    ),
-                    ft.Container(height=tokens.SPACE_SM),
-                    _feature_card(
-                        ft.Icons.TRANSLATE_ROUNDED,
-                        "English Translation",
-                        "Pre-fill query parameters to translate foreign text directly on Web Search.",
-                        AppColors.PRIMARY,
-                        on_click=lambda _: _prefill_search("translate ", "text"),
-                        page=page,
-                    ),
-                    ft.Container(height=tokens.SPACE_SM),
-                    _feature_card(
-                        ft.Icons.MENU_BOOK_ROUNDED,
-                        "Dictionary Definitions",
-                        "Define terminology or phrases utilizing global linguistic databases.",
-                        AppColors.PRIMARY_LIGHT,
-                        on_click=lambda _: _prefill_search("define ", "text"),
-                        page=page,
-                    ),
-                ],
-                spacing=0,
-            ),
-            padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
-        )
+    # ── Quick Action Chips (always visible) ──
+    def _switch_to_extract(_):
+        nonlocal active_tab
+        active_tab = "extract"
+        state.default_tab = "extract"
+        page.run_task(storage.set_default_tab, "extract")
+        _rebuild()
 
-    # ── Numbered Step Row Flow (Reused from SpanInsight) ──
+    def _switch_to_news(_):
+        nonlocal active_tab
+        active_tab = "news"
+        state.default_tab = "news"
+        page.run_task(storage.set_default_tab, "news")
+        _rebuild()
+
+    quick_chips = ft.Container(
+        content=ft.Column(
+            [
+                ft.Text(
+                    "Quick Actions",
+                    size=tokens.FONT_MD,
+                    weight=ft.FontWeight.W_600,
+                    font_family="Outfit",
+                ),
+                ft.Container(height=tokens.SPACE_SM),
+                ft.Row(
+                    controls=[
+                        ft.OutlinedButton(
+                            content=ft.Row(
+                                [
+                                    ft.Icon(
+                                        ft.Icons.LANGUAGE_ROUNDED,
+                                        size=14,
+                                        color=AppColors.PRIMARY_DARK,
+                                    ),
+                                    ft.Text(
+                                        "Fetch a URL",
+                                        size=tokens.FONT_XS,
+                                        weight=ft.FontWeight.W_600,
+                                        font_family="Outfit",
+                                    ),
+                                ],
+                                spacing=6,
+                                tight=True,
+                            ),
+                            on_click=_switch_to_extract,
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(
+                                    radius=tokens.RADIUS_PILL
+                                ),
+                                side=ft.BorderSide(1, AppColors.PRIMARY_DARK),
+                                padding=ft.Padding(14, 8, 14, 8),
+                            ),
+                        ),
+                        ft.OutlinedButton(
+                            content=ft.Row(
+                                [
+                                    ft.Icon(
+                                        ft.Icons.TRANSLATE_ROUNDED,
+                                        size=14,
+                                        color=AppColors.PRIMARY,
+                                    ),
+                                    ft.Text(
+                                        "Translate",
+                                        size=tokens.FONT_XS,
+                                        weight=ft.FontWeight.W_600,
+                                        font_family="Outfit",
+                                    ),
+                                ],
+                                spacing=6,
+                                tight=True,
+                            ),
+                            on_click=lambda _: _prefill_search("translate ", "text"),
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(
+                                    radius=tokens.RADIUS_PILL
+                                ),
+                                side=ft.BorderSide(1, AppColors.PRIMARY),
+                                padding=ft.Padding(14, 8, 14, 8),
+                            ),
+                        ),
+                        ft.OutlinedButton(
+                            content=ft.Row(
+                                [
+                                    ft.Icon(
+                                        ft.Icons.MENU_BOOK_ROUNDED,
+                                        size=14,
+                                        color=AppColors.PRIMARY_LIGHT,
+                                    ),
+                                    ft.Text(
+                                        "Define",
+                                        size=tokens.FONT_XS,
+                                        weight=ft.FontWeight.W_600,
+                                        font_family="Outfit",
+                                    ),
+                                ],
+                                spacing=6,
+                                tight=True,
+                            ),
+                            on_click=lambda _: _prefill_search("define ", "text"),
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(
+                                    radius=tokens.RADIUS_PILL
+                                ),
+                                side=ft.BorderSide(1, AppColors.PRIMARY_LIGHT),
+                                padding=ft.Padding(14, 8, 14, 8),
+                            ),
+                        ),
+                        ft.OutlinedButton(
+                            content=ft.Row(
+                                [
+                                    ft.Icon(
+                                        ft.Icons.ARTICLE_ROUNDED,
+                                        size=14,
+                                        color=AppColors.SUCCESS,
+                                    ),
+                                    ft.Text(
+                                        "Latest News",
+                                        size=tokens.FONT_XS,
+                                        weight=ft.FontWeight.W_600,
+                                        font_family="Outfit",
+                                    ),
+                                ],
+                                spacing=6,
+                                tight=True,
+                            ),
+                            on_click=_switch_to_news,
+                            style=ft.ButtonStyle(
+                                shape=ft.RoundedRectangleBorder(
+                                    radius=tokens.RADIUS_PILL
+                                ),
+                                side=ft.BorderSide(1, AppColors.SUCCESS),
+                                padding=ft.Padding(14, 8, 14, 8),
+                            ),
+                        ),
+                    ],
+                    wrap=True,
+                    spacing=tokens.SPACE_SM,
+                    run_spacing=tokens.SPACE_SM,
+                ),
+            ],
+            spacing=0,
+        ),
+        padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+    )
+
+    # ── What DDGS Can Do (Feature Showcase) ──
+    features_section = ft.Container(
+        content=ft.Column(
+            controls=[
+                ft.Text(
+                    "What DDGS Can Do",
+                    size=tokens.FONT_MD,
+                    weight=ft.FontWeight.W_600,
+                    font_family="Outfit",
+                ),
+                ft.Container(height=tokens.SPACE_SM),
+                _feature_card(
+                    ft.Icons.SEARCH_ROUNDED,
+                    "Private Web Search",
+                    "Search across multiple engines without being tracked. "
+                    "No ads, no profiling, no filter bubbles.",
+                    AppColors.PRIMARY,
+                    page=page,
+                ),
+                ft.Container(height=tokens.SPACE_SM),
+                _feature_card(
+                    ft.Icons.LANGUAGE_ROUNDED,
+                    "Instant Page Fetch",
+                    "Paste any URL and extract the full text content instantly — "
+                    "articles, documentation, recipes, anything. "
+                    "Save as markdown or plain text.",
+                    AppColors.PRIMARY_DARK,
+                    page=page,
+                ),
+                ft.Container(height=tokens.SPACE_SM),
+                _feature_card(
+                    ft.Icons.IMAGE_ROUNDED,
+                    "Image & Video Discovery",
+                    "Find images and videos from across the web. "
+                    "Download directly to your device with one tap.",
+                    AppColors.PRIMARY_LIGHT,
+                    page=page,
+                ),
+                ft.Container(height=tokens.SPACE_SM),
+                _feature_card(
+                    ft.Icons.ARTICLE_ROUNDED,
+                    "Live News Feed",
+                    "Get breaking news from every source, uncensored "
+                    "and unfiltered by algorithm bias.",
+                    AppColors.SUCCESS,
+                    page=page,
+                ),
+                ft.Container(height=tokens.SPACE_SM),
+                _feature_card(
+                    ft.Icons.BOOK_ROUNDED,
+                    "Book & Literature Search",
+                    "Find books, papers, and academic texts from "
+                    "global archives and open libraries.",
+                    AppColors.WARNING,
+                    page=page,
+                ),
+            ],
+            spacing=0,
+        ),
+        padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+    )
+
+    # ── How It Works ──
     how_it_works = ft.Container(
         content=ft.Column(
             controls=[
@@ -508,18 +680,18 @@ def build_home_view(
                 ft.Container(height=tokens.SPACE_SM),
                 _step_row(
                     "1",
-                    "Select Tab",
-                    "Pick between Web, Images, News, Books, or Extractor",
+                    "Choose",
+                    "Pick what you're looking for — web pages, images, videos, news, or books",
                 ),
                 _step_row(
                     "2",
-                    "Parameters",
-                    "Adjust safe search limits, filters, and thread speeds",
+                    "Search",
+                    "Type your query and hit search. Adjust filters if you want",
                 ),
                 _step_row(
                     "3",
-                    "Get Results",
-                    "Obtain instant, aggregated search data anonymously",
+                    "Done",
+                    "Get private results instantly. Download, save, or open in browser",
                 ),
             ],
             spacing=tokens.SPACE_MD,
@@ -527,22 +699,22 @@ def build_home_view(
         padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
     )
 
-    # ── Diagnostics/Credits Banner (Reused credits_info from SpanInsight) ──
-    diagnostics_info = ft.Container(
+    # ── No Account Required Banner ──
+    no_account_info = ft.Container(
         content=ft.Row(
             controls=[
-                ft.Icon(ft.Icons.BOLT_ROUNDED, size=20, color=AppColors.PRIMARY_LIGHT),
+                ft.Icon(ft.Icons.BOLT_ROUNDED, size=20, color=AppColors.ACCENT),
                 ft.Column(
                     [
                         ft.Text(
-                            "Stress Test Logging Active",
+                            "Unlimited Searches, No Account Required",
                             size=tokens.FONT_SM,
                             weight=ft.FontWeight.W_600,
                             font_family="Outfit",
                         ),
                         ft.Text(
-                            "Live connection timings and API payload details are recorded locally. "
-                            "Open settings to view diagnostic logs.",
+                            "Search as much as you want. We never ask for "
+                            "sign-up, email, or personal data.",
                             size=tokens.FONT_XS,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             font_family="Outfit",
@@ -561,8 +733,8 @@ def build_home_view(
         ),
         margin=ft.Margin(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
         border_radius=tokens.RADIUS_LG,
-        bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY_LIGHT),
-        border=ft.Border.all(1, ft.Colors.with_opacity(0.15, AppColors.PRIMARY_LIGHT)),
+        bgcolor=ft.Colors.with_opacity(0.06, AppColors.ACCENT),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.15, AppColors.ACCENT)),
     )
 
     # ── Final Page View layout ──
@@ -571,12 +743,13 @@ def build_home_view(
             hero,
             search_section,
             quick_actions,
+            quick_chips,
             privacy_banner,
             recent_section if recent_section else ft.Container(),
-            quick_tools if quick_tools else ft.Container(),
+            features_section,
             how_it_works,
             ft.Container(height=16),
-            diagnostics_info,
+            no_account_info,
             ft.Container(height=80),
         ],
         scroll=ft.ScrollMode.AUTO,
