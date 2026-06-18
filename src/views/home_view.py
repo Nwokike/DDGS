@@ -88,7 +88,7 @@ def build_home_view(
     search_field_ref = ft.Ref[ft.TextField]()
 
     # ── Search submission logic ──
-    def do_search(q: str | None = None):
+    async def do_search(q: str | None = None):
         query = q or (
             search_field_ref.current.value if search_field_ref.current else ""
         )
@@ -210,13 +210,23 @@ def build_home_view(
         ),
     )
 
-    # ── Search textfield input ──
+    # ── Dynamic hint text per tab ──
+    _hint_map = {
+        "text": "Search the web...",
+        "images": "Search for images...",
+        "videos": "Search for videos...",
+        "news": "Search for news...",
+        "books": "Search for books...",
+        "extract": "Paste a URL to fetch its content...",
+    }
+    _prefix_icon_map = {
+        "extract": ft.Icons.LINK_ROUNDED,
+    }
+
     search_field = ft.TextField(
         ref=search_field_ref,
         value=state.current_query,
-        hint_text="Search DuckDuckGo..."
-        if active_tab != "extract"
-        else "Paste a URL to fetch its content...",
+        hint_text=_hint_map.get(active_tab, "Search the web..."),
         hint_style=ft.TextStyle(
             size=tokens.FONT_MD,
             weight=ft.FontWeight.W_400,
@@ -226,9 +236,7 @@ def build_home_view(
             ),
         ),
         text_style=ft.TextStyle(size=tokens.FONT_MD, weight=ft.FontWeight.W_500),
-        prefix_icon=ft.Icons.SEARCH_ROUNDED
-        if active_tab != "extract"
-        else ft.Icons.LINK_ROUNDED,
+        prefix_icon=_prefix_icon_map.get(active_tab, ft.Icons.SEARCH_ROUNDED),
         content_padding=ft.Padding(left=18, top=14, right=18, bottom=14),
         border_radius=tokens.RADIUS_MD,
         border_width=1.0,
@@ -241,7 +249,7 @@ def build_home_view(
         filled=True,
         bgcolor=AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE,
         cursor_color=AppColors.PRIMARY,
-        on_submit=lambda e: do_search(),
+        on_submit=lambda e: page.run_task(do_search),
         suffix=ft.IconButton(
             icon=ft.Icons.PASTE_ROUNDED,
             icon_size=18,
@@ -312,7 +320,7 @@ def build_home_view(
             spacing=8,
             tight=True,
         ),
-        on_click=lambda _: do_search(),
+        on_click=lambda _: page.run_task(do_search),
         style=ft.ButtonStyle(
             shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_PILL),
             bgcolor=AppColors.PRIMARY,
@@ -368,6 +376,12 @@ def build_home_view(
                     "Search Categories",
                     size=tokens.FONT_MD,
                     weight=ft.FontWeight.W_600,
+                    font_family="Outfit",
+                ),
+                ft.Text(
+                    "Tap a category to change what you're searching for",
+                    size=tokens.FONT_XS,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
                     font_family="Outfit",
                 ),
                 ft.Container(height=tokens.SPACE_SM),
