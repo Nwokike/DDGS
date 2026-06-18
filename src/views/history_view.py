@@ -4,23 +4,11 @@ from typing import Callable
 
 import flet as ft
 
+from core import theme, tokens
 from core.state import state
 from core.theme import AppColors
-from core.tokens import (
-    FONT_XS,
-    FONT_SM,
-    FONT_MD,
-    FONT_LG,
-    SPACING_SM,
-    SPACING_MD,
-    SPACING_XL,
-    BORDER_RADIUS_MD,
-    BORDER_RADIUS_LG,
-    ICON_SM,
-    ICON_MD,
-)
-from core.utils import logger
 from services.storage_service import StorageService
+from core.utils import logger
 
 LOG_TAG = "HistoryView"
 
@@ -58,31 +46,34 @@ def build_history_view(
             rc = entry.get("results_count", 0)
             icon = TAB_ICONS.get(st, ft.Icons.SEARCH_ROUNDED)
             label = TAB_LABELS.get(st, st.capitalize())
+
             items.append(
                 ft.Container(
                     content=ft.Row(
                         [
                             ft.Container(
                                 content=ft.Icon(
-                                    icon, size=ICON_MD, color=AppColors.PRIMARY
+                                    icon, size=tokens.ICON_MD, color=AppColors.PRIMARY
                                 ),
-                                padding=ft.Padding(10, 10, 10, 10),
-                                bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY),
-                                border_radius=BORDER_RADIUS_MD,
+                                padding=10,
+                                bgcolor=ft.Colors.with_opacity(0.12, AppColors.PRIMARY),
+                                border_radius=tokens.BORDER_RADIUS_MD,
                             ),
                             ft.Column(
                                 [
                                     ft.Text(
                                         q,
-                                        size=FONT_MD,
-                                        weight=ft.FontWeight.W_500,
+                                        size=tokens.FONT_MD,
+                                        weight=ft.FontWeight.W_600,
                                         max_lines=1,
-                                        no_wrap=False,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                        font_family="Outfit",
                                     ),
                                     ft.Text(
                                         f"{label} \u00b7 {rc} results \u00b7 {ts}",
-                                        size=FONT_XS,
+                                        size=tokens.FONT_XS,
                                         color=ft.Colors.ON_SURFACE_VARIANT,
+                                        font_family="Outfit",
                                     ),
                                 ],
                                 spacing=2,
@@ -90,20 +81,27 @@ def build_history_view(
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.ARROW_FORWARD_ROUNDED,
-                                icon_size=ICON_SM,
-                                on_click=lambda _, qq=q: on_search(qq),
+                                icon_size=tokens.ICON_SM,
+                                on_click=lambda _, qq=q, stt=st: on_search(qq, stt),
                             ),
                         ],
-                        spacing=SPACING_MD,
+                        spacing=tokens.SPACE_MD,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    padding=ft.Padding(SPACING_MD, SPACING_SM, SPACING_SM, SPACING_SM),
-                    border_radius=BORDER_RADIUS_LG,
-                    bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
+                    padding=ft.Padding(
+                        tokens.SPACE_MD,
+                        tokens.SPACE_SM,
+                        tokens.SPACE_SM,
+                        tokens.SPACE_SM,
+                    ),
+                    border_radius=tokens.BORDER_RADIUS_LG,
+                    bgcolor=theme.adaptive_glass_bg(page),
+                    border=ft.Border.all(1, theme.adaptive_glass_border(page)),
                     ink=True,
-                    on_click=lambda _, qq=q: on_search(qq),
+                    on_click=lambda _, qq=q, stt=st: on_search(qq, stt),
                 )
             )
+
         history_list = ft.Column(
             controls=items, spacing=8, scroll=ft.ScrollMode.AUTO, expand=True
         )
@@ -115,31 +113,45 @@ def build_history_view(
                     ft.Icon(
                         ft.Icons.HISTORY_ROUNDED,
                         size=64,
-                        color=ft.Colors.with_opacity(0.3, ft.Colors.PRIMARY),
+                        color=ft.Colors.with_opacity(0.3, AppColors.PRIMARY),
                     ),
                     ft.Container(height=16),
-                    ft.Text("No history yet", size=FONT_LG, weight=ft.FontWeight.W_600),
+                    ft.Text(
+                        "No history yet",
+                        size=tokens.FONT_LG,
+                        weight=ft.FontWeight.W_600,
+                        font_family="Outfit",
+                    ),
                     ft.Text(
                         "Your searches will appear here",
-                        size=FONT_SM,
+                        size=tokens.FONT_SM,
                         color=ft.Colors.ON_SURFACE_VARIANT,
+                        font_family="Outfit",
                     ),
                 ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                horizontal_alignment="center",
                 spacing=4,
             ),
-            padding=ft.Padding(SPACING_XL, SPACING_XL, SPACING_XL, SPACING_XL),
+            padding=ft.Padding(
+                tokens.SPACE_XL, tokens.SPACE_XL, tokens.SPACE_XL, tokens.SPACE_XL
+            ),
             expand=True,
-            alignment=ft.alignment.Alignment(0, 0),
+            alignment=ft.Alignment.CENTER,
         )
 
     # ── Clear dialog ──
     def _show_clear_dialog(e):
         dlg = ft.AlertDialog(
             modal=True,
-            title=ft.Text("Clear All History?"),
+            title=ft.Text(
+                "Clear All History?",
+                font_family="Outfit",
+                size=tokens.FONT_LG,
+                weight=ft.FontWeight.BOLD,
+            ),
             content=ft.Text(
-                "This will remove all saved searches. This cannot be undone."
+                "This will remove all saved searches. This cannot be undone.",
+                style=ft.TextStyle(height=1.4),
             ),
             actions=[
                 ft.TextButton("Cancel", on_click=lambda _: _close_dialog(dlg)),
@@ -175,15 +187,19 @@ def build_history_view(
             [
                 ft.IconButton(
                     icon=ft.Icons.ARROW_BACK_ROUNDED,
-                    icon_size=ICON_MD,
+                    icon_size=tokens.ICON_MD,
                     on_click=lambda _: on_navigate("/home"),
                 ),
                 ft.Text(
-                    "History", size=FONT_LG, weight=ft.FontWeight.BOLD, expand=True
+                    "History",
+                    size=tokens.FONT_LG,
+                    weight=ft.FontWeight.BOLD,
+                    expand=True,
+                    font_family="Outfit",
                 ),
                 ft.IconButton(
                     icon=ft.Icons.DELETE_SWEEP_ROUNDED,
-                    icon_size=ICON_MD,
+                    icon_size=tokens.ICON_MD,
                     on_click=_show_clear_dialog,
                     visible=bool(history),
                     icon_color=AppColors.ERROR,
@@ -191,7 +207,9 @@ def build_history_view(
             ],
             spacing=4,
         ),
-        padding=ft.Padding(SPACING_MD, SPACING_SM, SPACING_MD, SPACING_SM),
+        padding=ft.Padding(
+            tokens.SPACE_MD, tokens.SPACE_SM, tokens.SPACE_MD, tokens.SPACE_SM
+        ),
     )
 
     content = ft.SafeArea(
@@ -200,7 +218,7 @@ def build_history_view(
                 header,
                 ft.Container(
                     content=history_list,
-                    padding=ft.Padding(SPACING_MD, 0, SPACING_MD, 0),
+                    padding=ft.Padding(tokens.SPACE_MD, 0, tokens.SPACE_MD, 0),
                     expand=True,
                 ),
             ],
@@ -211,7 +229,16 @@ def build_history_view(
 
     return ft.View(
         route="/history",
-        controls=[content],
+        controls=[
+            ft.SafeArea(
+                content=ft.Container(
+                    content=content,
+                    gradient=theme.AppStyles.brand_gradient(page),
+                    expand=True,
+                ),
+                expand=True,
+            )
+        ],
         padding=0,
         spacing=0,
         bgcolor=ft.Colors.SURFACE,

@@ -1,9 +1,13 @@
-"""Storage service — persists all DDGS settings via JSON file."""
+"""Storage service — persists all DDGS settings via JSON file in a platform-resilient manner."""
 
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
+import asyncio
+from pathlib import Path
 from typing import Any
 
 import flet as ft
@@ -26,9 +30,18 @@ from core.constants import (
     STORAGE_API_URL,
     STORAGE_SPAWN_API,
 )
-from core.utils import log_error
 
-LOG_TAG = "Storage"
+logger = logging.getLogger(__name__)
+
+# Use Flet sandbox data storage path on Android/iOS mobile to avoid Path.home() permission issues
+storage_env = os.getenv("FLET_APP_STORAGE_DATA")
+if storage_env:
+    _STORAGE_DIR = Path(storage_env)
+else:
+    _STORAGE_DIR = Path.home() / ".duckduckgo_ui"
+
+_STORAGE_FILE = _STORAGE_DIR / "storage.json"
+_WRITE_DEBOUNCE_SEC = 1.0
 
 DEFAULTS: dict[str, Any] = {
     STORAGE_THEME: "system",
@@ -51,71 +64,109 @@ DEFAULTS: dict[str, Any] = {
 
 
 class StorageService:
-    """File-based JSON settings persistence."""
+    """Platform-resilient key-value storage service matching Sherlock's implementation."""
 
     def __init__(self, page: ft.Page):
-        self.page = page
+        self._page = page
         self._cache: dict[str, Any] = dict(DEFAULTS)
-        self._file_path: str | None = None
+        self._lock = asyncio.Lock()
+        self._dirty = False
+        self._last_write: float = 0.0
+        self._pending_write_task = None
+        self._is_web = bool(getattr(page, "session_id", None))
+
+        if self._is_web:
+            self._load_web()
+        else:
+            self._load()
+
+    def _load_web(self) -> None:
+        try:
+            cs = self._page.client_storage
+            raw = cs.get("ddgs_storage")
+            loaded = json.loads(raw) if raw else {}
+            self._cache.update(loaded)
+        except Exception as e:
+            logger.warning("StorageService._load_web failed: %s", e)
+
+    def _load(self) -> None:
+        try:
+            _STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+            if _STORAGE_FILE.exists():
+                raw = _STORAGE_FILE.read_text(encoding="utf-8")
+                loaded = json.loads(raw) if raw else {}
+                self._cache.update(loaded)
+        except Exception as e:
+            logger.warning("StorageService._load failed: %s", e)
+
+    def _save_now(self) -> None:
+        if self._is_web:
+            self._save_now_web()
+            return
+        try:
+            _STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+            _STORAGE_FILE.write_text(
+                json.dumps(self._cache, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            self._dirty = False
+            self._last_write = time.monotonic()
+        except Exception as e:
+            logger.warning("StorageService._save_now failed: %s", e)
+
+    def _save_now_web(self) -> None:
+        try:
+            cs = self._page.client_storage
+            cs.set("ddgs_storage", json.dumps(self._cache))
+            self._dirty = False
+            self._last_write = time.monotonic()
+        except Exception as e:
+            logger.warning("StorageService._save_now_web failed: %s", e)
+
+    def _schedule_write(self) -> None:
+        if self._pending_write_task:
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            self._pending_write_task = loop.call_later(
+                _WRITE_DEBOUNCE_SEC,
+                lambda: loop.create_task(self._flush_task()),
+            )
+        except RuntimeError:
+            self._save_now()
+
+    async def _flush_task(self) -> None:
+        try:
+            await self.flush()
+        finally:
+            self._pending_write_task = None
 
     async def initialize(self):
-        data_dir = None
-        for method_name in (
-            "get_application_support_directory",
-            "get_application_cache_directory",
-            "get_application_documents_directory",
-        ):
-            try:
-                method = getattr(ft.StoragePaths(), method_name)
-                data_dir = await method()
-                if data_dir:
-                    break
-            except Exception:
-                continue
-        if not data_dir:
-            import tempfile
-
-            data_dir = tempfile.gettempdir()
-        self._file_path = os.path.join(data_dir, "ddgs_settings.json")
-        loaded = await self._load()
-        self._cache.update(loaded)
-
-    async def _load(self) -> dict[str, Any]:
-        try:
-            if self._file_path and os.path.exists(self._file_path):
-                with open(self._file_path, encoding="utf-8") as f:
-                    return json.load(f)
-        except Exception as e:
-            log_error("Storage._load", e)
-        return {}
-
-    async def _save(self):
-        try:
-            if self._file_path:
-                with open(self._file_path, "w", encoding="utf-8") as f:
-                    json.dump(self._cache, f)
-        except Exception as e:
-            log_error("Storage._save", e)
+        # Kept for backward compatibility
+        pass
 
     async def get(self, key: str, default: Any = None) -> Any:
-        return self._cache.get(key, default)
+        async with self._lock:
+            return self._cache.get(key, default)
 
     async def set(self, key: str, value: Any) -> bool:
-        try:
+        async with self._lock:
             self._cache[key] = value
-            await self._save()
-            return True
-        except Exception as e:
-            log_error(f"Storage.set({key})", e)
-            return False
+            self._dirty = True
+        self._schedule_write()
+        return True
 
     async def remove(self, key: str) -> bool:
-        try:
+        async with self._lock:
             self._cache.pop(key, None)
-            await self._save()
-            return True
-        except Exception:
-            return False
+            self._dirty = True
+        self._schedule_write()
+        return True
+
+    async def flush(self) -> None:
+        async with self._lock:
+            if self._dirty:
+                self._save_now()
 
     @property
     def _theme(self) -> str:

@@ -72,17 +72,27 @@ async def main(page: ft.Page):
         page.route = route
         await route_change()
 
+    from core.theme import AppColors
+
     def navigate_sync(route: str):
         page.run_task(navigate, route)
 
     current_search_tasks: dict[str, object] = {}
 
-    def _nav_bar(active: str) -> ft.NavigationBar | None:
-        routes = ["/home", "/history", "/settings"]
-        if active not in routes:
+    routes = ["/home", "/history", "/settings"]
+
+    def _build_nav_bar(active_route: str) -> ft.NavigationBar | None:
+        if active_route == "/onboarding":
             return None
-        bar = ft.NavigationBar(
-            selected_index=routes.index(active),
+        r_active = "/home" if active_route in ("/", "") else active_route
+        selected_index = 0
+        if r_active == "/history":
+            selected_index = 1
+        elif r_active == "/settings":
+            selected_index = 2
+
+        new_nav_bar = ft.NavigationBar(
+            selected_index=selected_index,
             destinations=[
                 ft.NavigationBarDestination(
                     icon=ft.Icons.HOME_OUTLINED,
@@ -101,19 +111,19 @@ async def main(page: ft.Page):
                 ),
             ],
             bgcolor=ft.Colors.SURFACE,
-            indicator_color=ft.Colors.with_opacity(0.12, ft.Colors.PRIMARY),
+            indicator_color=ft.Colors.with_opacity(0.12, AppColors.PRIMARY),
             label_behavior=ft.NavigationBarLabelBehavior.ALWAYS_SHOW,
         )
 
-        def on_change(e):
+        def on_nav_change(e):
             for task in current_search_tasks.values():
                 if hasattr(task, "done") and not task.done():
                     search_service.cancel()
             current_search_tasks.clear()
             page.run_task(navigate, routes[e.control.selected_index])
 
-        bar.on_change = on_change
-        return bar
+        new_nav_bar.on_change = on_nav_change
+        return new_nav_bar
 
     async def run_extract(url: str):
         progress = SearchProgress(query=url, search_type="extract", is_running=True)
@@ -131,6 +141,9 @@ async def main(page: ft.Page):
                 extract_result=extract_result,
             )
             page.views.append(v)
+            nb = _build_nav_bar(page.route)
+            if nb:
+                v.navigation_bar = nb
             page.update()
 
         show_view()
@@ -216,16 +229,15 @@ async def main(page: ft.Page):
                 lambda: page.run_task(cancel_and_go_home),
             )
             page.views.append(v)
-            if not progress.is_running:
-                nb = _nav_bar("/home")
-                if nb:
-                    v.navigation_bar = nb
+            nb = _build_nav_bar(page.route)
+            if nb:
+                v.navigation_bar = nb
             page.update()
 
         loading = SearchProgress(
             query=query, search_type=search_type, total_results=0, is_running=True
         )
-        _refresh(loading)
+        await _refresh(loading)
         task = page.run_task(run_search)
         current_search_tasks[search_type] = task
 
@@ -259,13 +271,16 @@ async def main(page: ft.Page):
             from views.history_view import build_history_view
 
             v = build_history_view(
-                page, navigate_sync, lambda q: page.run_task(start_search, q), storage
+                page,
+                navigate_sync,
+                lambda q, t="text": page.run_task(start_search, q, t),
+                storage,
             )
             page.views.append(v)
         elif route == "/settings":
             from views.settings_view import build_settings_view
 
-            v = build_settings_view(page, storage)
+            v = build_settings_view(page, navigate_sync, storage)
             page.views.append(v)
         elif route == "/onboarding":
             from views.onboarding_view import build_onboarding_view
@@ -284,7 +299,7 @@ async def main(page: ft.Page):
             page.views.append(v)
 
         if page.views:
-            nb = _nav_bar(route)
+            nb = _build_nav_bar(route)
             if nb:
                 page.views[-1].navigation_bar = nb
         page.update()
@@ -317,5 +332,7 @@ if __name__ == "__main__":
         )
     except ImportError:
         logger.warning(f"[{LOG_TAG}] primp not available")
+    import os
 
-    ft.run(main, assets_dir="src/assets")
+    assets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+    ft.run(main, assets_dir=assets_path)

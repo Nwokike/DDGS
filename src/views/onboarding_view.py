@@ -11,37 +11,46 @@ ICON_CONTAINER_SIZE = 120
 
 
 def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.View:
+    """Build the onboarding swipe-through matching SpanInsight."""
+
     current_page = {"index": 0}
     indicator_row = ft.Ref[ft.Row]()
     slide_container = ft.Ref[ft.Container]()
 
+    async def _launch_privacy(e):
+        await ft.UrlLauncher().launch_url("https://duckduckgo.com/privacy")
+
+    async def _launch_terms(e):
+        await ft.UrlLauncher().launch_url("https://duckduckgo.com/terms")
+
     slides = [
         {
-            "icon": ft.Icons.SEARCH_ROUNDED,
+            "icon": ft.Icons.SHIELD_ROUNDED,
             "color": AppColors.PRIMARY,
-            "title": "Search Across 14 Engines",
+            "title": "100% Privacy-First",
             "body": (
-                "Web, images, videos, news, and books \u2014 all from one place. "
-                "Powered by DuckDuckGo with Brave, Google, Bing, Yahoo, "
-                "Yandex, Wikipedia, and more."
+                "Your searches and queries are completely anonymous. "
+                "Metasearch securely across 14 engines with DuckDuckGo "
+                "privacy protection."
             ),
         },
         {
             "icon": ft.Icons.DOWNLOAD_ROUNDED,
-            "color": AppColors.SUCCESS,
-            "title": "Extract Any Page",
+            "color": AppColors.PRIMARY_LIGHT,
+            "title": "URL Content Extraction",
             "body": (
-                "Pull content from any URL as Markdown, plain text, HTML, "
-                "or raw data. Perfect for research and content gathering."
+                "Extract structured text, markdown, HTML, or raw bytes "
+                "from any web URL safely. Ideal for reading, archiving, "
+                "and research."
             ),
         },
         {
-            "icon": ft.Icons.TUNE_ROUNDED,
-            "color": AppColors.TERTIARY,
-            "title": "Full Control",
+            "icon": ft.Icons.ROCKET_LAUNCH_ROUNDED,
+            "color": AppColors.ACCENT,
+            "title": "Granular Controls",
             "body": (
-                "Choose your backend, set time filters, safe search, proxy, "
-                "thread count, and more. Everything is configurable."
+                "Configure search regions, safe search modes, thread counts, "
+                "and proxies. Tailor the engine parameters exactly to your needs."
             ),
         },
     ]
@@ -49,36 +58,38 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
     def _build_slide(s: dict) -> ft.Column:
         return ft.Column(
             [
-                ft.Container(height=60),
+                ft.Container(height=80),
                 ft.Container(
-                    content=ft.Icon(s["icon"], size=ICON_SIZE, color=s["color"]),
+                    content=ft.Icon(s["icon"], size=64, color=s["color"]),
                     width=ICON_CONTAINER_SIZE,
                     height=ICON_CONTAINER_SIZE,
-                    border_radius=60,
+                    border_radius=ICON_CONTAINER_SIZE // 2,
                     bgcolor=ft.Colors.with_opacity(0.1, s["color"]),
-                    alignment=ft.alignment.Alignment(0, 0),
+                    alignment=ft.Alignment.CENTER,
                 ),
                 ft.Container(height=32),
                 ft.Text(
                     s["title"],
                     size=24,
-                    weight=ft.FontWeight.BOLD,
-                    text_align=ft.TextAlign.CENTER,
-                    color=ft.Colors.ON_SURFACE,
+                    weight="bold",
+                    text_align="center",
+                    font_family="Outfit",
                 ),
                 ft.Container(height=12),
                 ft.Text(
                     s["body"],
                     size=14,
-                    color=ft.Colors.with_opacity(0.7, ft.Colors.ON_SURFACE),
-                    text_align=ft.TextAlign.CENTER,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    text_align="center",
+                    font_family="Outfit",
+                    style=ft.TextStyle(height=1.4),
                 ),
             ],
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            horizontal_alignment="center",
             spacing=0,
         )
 
-    def _build_indicators() -> list[ft.Container]:
+    def _build_indicators() -> list[ft.Control]:
         dots = []
         for i in range(len(slides)):
             dots.append(
@@ -86,15 +97,23 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
                     width=10 if i == current_page["index"] else 6,
                     height=6,
                     border_radius=3,
-                    bgcolor=ft.Colors.PRIMARY
+                    bgcolor=AppColors.PRIMARY
                     if i == current_page["index"]
                     else ft.Colors.with_opacity(0.2, ft.Colors.ON_SURFACE),
-                    animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
+                    animate=ft.Animation(200, "easeOut"),
                 )
             )
         return dots
 
-    button_ref = ft.Ref[ft.Button]()
+    agree_checkbox_ref = ft.Ref[ft.Checkbox]()
+    agree_container_ref = ft.Ref[ft.Container]()
+
+    def on_agree_changed(e):
+        if button_ref.current:
+            button_ref.current.disabled = not e.control.value
+            page.update(button_ref.current)
+
+    button_ref = ft.Ref[ft.FilledButton]()
 
     def _update():
         is_last = current_page["index"] == len(slides) - 1
@@ -104,31 +123,24 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
             )
         if indicator_row.current:
             indicator_row.current.controls = _build_indicators()
+        if agree_container_ref.current:
+            agree_container_ref.current.visible = is_last
         if button_ref.current:
-            button_ref.current.content = ft.Row(
-                [
-                    ft.Icon(
-                        ft.Icons.CHECK_ROUNDED
-                        if is_last
-                        else ft.Icons.ARROW_FORWARD_ROUNDED,
-                        size=18,
-                        color=ft.Colors.WHITE,
-                    ),
-                    ft.Text(
-                        "Get Started" if is_last else "Next",
-                        size=14,
-                        weight=ft.FontWeight.W_600,
-                        color=ft.Colors.WHITE,
-                    ),
-                ],
-                spacing=6,
-                tight=True,
+            button_ref.current.content = "Get Started" if is_last else "Next"
+            button_ref.current.icon = (
+                ft.Icons.CHECK_ROUNDED if is_last else ft.Icons.ARROW_FORWARD_ROUNDED
+            )
+            # Disable button on last slide if checkbox is unchecked
+            button_ref.current.disabled = is_last and not (
+                agree_checkbox_ref.current and agree_checkbox_ref.current.value
             )
         page.update()
 
     def on_next(e):
         is_last = current_page["index"] == len(slides) - 1
         if is_last:
+            if agree_checkbox_ref.current and not agree_checkbox_ref.current.value:
+                return
             page.run_task(_finish)
         else:
             current_page["index"] += 1
@@ -139,11 +151,12 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
             current_page["index"] -= 1
             _update()
 
+    # Swipe gesture handler for mobile UX
     def on_swipe(e: ft.DragEndEvent):
         if e.primary_velocity is not None:
-            if e.primary_velocity < -200:
+            if e.primary_velocity < -200:  # Swipe left → next
                 on_next(e)
-            elif e.primary_velocity > 200:
+            elif e.primary_velocity > 200:  # Swipe right → prev
                 on_prev()
 
     def on_skip(e):
@@ -151,14 +164,16 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
 
     async def _finish():
         if storage:
-            await storage.set_onboarding_done(True)
+            await storage.set("onboarding_done", True)
         on_done()
+
+    is_last = current_page["index"] == len(slides) - 1
 
     return ft.View(
         route="/onboarding",
         controls=[
             ft.SafeArea(
-                ft.Container(
+                content=ft.Container(
                     content=ft.Column(
                         [
                             ft.Row(
@@ -167,13 +182,11 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
                                         "Skip",
                                         on_click=on_skip,
                                         style=ft.ButtonStyle(
-                                            color=ft.Colors.with_opacity(
-                                                0.6, ft.Colors.ON_SURFACE
-                                            )
+                                            color=ft.Colors.ON_SURFACE_VARIANT
                                         ),
-                                    )
+                                    ),
                                 ],
-                                alignment=ft.MainAxisAlignment.END,
+                                alignment="end",
                             ),
                             ft.GestureDetector(
                                 content=ft.Container(
@@ -187,60 +200,74 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
                             ft.Row(
                                 ref=indicator_row,
                                 controls=_build_indicators(),
-                                alignment=ft.MainAxisAlignment.CENTER,
+                                alignment="center",
                                 spacing=6,
                             ),
-                            ft.Container(height=24),
+                            ft.Container(height=20),
+                            # Agreement check row (reused from SpanInsight)
                             ft.Container(
-                                content=ft.Button(
+                                ref=agree_container_ref,
+                                content=ft.Row(
+                                    [
+                                        ft.Checkbox(
+                                            ref=agree_checkbox_ref,
+                                            on_change=on_agree_changed,
+                                            value=False,
+                                        ),
+                                        ft.Text(
+                                            "I agree to the ",
+                                            size=11,
+                                            font_family="Outfit",
+                                        ),
+                                        ft.TextButton(
+                                            "Privacy Policy",
+                                            style=ft.ButtonStyle(
+                                                color=AppColors.PRIMARY
+                                            ),
+                                            on_click=_launch_privacy,
+                                        ),
+                                        ft.Text(" & ", size=11, font_family="Outfit"),
+                                        ft.TextButton(
+                                            "Terms of Service",
+                                            style=ft.ButtonStyle(
+                                                color=AppColors.PRIMARY
+                                            ),
+                                            on_click=_launch_terms,
+                                        ),
+                                    ],
+                                    alignment="center",
+                                    spacing=0,
+                                    wrap=True,
+                                ),
+                                visible=False,
+                            ),
+                            ft.Container(height=16),
+                            ft.Container(
+                                content=ft.FilledButton(
+                                    "Get Started" if is_last else "Next",
                                     ref=button_ref,
-                                    content=ft.Row(
-                                        [
-                                            ft.Icon(
-                                                ft.Icons.ARROW_FORWARD_ROUNDED,
-                                                size=18,
-                                                color=ft.Colors.WHITE,
-                                            ),
-                                            ft.Text(
-                                                "Next",
-                                                size=14,
-                                                weight=ft.FontWeight.W_600,
-                                                color=ft.Colors.WHITE,
-                                            ),
-                                        ],
-                                        spacing=6,
-                                        tight=True,
-                                    ),
+                                    icon=ft.Icons.ARROW_FORWARD_ROUNDED,
                                     on_click=on_next,
-                                    width=220,
-                                    height=50,
+                                    width=200,
+                                    height=48,
                                     style=ft.ButtonStyle(
                                         bgcolor=AppColors.PRIMARY,
                                         color=ft.Colors.WHITE,
-                                        shape=ft.RoundedRectangleBorder(radius=25),
-                                        elevation=2,
+                                        shape=ft.RoundedRectangleBorder(radius=24),
                                     ),
                                 ),
-                                alignment=ft.alignment.Alignment(0, 0),
+                                alignment=ft.Alignment.CENTER,
                             ),
                             ft.Container(height=48),
                         ],
                         expand=True,
-                        spacing=0,
                     ),
-                    gradient=ft.LinearGradient(
-                        begin=ft.alignment.Alignment(-1, -1),
-                        end=ft.alignment.Alignment(1, 1),
-                        colors=[
-                            ft.Colors.SURFACE,
-                            ft.Colors.with_opacity(0.08, AppColors.PRIMARY),
-                        ],
-                    ),
+                    padding=20,
                     expand=True,
                 ),
                 expand=True,
             )
         ],
         padding=0,
-        spacing=0,
+        bgcolor=ft.Colors.SURFACE,
     )

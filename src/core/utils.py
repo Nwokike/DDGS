@@ -10,44 +10,121 @@ from functools import wraps
 from typing import Callable
 
 
-LOG_DIR = os.path.join(os.path.expanduser("~"), ".duckduckgo_ui", "logs")
-os.makedirs(LOG_DIR, exist_ok=True)
+import tempfile
 
-LOG_FILE = os.path.join(LOG_DIR, f"app_{time.strftime('%Y%m%d_%H%M%S')}.log")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    datefmt="%H:%M:%S",
-    handlers=[
-        logging.FileHandler(LOG_FILE, encoding="utf-8"),
-        logging.StreamHandler(sys.stdout),
-    ],
-)
+class InMemoryLogHandler(logging.Handler):
+    def __init__(self, limit=200):
+        super().__init__()
+        self.limit = limit
+        self.records = []
 
-logger = logging.getLogger("duckduckgo_ui")
-logger.setLevel(logging.DEBUG)
-logger.propagate = False
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            self.records.append(msg)
+            if len(self.records) > self.limit:
+                self.records.pop(0)
+        except Exception:
+            self.handleError(record)
 
-_file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-_file_handler.setLevel(logging.DEBUG)
-_file_handler.setFormatter(
-    logging.Formatter(
-        "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S",
+
+in_memory_log_handler = InMemoryLogHandler()
+
+
+def setup_logging():
+    # Try different folders for log file
+    storage_env = os.getenv("FLET_APP_STORAGE_DATA")
+    log_dirs = [
+        os.path.join(storage_env, "logs") if storage_env else None,
+        os.path.join(os.path.expanduser("~"), ".duckduckgo_ui", "logs"),
+        os.path.join(
+            os.getenv("APPDATA") or os.path.expanduser("~"), ".duckduckgo_ui", "logs"
+        )
+        if os.name == "nt"
+        else None,
+        os.path.join(tempfile.gettempdir(), "duckduckgo_ui", "logs"),
+        os.path.join(os.getcwd(), "logs"),
+    ]
+
+    file_handler = None
+    log_file_path = None
+
+    for folder in log_dirs:
+        if not folder:
+            continue
+        try:
+            os.makedirs(folder, exist_ok=True)
+            log_file = os.path.join(folder, f"app_{time.strftime('%Y%m%d_%H%M%S')}.log")
+            # Verify write access by writing a dummy file
+            test_path = os.path.join(folder, ".test_write")
+            with open(test_path, "w") as f:
+                f.write("test")
+            os.remove(test_path)
+
+            # Writable folder found!
+            file_handler = logging.FileHandler(log_file, encoding="utf-8")
+            log_file_path = log_file
+            break
+        except (PermissionError, OSError):
+            continue
+
+    # Standard console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
     )
-)
-logger.addHandler(_file_handler)
 
-_console_handler = logging.StreamHandler(sys.stdout)
-_console_handler.setLevel(logging.INFO)
-_console_handler.setFormatter(
-    logging.Formatter(
-        "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S",
+    # In-memory log handler formatter
+    in_memory_log_handler.setLevel(logging.DEBUG)
+    in_memory_log_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+            datefmt="%H:%M:%S",
+        )
     )
-)
-logger.addHandler(_console_handler)
+
+    # Root logging configuration
+    root_handlers = [console_handler, in_memory_log_handler]
+    if file_handler:
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+                datefmt="%H:%M:%S",
+            )
+        )
+        root_handlers.append(file_handler)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+        handlers=root_handlers,
+    )
+
+    logger = logging.getLogger("duckduckgo_ui")
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+
+    for h in root_handlers:
+        logger.addHandler(h)
+
+    if log_file_path:
+        logger.info(f"Logging initialized. Log file: {log_file_path}")
+    else:
+        logger.warning(
+            "Logging initialized. Console-only (no writable file path found)."
+        )
+
+    return logger
+
+
+logger = setup_logging()
 
 
 def log_function_call(func: Callable) -> Callable:

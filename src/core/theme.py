@@ -2,37 +2,66 @@ from __future__ import annotations
 
 import flet as ft
 
-from core.tokens import (
-    FONT_XS,
-    FONT_SM,
-    FONT_MD,
-    FONT_LG,
-    FONT_XL,
-    FONT_XXL,
-    FONT_XXXL,
-)
-
 
 class AppColors:
-    PRIMARY = "#4F46E5"
-    SECONDARY = "#4338CA"
-    TERTIARY = "#7C3AED"
-    ACCENT = "#F59E0B"
-    SUCCESS = "#10B981"
-    WARNING = "#F59E0B"
-    ERROR = "#EF4444"
+    # DuckDuckGo Darker Orange Brand Palette
+    PRIMARY = "#B33A1D"  # Premium Dark Orange/Terracotta
+    PRIMARY_LIGHT = "#DE5833"  # Standard DuckDuckGo Orange
+    PRIMARY_DARK = "#8E250F"  # Deep Pressed Orange
+    ACCENT = "#B33A1D"  # Neutral accent (avoid color mixing)
 
-    DARK_BG = "#000000"
-    DARK_SURFACE = "#0A0A0A"
-    DARK_CARD = "#121212"
-    DARK_TEXT = "#FFFFFF"
-    DARK_TEXT_DIM = "#A0A0A0"
+    SUCCESS = "#2E7D32"  # Clean Material Green
+    WARNING = "#F9A825"  # Amber Gold
+    ERROR = "#D32F2F"  # Red
 
-    LIGHT_BG = "#FFFFFF"
-    LIGHT_SURFACE = "#F8F8F8"
-    LIGHT_CARD = "#FFFFFF"
-    LIGHT_TEXT = "#000000"
-    LIGHT_TEXT_DIM = "#666666"
+    # Premium Neutral Slate Dark Mode Palette
+    DARK_BG_1 = "#0F1114"  # Deep Slate-Black Background
+    DARK_BG_2 = "#121518"  # Slate Surface
+    DARK_SURFACE = "#1A1D22"  # Card Background
+    DARK_SURFACE_2 = "#252A30"  # Dialog Background
+    DARK_BORDER = "#2E3339"  # Outline / Divider Border
+    DARK_TEXT = "#ECEFF1"  # Primary Text
+    DARK_TEXT_DIM = "#90A4AE"  # Secondary text
+
+    # Premium Neutral Slate Light Mode Palette
+    LIGHT_BG = "#FAFAFA"  # Pure clean warm background
+    LIGHT_SURFACE = "#FFFFFF"  # Pure White Cards
+    LIGHT_SURFACE_2 = "#F5F5F5"  # Soft divider focus surface
+    LIGHT_BORDER = "#E0E0E0"  # Soft divider border
+    LIGHT_TEXT = "#1A1A2E"  # Deep Charcoal slate body text
+    LIGHT_TEXT_DIM = "#757575"  # Secondary gray text
+
+
+def is_dark_mode(page: ft.Page | None) -> bool:
+    """Check if the page is currently in dark mode (explicit or system)."""
+    if not page:
+        return True
+    return page.theme_mode == ft.ThemeMode.DARK or (
+        page.theme_mode == ft.ThemeMode.SYSTEM
+        and page.platform_brightness == ft.Brightness.DARK
+    )
+
+
+# ── Glassmorphism Settings (Matching SpanInsight) ─────────────────
+GLASS_BG = ft.Colors.with_opacity(0.05, ft.Colors.WHITE)
+GLASS_BORDER_COLOR = ft.Colors.with_opacity(0.10, ft.Colors.WHITE)
+
+LIGHT_GLASS_BG = ft.Colors.with_opacity(0.04, ft.Colors.BLACK)
+LIGHT_GLASS_BORDER = ft.Colors.with_opacity(0.08, ft.Colors.BLACK)
+
+
+def adaptive_glass_bg(page: ft.Page | None = None) -> str:
+    """Return card background color appropriate for current theme."""
+    if page and not is_dark_mode(page):
+        return LIGHT_GLASS_BG
+    return GLASS_BG
+
+
+def adaptive_glass_border(page: ft.Page | None = None) -> str:
+    """Return card border color appropriate for current theme."""
+    if page and not is_dark_mode(page):
+        return LIGHT_GLASS_BORDER
+    return GLASS_BORDER_COLOR
 
 
 class AppStyles:
@@ -45,20 +74,32 @@ class AppStyles:
     PADDING_LARGE = 24
 
     @staticmethod
-    def section_card(title: str, icon: str, content: ft.Control) -> ft.Container:
+    def section_card(
+        title: str, icon: str, content: ft.Control, page: ft.Page | None = None
+    ) -> ft.Container:
+        """Frosted card section matching SpanInsight/Sherlock styles."""
+        is_dark = is_dark_mode(page)
+        border_color = AppColors.DARK_BORDER if is_dark else AppColors.LIGHT_BORDER
+        bg_color = AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE
+
         return ft.Container(
             content=ft.Column(
                 [
                     ft.Row(
                         [
-                            ft.Icon(icon, color=AppColors.PRIMARY, size=20),
-                            ft.Text(title, size=15, weight=ft.FontWeight.W_600),
+                            ft.Icon(icon, color=AppColors.PRIMARY, size=18),
+                            ft.Text(
+                                title,
+                                size=14,
+                                weight=ft.FontWeight.W_600,
+                                font_family="Outfit",
+                            ),
                         ],
-                        spacing=8,
+                        spacing=10,
                     ),
                     ft.Divider(
                         height=1,
-                        color=ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE),
+                        color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                     ),
                     content,
                 ],
@@ -66,30 +107,36 @@ class AppStyles:
             ),
             padding=16,
             border_radius=AppStyles.RADIUS,
-            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE)),
+            bgcolor=bg_color,
+            border=ft.Border.all(1, border_color),
         )
 
     @staticmethod
-    def glass_card(content: ft.Control, blur_sigma: int = 10):
+    def glass_card(content: ft.Control, page: ft.Page | None = None) -> ft.Container:
+        """Frost glass effect for premium container layouts."""
         return ft.Container(
             content=content,
-            bgcolor=ft.Colors.with_opacity(0.02, ft.Colors.WHITE),
-            blur=ft.Blur(blur_sigma, blur_sigma, ft.BlurTileMode.MIRROR),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.05, ft.Colors.WHITE)),
+            bgcolor=adaptive_glass_bg(page),
+            border=ft.Border.all(1, adaptive_glass_border(page)),
             border_radius=AppStyles.RADIUS,
         )
 
     @staticmethod
-    def brand_gradient():
-        return ft.LinearGradient(
-            begin=ft.Alignment.TOP_CENTER,
-            end=ft.Alignment.BOTTOM_CENTER,
-            colors=[
-                ft.Colors.with_opacity(0.05, AppColors.PRIMARY),
-                ft.Colors.TRANSPARENT,
-            ],
-        )
+    def brand_gradient(page: ft.Page | None = None):
+        """Clean neutral background gradient matching SpanInsight."""
+        is_dark = is_dark_mode(page)
+        if is_dark:
+            return ft.LinearGradient(
+                begin=ft.Alignment.TOP_CENTER,
+                end=ft.Alignment.BOTTOM_CENTER,
+                colors=[AppColors.DARK_BG_1, AppColors.DARK_BG_2],
+            )
+        else:
+            return ft.LinearGradient(
+                begin=ft.Alignment.TOP_CENTER,
+                end=ft.Alignment.BOTTOM_CENTER,
+                colors=["#F5F5F5", AppColors.LIGHT_BG],
+            )
 
 
 class AppTheme:
@@ -101,72 +148,42 @@ class AppTheme:
                 on_primary=ft.Colors.WHITE,
                 primary_container=ft.Colors.with_opacity(0.12, AppColors.PRIMARY),
                 on_primary_container=AppColors.PRIMARY,
-                secondary=AppColors.SECONDARY,
+                secondary=AppColors.ACCENT,
                 on_secondary=ft.Colors.WHITE,
                 surface=AppColors.LIGHT_BG,
                 on_surface=AppColors.LIGHT_TEXT,
                 surface_container=AppColors.LIGHT_SURFACE,
-                surface_container_highest=AppColors.LIGHT_CARD,
+                surface_container_highest=AppColors.LIGHT_SURFACE,
                 on_surface_variant=AppColors.LIGHT_TEXT_DIM,
                 error=AppColors.ERROR,
                 on_error=ft.Colors.WHITE,
-                outline=ft.Colors.with_opacity(0.2, AppColors.LIGHT_TEXT),
-                outline_variant=ft.Colors.with_opacity(0.1, AppColors.LIGHT_TEXT),
+                outline=AppColors.LIGHT_BORDER,
+                outline_variant=AppColors.LIGHT_SURFACE_2,
             ),
-            text_theme=ft.TextTheme(
-                display_large=ft.TextStyle(size=FONT_XXXL, weight=ft.FontWeight.BOLD),
-                display_medium=ft.TextStyle(size=FONT_XXL, weight=ft.FontWeight.BOLD),
-                display_small=ft.TextStyle(size=FONT_XL, weight=ft.FontWeight.W_600),
-                headline_large=ft.TextStyle(size=FONT_XXL, weight=ft.FontWeight.W_600),
-                headline_medium=ft.TextStyle(size=FONT_XL, weight=ft.FontWeight.W_600),
-                headline_small=ft.TextStyle(size=FONT_LG, weight=ft.FontWeight.W_600),
-                title_large=ft.TextStyle(size=FONT_LG, weight=ft.FontWeight.W_600),
-                title_medium=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_500),
-                title_small=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
-                body_large=ft.TextStyle(size=FONT_MD),
-                body_medium=ft.TextStyle(size=FONT_MD),
-                body_small=ft.TextStyle(size=FONT_SM),
-                label_large=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_500),
-                label_medium=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
-                label_small=ft.TextStyle(size=FONT_XS, weight=ft.FontWeight.W_500),
-            ),
+            font_family="Outfit",
+            visual_density=ft.VisualDensity.COMFORTABLE,
         )
 
     @staticmethod
     def get_dark_theme() -> ft.Theme:
         return ft.Theme(
             color_scheme=ft.ColorScheme(
-                primary=ft.Colors.with_opacity(0.9, "#8AB4F8"),
-                on_primary=ft.Colors.BLACK,
-                primary_container=ft.Colors.with_opacity(0.15, "#8AB4F8"),
-                on_primary_container="#8AB4F8",
-                secondary="#81C995",
+                primary=AppColors.PRIMARY,
+                on_primary=ft.Colors.WHITE,
+                primary_container=ft.Colors.with_opacity(0.15, AppColors.PRIMARY_LIGHT),
+                on_primary_container=AppColors.PRIMARY_LIGHT,
+                secondary=AppColors.ACCENT,
                 on_secondary=ft.Colors.BLACK,
-                surface=AppColors.DARK_BG,
+                surface=AppColors.DARK_BG_1,
                 on_surface=AppColors.DARK_TEXT,
                 surface_container=AppColors.DARK_SURFACE,
-                surface_container_highest=AppColors.DARK_CARD,
+                surface_container_highest=AppColors.DARK_SURFACE,
                 on_surface_variant=AppColors.DARK_TEXT_DIM,
-                error="#F28B82",
-                on_error=ft.Colors.BLACK,
-                outline=ft.Colors.with_opacity(0.3, AppColors.DARK_TEXT),
-                outline_variant=ft.Colors.with_opacity(0.15, AppColors.DARK_TEXT),
+                error=AppColors.ERROR,
+                on_error=ft.Colors.WHITE,
+                outline=AppColors.DARK_BORDER,
+                outline_variant=AppColors.DARK_SURFACE_2,
             ),
-            text_theme=ft.TextTheme(
-                display_large=ft.TextStyle(size=FONT_XXXL, weight=ft.FontWeight.BOLD),
-                display_medium=ft.TextStyle(size=FONT_XXL, weight=ft.FontWeight.BOLD),
-                display_small=ft.TextStyle(size=FONT_XL, weight=ft.FontWeight.W_600),
-                headline_large=ft.TextStyle(size=FONT_XXL, weight=ft.FontWeight.W_600),
-                headline_medium=ft.TextStyle(size=FONT_XL, weight=ft.FontWeight.W_600),
-                headline_small=ft.TextStyle(size=FONT_LG, weight=ft.FontWeight.W_600),
-                title_large=ft.TextStyle(size=FONT_LG, weight=ft.FontWeight.W_600),
-                title_medium=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_500),
-                title_small=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
-                body_large=ft.TextStyle(size=FONT_MD),
-                body_medium=ft.TextStyle(size=FONT_MD),
-                body_small=ft.TextStyle(size=FONT_SM),
-                label_large=ft.TextStyle(size=FONT_MD, weight=ft.FontWeight.W_600),
-                label_medium=ft.TextStyle(size=FONT_SM, weight=ft.FontWeight.W_500),
-                label_small=ft.TextStyle(size=FONT_XS, weight=ft.FontWeight.W_500),
-            ),
+            font_family="Outfit",
+            visual_density=ft.VisualDensity.COMFORTABLE,
         )
