@@ -213,3 +213,33 @@ def log_ddgs_call(
         logger.error(f"DDGS_CALL_FAILED: {log_data}", exc_info=True)
     else:
         logger.debug(f"DDGS_CALL: {log_data}")
+
+
+def sanitize_url(url: str) -> str | None:
+    """Validate and sanitize URL. Prepend https:// if it looks like a domain name.
+    Return None if completely invalid (e.g. contains spaces or no dots).
+    """
+    import urllib.parse
+
+    url = url.strip()
+    if not url:
+        return None
+
+    # Check if there are spaces (not a valid URL)
+    if " " in url:
+        return None
+
+    parsed = urllib.parse.urlparse(url)
+
+    # If it lacks a scheme, check if it has a dot and looks like a domain/host
+    if not parsed.scheme:
+        if "." in url:
+            url = "https://" + url
+            parsed = urllib.parse.urlparse(url)
+        else:
+            return None
+
+    if not parsed.netloc:
+        return None
+
+    return url

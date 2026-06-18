@@ -154,10 +154,10 @@ def build_history_view(
                 style=ft.TextStyle(height=1.4),
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda _: _close_dialog(dlg)),
+                ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
                 ft.FilledButton(
                     "Clear All",
-                    on_click=lambda _: page.run_task(_do_clear, dlg),
+                    on_click=lambda _: page.run_task(_do_clear),
                     style=ft.ButtonStyle(
                         bgcolor=AppColors.ERROR, color=ft.Colors.WHITE
                     ),
@@ -165,17 +165,10 @@ def build_history_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        page.show_dialog(dlg)
 
-    def _close_dialog(dlg):
-        dlg.open = False
-        page.update()
-
-    async def _do_clear(dlg):
-        dlg.open = False
-        page.update()
+    async def _do_clear():
+        page.pop_dialog()
         state.search_history.clear()
         await storage.set_history([])
         page.views.clear()

@@ -30,6 +30,10 @@ async def main(page: ft.Page):
     page.padding = 0
     page.spacing = 0
 
+    file_picker = ft.FilePicker()
+    page.services.append(file_picker)
+    page.file_picker = file_picker
+
     logger.info(f"[{LOG_TAG}] Starting DDGS UI. DDGS available: {_DDGS_AVAILABLE}")
 
     def on_error(e):
@@ -126,6 +130,19 @@ async def main(page: ft.Page):
         return new_nav_bar
 
     async def run_extract(url: str):
+        from core.utils import sanitize_url
+
+        sanitized = sanitize_url(url)
+        if not sanitized:
+            page.snack_bar = ft.SnackBar(
+                ft.Text("Invalid URL format. Please provide a valid web link."),
+                bgcolor=AppColors.ERROR,
+            )
+            page.snack_bar.open = True
+            page.update()
+            return
+        url = sanitized
+
         progress = SearchProgress(query=url, search_type="extract", is_running=True)
         state.search_progress = progress
         from views.results_view import build_results_view

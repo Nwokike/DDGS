@@ -21,10 +21,113 @@ def launch_url(url: str):
         webbrowser.open(url)
 
 
+async def _download_media(page: ft.Page, url: str, default_name: str):
+    file_picker = getattr(page, "file_picker", None)
+    if not file_picker:
+        file_picker = ft.FilePicker()
+        page.services.append(file_picker)
+        page.update()
+
+    path = await file_picker.save_file(file_name=default_name)
+    if path:
+        page.snack_bar = ft.SnackBar(ft.Text("Downloading file..."))
+        page.snack_bar.open = True
+        page.update()
+
+        try:
+            import httpx
+
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, follow_redirects=True, timeout=30.0)
+                resp.raise_for_status()
+                with open(path, "wb") as f:
+                    f.write(resp.content)
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"File successfully saved to {path}"), bgcolor=AppColors.SUCCESS
+            )
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"Download failed: {ex}"), bgcolor=AppColors.ERROR
+            )
+        page.snack_bar.open = True
+        page.update()
+
+
+async def _save_text_content(page: ft.Page, text: str, default_name: str):
+    file_picker = getattr(page, "file_picker", None)
+    if not file_picker:
+        file_picker = ft.FilePicker()
+        page.services.append(file_picker)
+        page.update()
+
+    path = await file_picker.save_file(file_name=default_name)
+    if path:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"File successfully saved to {path}"), bgcolor=AppColors.SUCCESS
+            )
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"Failed to save file: {ex}"), bgcolor=AppColors.ERROR
+            )
+        page.snack_bar.open = True
+        page.update()
+
+
+async def _save_bytes_content(page: ft.Page, data: bytes, default_name: str):
+    file_picker = getattr(page, "file_picker", None)
+    if not file_picker:
+        file_picker = ft.FilePicker()
+        page.services.append(file_picker)
+        page.update()
+
+    path = await file_picker.save_file(file_name=default_name)
+    if path:
+        try:
+            with open(path, "wb") as f:
+                f.write(data)
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"File successfully saved to {path}"), bgcolor=AppColors.SUCCESS
+            )
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"Failed to save file: {ex}"), bgcolor=AppColors.ERROR
+            )
+        page.snack_bar.open = True
+        page.update()
+    page.update()
+
+
 def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     """Show a premium bottom sheet with result info, launch link, and raw extraction triggers."""
     is_dark = theme.is_dark_mode(page)
     bg_color = AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE
+    is_media = search_type in ("images", "videos")
+    action_text = (
+        "Download Image"
+        if search_type == "images"
+        else ("Download Video" if search_type == "videos" else "View Page Content")
+    )
+    default_name = "image.jpg" if search_type == "images" else "video.mp4"
+    media_url = r.image_url if search_type == "images" and r.image_url else r.url
+
+    if is_media:
+
+        def action_callback(_):
+            page.run_task(_download_media, page, media_url, default_name)
+    else:
+
+        def action_callback(_):
+            page.run_task(_fetch_and_show, page, r.url)
+
+    def _close_details(_):
+        page.pop_dialog()
+
+    def _open_in_browser(_):
+        page.pop_dialog()
+        launch_url(r.url)
 
     sheet_content = ft.Container(
         content=ft.Column(
@@ -48,7 +151,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                         ft.IconButton(
                             icon=ft.Icons.CLOSE_ROUNDED,
                             icon_size=tokens.ICON_MD,
-                            on_click=lambda _: _close_sheet(page),
+                            on_click=_close_details,
                         ),
                     ],
                     spacing=tokens.SPACE_SM,
@@ -71,19 +174,18 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                     selectable=True,
                     max_lines=2,
                 ),
-                ft.Container(height=16),
                 ft.Row(
                     [
                         ft.FilledButton(
                             content=ft.Row(
                                 [
                                     ft.Icon(
-                                        ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                                        ft.Icons.DOWNLOAD_ROUNDED,
                                         size=tokens.ICON_SM,
                                         color=ft.Colors.WHITE,
                                     ),
                                     ft.Text(
-                                        "Open in Browser",
+                                        action_text,
                                         size=tokens.FONT_SM,
                                         weight=ft.FontWeight.W_600,
                                         color=ft.Colors.WHITE,
@@ -93,7 +195,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                                 spacing=6,
                                 tight=True,
                             ),
-                            on_click=lambda _: (_close_sheet(page), launch_url(r.url)),
+                            on_click=action_callback,
                             style=ft.ButtonStyle(
                                 bgcolor=AppColors.PRIMARY,
                                 shape=ft.RoundedRectangleBorder(
@@ -110,9 +212,12 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                 ft.OutlinedButton(
                     content=ft.Row(
                         [
-                            ft.Icon(ft.Icons.DOWNLOAD_ROUNDED, size=tokens.ICON_SM),
+                            ft.Icon(
+                                ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                                size=tokens.ICON_SM,
+                            ),
                             ft.Text(
-                                "Extract Page Content",
+                                "Open in Browser",
                                 size=tokens.FONT_SM,
                                 weight=ft.FontWeight.W_600,
                                 font_family="Outfit",
@@ -121,7 +226,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                         spacing=6,
                         tight=True,
                     ),
-                    on_click=lambda _: page.run_task(_fetch_and_show, page, r.url),
+                    on_click=_open_in_browser,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
                         side=ft.BorderSide(1, AppColors.PRIMARY),
@@ -144,62 +249,104 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         open=True,
         elevation=8,
     )
-    page.overlay.append(sheet)
-    page.update()
-
-
-def _close_sheet(page: ft.Page):
-    sheets = [o for o in page.overlay if isinstance(o, ft.BottomSheet)]
-    for s in sheets:
-        s.open = False
-        try:
-            page.overlay.remove(s)
-        except ValueError:
-            pass
-    page.update()
+    page.show_dialog(sheet)
 
 
 async def _fetch_and_show(page: ft.Page, url: str):
-    sheets = [o for o in page.overlay if isinstance(o, ft.BottomSheet)]
-    for s in sheets:
-        s.open = False
-        try:
-            page.overlay.remove(s)
-        except ValueError:
-            pass
+    from core.utils import sanitize_url
 
-    loading = ft.AlertDialog(
+    sanitized = sanitize_url(url)
+    if not sanitized:
+        page.snack_bar = ft.SnackBar(
+            ft.Text("Invalid URL format. Please provide a valid web link."),
+            bgcolor=AppColors.ERROR,
+        )
+        page.snack_bar.open = True
+        page.update()
+        return
+    url = sanitized
+
+    # Close the result details sheet
+    page.pop_dialog()
+
+    # Show loading spinner dialog
+    loading_dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text(
-            "Extracting web contents...", font_family="Outfit", size=tokens.FONT_LG
+        content=ft.Container(
+            content=ft.Row(
+                [
+                    ft.ProgressRing(
+                        width=24,
+                        height=24,
+                        stroke_width=3,
+                        color=AppColors.PRIMARY,
+                    ),
+                    ft.Text(
+                        "Extracting page content...",
+                        size=tokens.FONT_SM,
+                        weight=ft.FontWeight.W_500,
+                        font_family="Outfit",
+                    ),
+                ],
+                spacing=12,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
+            padding=ft.Padding(24, 20, 24, 20),
         ),
-        content=ft.ProgressBar(color=AppColors.PRIMARY),
     )
-    page.overlay.append(loading)
-    loading.open = True
-    page.update()
+    page.show_dialog(loading_dialog)
 
-    result = await _search_service.extract_url(url, fmt=state.extract_format)
-
-    loading.open = False
     try:
-        page.overlay.remove(loading)
-    except ValueError:
-        pass
+        result = await _search_service.extract_url(url, fmt=state.extract_format)
+    except Exception:
+        result = None
+
+    # Dismiss loading spinner
+    page.pop_dialog()
 
     if not result:
-        snack = ft.SnackBar(
+        page.snack_bar = ft.SnackBar(
             ft.Text("Failed to retrieve content from target URL"),
             bgcolor=AppColors.ERROR,
         )
-        page.overlay.append(snack)
-        snack.open = True
+        page.snack_bar.open = True
         page.update()
         return
 
     content = result.get("content", "")
-    if isinstance(content, bytes):
+    is_bytes = isinstance(result.get("content", ""), bytes)
+    if is_bytes:
         content = f"[Binary data extracted: {len(content)} bytes]"
+
+    # Save helper
+    async def save_extract(e=None):
+        if is_bytes:
+            await _save_bytes_content(
+                page, result.get("content", b""), "extracted_file.bin"
+            )
+        else:
+            await _save_text_content(page, str(content), "extracted_page.md")
+
+    def _close_preview(_):
+        page.pop_dialog()
+
+    # Title row actions
+    actions_row = ft.Row(
+        [
+            ft.IconButton(
+                icon=ft.Icons.SAVE_ALT_ROUNDED,
+                icon_size=tokens.ICON_MD,
+                tooltip="Save content to file",
+                on_click=lambda _: page.run_task(save_extract),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.CLOSE_ROUNDED,
+                icon_size=tokens.ICON_MD,
+                on_click=_close_preview,
+            ),
+        ],
+        spacing=4,
+    )
 
     is_dark = theme.is_dark_mode(page)
     preview_sheet = ft.BottomSheet(
@@ -220,11 +367,7 @@ async def _fetch_and_show(page: ft.Page, url: str):
                                 font_family="Outfit",
                                 expand=True,
                             ),
-                            ft.IconButton(
-                                icon=ft.Icons.CLOSE_ROUNDED,
-                                icon_size=tokens.ICON_MD,
-                                on_click=lambda _: _close_sheet(page),
-                            ),
+                            actions_row,
                         ],
                         spacing=tokens.SPACE_SM,
                     ),
@@ -233,7 +376,18 @@ async def _fetch_and_show(page: ft.Page, url: str):
                         color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                     ),
                     ft.Column(
-                        [ft.Text(str(content), size=tokens.FONT_SM, selectable=True)],
+                        [
+                            ft.Markdown(
+                                value=str(content),
+                                selectable=True,
+                                extension_set="gitHubWeb",
+                                on_tap_link=lambda e: launch_url(e.data),
+                            )
+                            if not is_bytes
+                            else ft.Text(
+                                str(content), size=tokens.FONT_SM, selectable=True
+                            )
+                        ],
                         expand=True,
                         scroll=ft.ScrollMode.AUTO,
                     ),
@@ -248,8 +402,7 @@ async def _fetch_and_show(page: ft.Page, url: str):
         open=True,
         elevation=8,
     )
-    page.overlay.append(preview_sheet)
-    page.update()
+    page.show_dialog(preview_sheet)
 
 
 # ── Card Builder Factories (Reusing SpanInsight's glassmorphism style) ──
@@ -383,7 +536,7 @@ def _video_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
                                     weight=ft.FontWeight.BOLD,
                                 ),
                                 padding=ft.Padding(6, 3, 6, 3),
-                                bgcolor=ft.Colors.BLACK87,
+                                bgcolor=ft.Colors.BLACK_87,
                                 border_radius=tokens.RADIUS_MD,
                                 right=6,
                                 bottom=6,
@@ -584,8 +737,16 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
 
     content = result.get("content", "")
     url = result.get("url", "")
+    is_bytes = isinstance(content, bytes)
 
-    if isinstance(content, bytes):
+    # Save helper
+    async def save_extract(e=None):
+        if is_bytes:
+            await _save_bytes_content(page, content, "extracted_file.bin")
+        else:
+            await _save_text_content(page, str(content), "extracted_page.md")
+
+    if is_bytes:
         display = ft.Text(
             f"[Binary content — {len(content)} bytes]",
             size=tokens.FONT_SM,
@@ -593,7 +754,12 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
             font_family="Outfit",
         )
     else:
-        display = ft.Text(str(content), size=tokens.FONT_SM, selectable=True)
+        display = ft.Markdown(
+            value=str(content),
+            selectable=True,
+            extension_set="gitHubWeb",
+            on_tap_link=lambda e: launch_url(e.data),
+        )
 
     return ft.Container(
         content=ft.Column(
@@ -619,6 +785,12 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                             max_lines=2,
                             expand=True,
                             font_family="Outfit",
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.SAVE_ALT_ROUNDED,
+                            icon_size=tokens.ICON_SM,
+                            tooltip="Save content to file",
+                            on_click=lambda e: page.run_task(save_extract),
                         ),
                     ],
                     spacing=6,

@@ -129,9 +129,8 @@ def build_settings_view(
         _rebuild()
 
     # ── Modal helpers ──
-    def _close_dialog(dlg):
-        dlg.open = False
-        page.update()
+    def _close_dialog(e=None):
+        page.pop_dialog()
 
     def _show_clear_dialog(e):
         dlg = ft.AlertDialog(
@@ -147,10 +146,10 @@ def build_settings_view(
                 style=ft.TextStyle(height=1.4),
             ),
             actions=[
-                ft.TextButton("Cancel", on_click=lambda _: _close_dialog(dlg)),
+                ft.TextButton("Cancel", on_click=_close_dialog),
                 ft.FilledButton(
                     "Clear All",
-                    on_click=lambda _: page.run_task(_do_clear, dlg),
+                    on_click=lambda _: page.run_task(_do_clear),
                     style=ft.ButtonStyle(
                         bgcolor=AppColors.ERROR, color=ft.Colors.WHITE
                     ),
@@ -158,13 +157,10 @@ def build_settings_view(
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        page.show_dialog(dlg)
 
-    async def _do_clear(dlg):
-        dlg.open = False
-        page.update()
+    async def _do_clear():
+        page.pop_dialog()
         state.search_history.clear()
         await storage.set_history([])
         _rebuild()
@@ -188,9 +184,8 @@ def build_settings_view(
         def copy_logs(e):
             try:
                 page.set_clipboard(logs)
-                snack = ft.SnackBar(ft.Text("Logs copied to clipboard!"))
-                page.overlay.append(snack)
-                snack.open = True
+                page.snack_bar = ft.SnackBar(ft.Text("Logs copied to clipboard!"))
+                page.snack_bar.open = True
                 page.update()
             except Exception as ex:
                 logger.error(f"Copy logs failed: {ex}")
@@ -234,13 +229,11 @@ def build_settings_view(
                     tooltip="Copy Logs",
                     on_click=copy_logs,
                 ),
-                ft.TextButton("Close", on_click=lambda _: _close_dialog(dlg)),
+                ft.TextButton("Close", on_click=_close_dialog),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        page.show_dialog(dlg)
 
     # ── Settings Header ──
     header = ft.Container(
