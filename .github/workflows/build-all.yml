@@ -34,10 +34,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - name: Decode Keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: echo "$KEYSTORE_BASE64" | base64 --decode > upload-key.jks
       - name: Pre-compile binary wheels (primp, ddgs)
         run: |
           mkdir -p ${{ github.workspace }}/wheels
@@ -45,10 +41,6 @@ jobs:
           uv export --no-dev --format requirements-txt | pip wheel -r /dev/stdin --no-deps -w ${{ github.workspace }}/wheels 2>/dev/null || true
       - name: Build APK (split per ABI)
         env:
-          FLET_ANDROID_SIGNING_KEY_STORE: ${{ github.workspace }}/upload-key.jks
-          FLET_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           PIP_FIND_LINKS: ${{ github.workspace }}/wheels
         run: uv run flet build apk --yes --project ddgs --product "DDGS" --org ng.kiri --build-version ${{ env.BUILD_VERSION }} --build-number ${{ env.BUILD_NUMBER }} --split-per-abi -v
       - uses: actions/upload-artifact@v5.0.0
@@ -69,10 +61,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - name: Decode Keystore
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-        run: echo "$KEYSTORE_BASE64" | base64 --decode > upload-key.jks
       - name: Pre-compile binary wheels (primp, ddgs)
         run: |
           mkdir -p ${{ github.workspace }}/wheels
@@ -80,10 +68,6 @@ jobs:
           uv export --no-dev --format requirements-txt | pip wheel -r /dev/stdin --no-deps -w ${{ github.workspace }}/wheels 2>/dev/null || true
       - name: Build AAB
         env:
-          FLET_ANDROID_SIGNING_KEY_STORE: ${{ github.workspace }}/upload-key.jks
-          FLET_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           PIP_FIND_LINKS: ${{ github.workspace }}/wheels
         run: uv run flet build aab --yes --project ddgs --product "DDGS" --org ng.kiri --build-version ${{ env.BUILD_VERSION }} --build-number ${{ env.BUILD_NUMBER }} -v
       - uses: actions/upload-artifact@v5.0.0
