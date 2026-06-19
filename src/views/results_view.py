@@ -5,9 +5,11 @@ from typing import Callable
 import flet as ft
 
 from core import theme, tokens
+from core.constants import EXTRACT_FORMATS
 from core.state import SearchProgress, SearchResult, state
 from core.theme import AppColors
 from services.search_service import SearchService
+from services.storage_service import StorageService
 
 LOG_TAG = "ResultsView"
 
@@ -458,6 +460,51 @@ async def _fetch_and_show(page: ft.Page, url: str):
         spacing=4,
     )
 
+    # Format switcher for preview sheet
+    async def _change_preview_format(new_fmt: str):
+        state.extract_format = new_fmt
+        try:
+            storage_svc = StorageService()
+            await storage_svc.set_extract_format(new_fmt)
+        except Exception:
+            pass
+        page.pop_dialog()
+        await _fetch_and_show(page, url)
+
+    preview_format_row = ft.Row(
+        [
+            ft.Icon(
+                ft.Icons.CODE_ROUNDED,
+                size=14,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+            ),
+            ft.Text(
+                "Format:",
+                size=tokens.FONT_XS,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                font_family="Outfit",
+                weight=ft.FontWeight.W_500,
+            ),
+            ft.Dropdown(
+                value=state.extract_format,
+                options=[
+                    ft.dropdown.Option(f["key"], f["label"]) for f in EXTRACT_FORMATS
+                ],
+                on_select=lambda e: page.run_task(
+                    _change_preview_format, e.control.value
+                ),
+                filled=True,
+                text_size=tokens.FONT_XS,
+                content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
+                border_radius=tokens.RADIUS_MD,
+                width=150,
+                height=36,
+            ),
+        ],
+        spacing=6,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+
     is_dark = theme.is_dark_mode(page)
     preview_sheet = ft.BottomSheet(
         content=ft.Container(
@@ -481,6 +528,7 @@ async def _fetch_and_show(page: ft.Page, url: str):
                         ],
                         spacing=tokens.SPACE_SM,
                     ),
+                    preview_format_row,
                     ft.Divider(
                         height=1,
                         color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
@@ -871,6 +919,49 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
             on_tap_link=lambda e: _on_link_tap(page, e.data),
         )
 
+    # Format switcher — re-fetch in different format
+    async def _change_format(new_fmt: str):
+        state.extract_format = new_fmt
+        try:
+            storage_svc = StorageService()
+            await storage_svc.set_extract_format(new_fmt)
+        except Exception:
+            pass
+        # Re-fetch the same URL with the new format
+        await _fetch_and_show(page, url)
+
+    format_row = ft.Row(
+        [
+            ft.Icon(
+                ft.Icons.CODE_ROUNDED,
+                size=14,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+            ),
+            ft.Text(
+                "Format:",
+                size=tokens.FONT_XS,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                font_family="Outfit",
+                weight=ft.FontWeight.W_500,
+            ),
+            ft.Dropdown(
+                value=state.extract_format,
+                options=[
+                    ft.dropdown.Option(f["key"], f["label"]) for f in EXTRACT_FORMATS
+                ],
+                on_select=lambda e: page.run_task(_change_format, e.control.value),
+                filled=True,
+                text_size=tokens.FONT_XS,
+                content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
+                border_radius=tokens.RADIUS_MD,
+                width=150,
+                height=36,
+            ),
+        ],
+        spacing=6,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+
     return ft.Container(
         content=ft.Column(
             [
@@ -905,6 +996,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                     ],
                     spacing=6,
                 ),
+                format_row,
                 ft.Divider(
                     height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)
                 ),

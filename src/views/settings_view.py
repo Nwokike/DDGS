@@ -9,6 +9,7 @@ from core.constants import (
     TIMELIMIT_OPTIONS,
     BACKEND_OPTIONS_TEXT,
     EXTRACT_FORMATS,
+    SAFE_SEARCH_OPTIONS,
 )
 from core.state import state
 from core.theme import AppColors, AppStyles
@@ -25,12 +26,6 @@ from core.utils import logger, in_memory_log_handler
 from services.storage_service import StorageService
 
 LOG_TAG = "SettingsView"
-
-SAFE_SEARCH_OPTIONS = [
-    {"key": "off", "label": "Off", "desc": "Show all results"},
-    {"key": "moderate", "label": "Moderate", "desc": "Filter explicit content"},
-    {"key": "on", "label": "Strict", "desc": "Strict filtering"},
-]
 
 
 def build_settings_view(

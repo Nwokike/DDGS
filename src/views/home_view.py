@@ -12,6 +12,10 @@ from core.constants import (
     BACKEND_OPTIONS_NEWS,
     BACKEND_OPTIONS_BOOKS,
     TIMELIMIT_OPTIONS,
+    REGIONS,
+    SAFE_SEARCH_OPTIONS,
+    MAX_RESULTS_PRESETS,
+    EXTRACT_FORMATS,
 )
 from core.state import state
 from core.theme import AppColors
@@ -259,7 +263,10 @@ def build_home_view(
         ),
     )
 
-    # ── Dropdown filters backend/timelimit row ──
+    # ── Inline Search Tools (settings surfaced where they're used) ──
+    tools_expanded = False
+    tools_container_ref = ft.Ref[ft.Container]()
+
     async def _set_backend(val: str):
         state.backend = val
         await storage.set_backend(val)
@@ -268,39 +275,179 @@ def build_home_view(
         state.timelimit = val
         await storage.set_timelimit(val)
 
+    async def _set_safe_search(val: str):
+        state.safe_search = val
+        await storage.set_safe_search(val)
+
+    async def _set_region(val: str):
+        state.region = val
+        await storage.set_region(val)
+
+    async def _set_max_results(val: int):
+        state.max_results = val
+        await storage.set_max_results(val)
+
+    async def _set_extract_format(val: str):
+        state.extract_format = val
+        await storage.set_extract_format(val)
+
+    def _toggle_tools(_):
+        nonlocal tools_expanded
+        tools_expanded = not tools_expanded
+        if tools_container_ref.current:
+            tools_container_ref.current.visible = tools_expanded
+            tools_container_ref.current.update()
+
+    def _make_compact_dropdown(label, icon, value, options, on_change, width=140):
+        """Build a compact labeled dropdown for the search tools panel."""
+        return ft.Column(
+            [
+                ft.Row(
+                    [
+                        ft.Icon(icon, size=14, color=ft.Colors.ON_SURFACE_VARIANT),
+                        ft.Text(
+                            label,
+                            size=tokens.FONT_XS,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            font_family="Outfit",
+                            weight=ft.FontWeight.W_500,
+                        ),
+                    ],
+                    spacing=4,
+                    tight=True,
+                ),
+                ft.Dropdown(
+                    value=value,
+                    options=options,
+                    on_select=on_change,
+                    filled=True,
+                    text_size=tokens.FONT_XS,
+                    content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
+                    border_radius=tokens.RADIUS_MD,
+                    width=width,
+                    height=36,
+                ),
+            ],
+            spacing=2,
+            tight=True,
+        )
+
+    # Build the tools based on active tab
     backend_options = BACKEND_OPTIONS_MAP.get(active_tab, BACKEND_OPTIONS_TEXT)
     current_backend = state.backend or "auto"
 
-    backend_dropdown = ft.Dropdown(
-        value=current_backend
-        if any(b["key"] == current_backend for b in backend_options)
-        else "auto",
-        options=[ft.dropdown.Option(b["key"], b["label"]) for b in backend_options],
-        on_select=lambda e: page.run_task(_set_backend, e.control.value),
-        filled=True,
-        text_size=tokens.FONT_XS,
-        content_padding=ft.Padding(left=12, top=6, right=12, bottom=6),
-        border_radius=tokens.RADIUS_MD,
-        width=150,
-        height=40,
+    if active_tab == "extract":
+        # Extract tab: show extract format dropdown
+        tools_controls = [
+            _make_compact_dropdown(
+                "Output Format",
+                ft.Icons.CODE_ROUNDED,
+                state.extract_format,
+                [ft.dropdown.Option(f["key"], f["label"]) for f in EXTRACT_FORMATS],
+                lambda e: page.run_task(_set_extract_format, e.control.value),
+                width=160,
+            ),
+        ]
+    else:
+        # Search tabs: show all search-relevant settings
+        tools_controls = [
+            _make_compact_dropdown(
+                "Safe Search",
+                ft.Icons.SHIELD_ROUNDED,
+                state.safe_search,
+                [ft.dropdown.Option(o["key"], o["label"]) for o in SAFE_SEARCH_OPTIONS],
+                lambda e: page.run_task(_set_safe_search, e.control.value),
+                width=120,
+            ),
+            _make_compact_dropdown(
+                "Region",
+                ft.Icons.PUBLIC_ROUNDED,
+                state.region,
+                [ft.dropdown.Option(r["key"], r["label"]) for r in REGIONS],
+                lambda e: page.run_task(_set_region, e.control.value),
+                width=180,
+            ),
+            _make_compact_dropdown(
+                "Max Results",
+                ft.Icons.FORMAT_LIST_NUMBERED_ROUNDED,
+                str(state.max_results),
+                [
+                    ft.dropdown.Option(str(p["key"]), p["label"])
+                    for p in MAX_RESULTS_PRESETS
+                ],
+                lambda e: page.run_task(_set_max_results, int(e.control.value)),
+                width=100,
+            ),
+            _make_compact_dropdown(
+                "Time",
+                ft.Icons.SCHEDULE_ROUNDED,
+                state.timelimit or "",
+                [ft.dropdown.Option(o["key"], o["label"]) for o in TIMELIMIT_OPTIONS],
+                lambda e: page.run_task(_set_timelimit, e.control.value),
+                width=130,
+            ),
+            _make_compact_dropdown(
+                "Backend",
+                ft.Icons.TRAVEL_EXPLORE_ROUNDED,
+                current_backend
+                if any(b["key"] == current_backend for b in backend_options)
+                else "auto",
+                [ft.dropdown.Option(b["key"], b["label"]) for b in backend_options],
+                lambda e: page.run_task(_set_backend, e.control.value),
+                width=160,
+            ),
+        ]
+
+    tools_toggle = ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(
+                    ft.Icons.TUNE_ROUNDED,
+                    size=16,
+                    color=AppColors.PRIMARY,
+                ),
+                ft.Text(
+                    "Search Tools",
+                    size=tokens.FONT_XS,
+                    weight=ft.FontWeight.W_600,
+                    color=AppColors.PRIMARY,
+                    font_family="Outfit",
+                ),
+                ft.Icon(
+                    ft.Icons.EXPAND_MORE_ROUNDED
+                    if not tools_expanded
+                    else ft.Icons.EXPAND_LESS_ROUNDED,
+                    size=16,
+                    color=AppColors.PRIMARY,
+                ),
+            ],
+            spacing=4,
+            alignment=ft.MainAxisAlignment.CENTER,
+            tight=True,
+        ),
+        on_click=_toggle_tools,
+        padding=ft.Padding(12, 6, 12, 6),
+        border_radius=tokens.RADIUS_PILL,
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.2, AppColors.PRIMARY)),
+        bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY),
+        animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
     )
 
-    time_dropdown = ft.Dropdown(
-        value=state.timelimit or "",
-        options=[ft.dropdown.Option(o["key"], o["label"]) for o in TIMELIMIT_OPTIONS],
-        on_select=lambda e: page.run_task(_set_timelimit, e.control.value),
-        filled=True,
-        text_size=tokens.FONT_XS,
-        content_padding=ft.Padding(left=12, top=6, right=12, bottom=6),
+    tools_panel = ft.Container(
+        ref=tools_container_ref,
+        content=ft.Row(
+            controls=tools_controls,
+            wrap=True,
+            spacing=tokens.SPACE_MD,
+            run_spacing=tokens.SPACE_SM,
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+        padding=ft.Padding(8, 10, 8, 10),
         border_radius=tokens.RADIUS_MD,
-        width=130,
-        height=40,
-    )
-
-    filter_row = ft.Row(
-        controls=[backend_dropdown, time_dropdown] if active_tab != "extract" else [],
-        alignment=ft.MainAxisAlignment.CENTER,
-        spacing=tokens.SPACE_SM,
+        bgcolor=ft.Colors.with_opacity(0.04, AppColors.PRIMARY),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.08, AppColors.PRIMARY)),
+        visible=tools_expanded,
+        animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
     )
 
     search_button = ft.FilledButton(
@@ -310,7 +457,7 @@ def build_home_view(
                     ft.Icons.SEARCH_ROUNDED, size=tokens.ICON_MD, color=ft.Colors.WHITE
                 ),
                 ft.Text(
-                    "Execute Search",
+                    "Search" if active_tab != "extract" else "Fetch Page",
                     size=tokens.FONT_MD,
                     weight=ft.FontWeight.W_600,
                     color=ft.Colors.WHITE,
@@ -332,10 +479,14 @@ def build_home_view(
         content=ft.Column(
             [
                 search_field,
-                filter_row,
+                ft.Row(
+                    [tools_toggle],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                tools_panel,
                 ft.Row([search_button], alignment=ft.MainAxisAlignment.CENTER),
             ],
-            spacing=tokens.SPACE_MD,
+            spacing=tokens.SPACE_SM,
             tight=True,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
         ),

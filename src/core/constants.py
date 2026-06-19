@@ -85,3 +85,16 @@ REGIONS = [
     {"key": "es-es", "label": "Spain (Español)"},
     {"key": "it-it", "label": "Italy (Italiano)"},
 ]
+
+SAFE_SEARCH_OPTIONS = [
+    {"key": "off", "label": "Off"},
+    {"key": "moderate", "label": "Moderate"},
+    {"key": "on", "label": "Strict"},
+]
+
+MAX_RESULTS_PRESETS = [
+    {"key": 10, "label": "10"},
+    {"key": 25, "label": "25"},
+    {"key": 50, "label": "50"},
+    {"key": 100, "label": "100"},
+]
