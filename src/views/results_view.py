@@ -72,12 +72,12 @@ def _on_link_tap(page: ft.Page, url: str):
                         content=ft.Row(
                             [
                                 ft.Icon(
-                                    ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                                    ft.Icons.LANGUAGE_ROUNDED,
                                     size=16,
                                     color=ft.Colors.WHITE,
                                 ),
                                 ft.Text(
-                                    "Open in Browser",
+                                    "Fetch Page Content",
                                     size=tokens.FONT_SM,
                                     weight=ft.FontWeight.W_600,
                                     color=ft.Colors.WHITE,
@@ -87,7 +87,7 @@ def _on_link_tap(page: ft.Page, url: str):
                             spacing=8,
                             tight=True,
                         ),
-                        on_click=_open_browser,
+                        on_click=_fetch,
                         style=ft.ButtonStyle(
                             bgcolor=AppColors.PRIMARY,
                             shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_PILL),
@@ -98,11 +98,11 @@ def _on_link_tap(page: ft.Page, url: str):
                         content=ft.Row(
                             [
                                 ft.Icon(
-                                    ft.Icons.LANGUAGE_ROUNDED,
+                                    ft.Icons.OPEN_IN_BROWSER_ROUNDED,
                                     size=16,
                                 ),
                                 ft.Text(
-                                    "Fetch Page Content",
+                                    "Open in Browser",
                                     size=tokens.FONT_SM,
                                     weight=ft.FontWeight.W_600,
                                     font_family="Outfit",
@@ -111,7 +111,7 @@ def _on_link_tap(page: ft.Page, url: str):
                             spacing=8,
                             tight=True,
                         ),
-                        on_click=_fetch,
+                        on_click=_open_browser,
                         style=ft.ButtonStyle(
                             shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_PILL),
                             padding=ft.Padding(20, 12, 20, 12),
