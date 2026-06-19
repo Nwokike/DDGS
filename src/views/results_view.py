@@ -30,7 +30,28 @@ async def launch_url(url: str, page: ft.Page | None = None):
 
 def _on_link_tap(page: ft.Page, url: str):
     """Directly fetch the tapped link and update the current view — like browser navigation."""
-    page.run_task(_fetch_and_show, page, url)
+    from core.utils import logger
+
+    logger.info(f"[{LOG_TAG}] Link tapped: {url}")
+    if not url or url.startswith("#") or url.startswith("mailto:"):
+        return
+    page.run_task(_fetch_and_show_link, page, url)
+
+
+async def _fetch_and_show_link(page: ft.Page, url: str):
+    """Wrapper that safely fetches a link tapped inside fetched content."""
+    from core.utils import logger
+
+    try:
+        await _fetch_and_show(page, url)
+    except Exception as ex:
+        logger.error(f"[{LOG_TAG}] Error fetching link {url}: {ex}")
+        page.snack_bar = ft.SnackBar(
+            ft.Text(f"Could not fetch: {url}"),
+            bgcolor=AppColors.ERROR,
+        )
+        page.snack_bar.open = True
+        page.update()
 
 
 async def _download_media(page: ft.Page, url: str, default_name: str):
@@ -278,8 +299,11 @@ async def _fetch_and_show(page: ft.Page, url: str):
         return
     url = sanitized
 
-    # Close the result details sheet
-    page.pop_dialog()
+    # Close the result details sheet (safe — may not have a dialog open)
+    try:
+        page.pop_dialog()
+    except Exception:
+        pass
 
     # Show loading spinner dialog
     loading_dialog = ft.AlertDialog(
