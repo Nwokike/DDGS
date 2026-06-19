@@ -43,18 +43,20 @@ def _resolve_url(link: str, base_url: str = "") -> str:
     return link
 
 
-def _on_link_tap(page: ft.Page, url: str, base_url: str = ""):
+def _on_link_tap(
+    page: ft.Page, url: str, base_url: str = "", from_dialog: bool = False
+):
     """Directly fetch the tapped link and update the current view — like browser navigation."""
     if not url or url.startswith("#") or url.startswith("mailto:"):
         return
     resolved = _resolve_url(url, base_url)
-    page.run_task(_fetch_and_show_link, page, resolved)
+    page.run_task(_fetch_and_show_link, page, resolved, from_dialog)
 
 
-async def _fetch_and_show_link(page: ft.Page, url: str):
+async def _fetch_and_show_link(page: ft.Page, url: str, from_dialog: bool = False):
     """Wrapper that safely fetches a link tapped inside fetched content."""
     try:
-        await _fetch_and_show(page, url)
+        await _fetch_and_show(page, url, pop_current=from_dialog)
     except Exception:
         page.snack_bar = ft.SnackBar(
             ft.Text(f"Could not fetch: {url}"),
@@ -62,6 +64,10 @@ async def _fetch_and_show_link(page: ft.Page, url: str):
         )
         page.snack_bar.open = True
         page.update()
+
+
+# ── URL history stack for back navigation ──
+_url_history: list[str] = []
 
 
 async def _download_media(page: ft.Page, url: str, default_name: str):
@@ -163,7 +169,8 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     else:
 
         def action_callback(_):
-            page.run_task(_fetch_and_show, page, r.url)
+            _url_history.clear()
+            page.run_task(_fetch_and_show, page, r.url, pop_current=True)
 
     def _close_details(_):
         try:
@@ -301,7 +308,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     page.show_dialog(sheet)
 
 
-async def _fetch_and_show(page: ft.Page, url: str):
+async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     from core.utils import sanitize_url
 
     sanitized = sanitize_url(url)
@@ -315,12 +322,9 @@ async def _fetch_and_show(page: ft.Page, url: str):
         return
     url = sanitized
 
-    # Close any currently open bottom sheet / dialog
-    # Use overlay clearing instead of pop_dialog to avoid Dart "Bad state: No element"
-    try:
+    # Only pop the existing dialog when we know one is open
+    if pop_current:
         page.pop_dialog()
-    except Exception:
-        pass
 
     # Show loading spinner dialog
     loading_dialog = ft.AlertDialog(
@@ -355,10 +359,7 @@ async def _fetch_and_show(page: ft.Page, url: str):
         result = None
 
     # Dismiss loading spinner
-    try:
-        page.pop_dialog()
-    except Exception:
-        pass
+    page.pop_dialog()
 
     if not result:
         page.snack_bar = ft.SnackBar(
@@ -384,14 +385,45 @@ async def _fetch_and_show(page: ft.Page, url: str):
             await _save_text_content(page, str(content), "extracted_page.md")
 
     def _close_preview(_):
-        try:
-            page.pop_dialog()
-        except Exception:
-            pass
+        _url_history.clear()
+        page.pop_dialog()
 
-    # Title row actions
-    actions_row = ft.Row(
+    # Back button — navigate to previous URL
+    def _go_back(_):
+        if _url_history:
+            prev_url = _url_history.pop()
+            page.pop_dialog()
+            page.run_task(_fetch_and_show, page, prev_url, pop_current=False)
+
+    has_history = len(_url_history) > 0
+
+    # Header: [⬅ Back] on left,  [🌐] [💾] [✕] on right
+    header_row = ft.Row(
         [
+            # Left side — back button
+            ft.IconButton(
+                icon=ft.Icons.ARROW_BACK_ROUNDED,
+                icon_size=tokens.ICON_MD,
+                tooltip="Back to previous page",
+                on_click=_go_back,
+                visible=has_history,
+            ),
+            # Title
+            ft.Icon(
+                ft.Icons.LANGUAGE_ROUNDED,
+                size=tokens.ICON_MD,
+                color=AppColors.PRIMARY,
+            ),
+            ft.Text(
+                url[:60] + ("..." if len(url) > 60 else ""),
+                size=tokens.FONT_SM,
+                weight=ft.FontWeight.W_600,
+                font_family="Outfit",
+                expand=True,
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+            # Right side — actions
             ft.IconButton(
                 icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
                 icon_size=tokens.ICON_MD,
@@ -410,7 +442,8 @@ async def _fetch_and_show(page: ft.Page, url: str):
                 on_click=_close_preview,
             ),
         ],
-        spacing=4,
+        spacing=2,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
     # Format switcher for preview sheet
@@ -421,11 +454,8 @@ async def _fetch_and_show(page: ft.Page, url: str):
             await storage_svc.set_extract_format(new_fmt)
         except Exception:
             pass
-        try:
-            page.pop_dialog()
-        except Exception:
-            pass
-        await _fetch_and_show(page, url)
+        page.pop_dialog()
+        await _fetch_and_show(page, url, pop_current=False)
 
     preview_format_row = ft.Row(
         [
@@ -461,29 +491,17 @@ async def _fetch_and_show(page: ft.Page, url: str):
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
+    # Push current URL to history before navigating away via links
+    def _nav_link(page_ref, link_url, base):
+        _url_history.append(url)
+        _on_link_tap(page_ref, link_url, base, from_dialog=True)
+
     is_dark = theme.is_dark_mode(page)
     preview_sheet = ft.BottomSheet(
         content=ft.Container(
             content=ft.Column(
                 [
-                    ft.Row(
-                        [
-                            ft.Icon(
-                                ft.Icons.DOWNLOAD_ROUNDED,
-                                size=tokens.ICON_MD,
-                                color=AppColors.PRIMARY,
-                            ),
-                            ft.Text(
-                                "Page Extract Preview",
-                                size=tokens.FONT_LG,
-                                weight=ft.FontWeight.BOLD,
-                                font_family="Outfit",
-                                expand=True,
-                            ),
-                            actions_row,
-                        ],
-                        spacing=tokens.SPACE_SM,
-                    ),
+                    header_row,
                     preview_format_row,
                     ft.Divider(
                         height=1,
@@ -495,7 +513,7 @@ async def _fetch_and_show(page: ft.Page, url: str):
                                 value=str(content),
                                 selectable=True,
                                 extension_set="gitHubWeb",
-                                on_tap_link=lambda e: _on_link_tap(page, e.data, url),
+                                on_tap_link=lambda e: _nav_link(page, e.data, url),
                             )
                             if not is_bytes
                             else ft.Text(
