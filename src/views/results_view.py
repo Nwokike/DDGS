@@ -14,11 +14,121 @@ LOG_TAG = "ResultsView"
 _search_service = SearchService()
 
 
-def launch_url(url: str):
-    if url:
+async def launch_url(url: str, page: ft.Page | None = None):
+    """Open a URL in the system browser. Works on mobile + desktop."""
+    if not url:
+        return
+    try:
+        await ft.UrlLauncher().launch_url(url)
+    except Exception:
         import webbrowser
 
         webbrowser.open(url)
+
+
+def _on_link_tap(page: ft.Page, url: str):
+    """Show a choice dialog when a link is tapped in fetched content:
+    Fetch Page (primary) or Open in Browser."""
+
+    def _fetch(_):
+        page.pop_dialog()
+        page.run_task(_fetch_and_show, page, url)
+
+    def _open_browser(_):
+        page.pop_dialog()
+        page.run_task(launch_url, url, page)
+
+    dlg = ft.AlertDialog(
+        title=ft.Row(
+            [
+                ft.Icon(
+                    ft.Icons.LINK_ROUNDED,
+                    size=20,
+                    color=AppColors.PRIMARY,
+                ),
+                ft.Text(
+                    "Link Tapped",
+                    size=tokens.FONT_MD,
+                    weight=ft.FontWeight.BOLD,
+                    font_family="Outfit",
+                ),
+            ],
+            spacing=8,
+        ),
+        content=ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(
+                        url,
+                        size=tokens.FONT_XS,
+                        color=AppColors.PRIMARY,
+                        max_lines=3,
+                        overflow="ellipsis",
+                        selectable=True,
+                        font_family="Outfit",
+                    ),
+                    ft.Container(height=tokens.SPACE_SM),
+                    ft.FilledButton(
+                        content=ft.Row(
+                            [
+                                ft.Icon(
+                                    ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                                    size=16,
+                                    color=ft.Colors.WHITE,
+                                ),
+                                ft.Text(
+                                    "Open in Browser",
+                                    size=tokens.FONT_SM,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.WHITE,
+                                    font_family="Outfit",
+                                ),
+                            ],
+                            spacing=8,
+                            tight=True,
+                        ),
+                        on_click=_open_browser,
+                        style=ft.ButtonStyle(
+                            bgcolor=AppColors.PRIMARY,
+                            shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_PILL),
+                            padding=ft.Padding(20, 12, 20, 12),
+                        ),
+                    ),
+                    ft.OutlinedButton(
+                        content=ft.Row(
+                            [
+                                ft.Icon(
+                                    ft.Icons.LANGUAGE_ROUNDED,
+                                    size=16,
+                                ),
+                                ft.Text(
+                                    "Fetch Page Content",
+                                    size=tokens.FONT_SM,
+                                    weight=ft.FontWeight.W_600,
+                                    font_family="Outfit",
+                                ),
+                            ],
+                            spacing=8,
+                            tight=True,
+                        ),
+                        on_click=_fetch,
+                        style=ft.ButtonStyle(
+                            shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_PILL),
+                            padding=ft.Padding(20, 12, 20, 12),
+                        ),
+                    ),
+                ],
+                spacing=tokens.SPACE_SM,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            ),
+            width=300,
+        ),
+        actions=[
+            ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+    page.show_dialog(dlg)
 
 
 async def _download_media(page: ft.Page, url: str, default_name: str):
@@ -127,7 +237,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
 
     def _open_in_browser(_):
         page.pop_dialog()
-        launch_url(r.url)
+        page.run_task(launch_url, r.url)
 
     sheet_content = ft.Container(
         content=ft.Column(
@@ -381,7 +491,7 @@ async def _fetch_and_show(page: ft.Page, url: str):
                                 value=str(content),
                                 selectable=True,
                                 extension_set="gitHubWeb",
-                                on_tap_link=lambda e: launch_url(e.data),
+                                on_tap_link=lambda e: _on_link_tap(page, e.data),
                             )
                             if not is_bytes
                             else ft.Text(
@@ -758,7 +868,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
             value=str(content),
             selectable=True,
             extension_set="gitHubWeb",
-            on_tap_link=lambda e: launch_url(e.data),
+            on_tap_link=lambda e: _on_link_tap(page, e.data),
         )
 
     return ft.Container(
