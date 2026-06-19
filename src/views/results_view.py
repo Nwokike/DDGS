@@ -166,10 +166,16 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             page.run_task(_fetch_and_show, page, r.url)
 
     def _close_details(_):
-        page.pop_dialog()
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
 
     def _open_in_browser(_):
-        page.pop_dialog()
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
         page.run_task(launch_url, r.url)
 
     sheet_content = ft.Container(
@@ -309,7 +315,8 @@ async def _fetch_and_show(page: ft.Page, url: str):
         return
     url = sanitized
 
-    # Close the result details sheet (safe — may not have a dialog open)
+    # Close any currently open bottom sheet / dialog
+    # Use overlay clearing instead of pop_dialog to avoid Dart "Bad state: No element"
     try:
         page.pop_dialog()
     except Exception:
@@ -328,7 +335,7 @@ async def _fetch_and_show(page: ft.Page, url: str):
                         color=AppColors.PRIMARY,
                     ),
                     ft.Text(
-                        "Extracting page content...",
+                        f"Fetching {url[:50]}...",
                         size=tokens.FONT_SM,
                         weight=ft.FontWeight.W_500,
                         font_family="Outfit",
@@ -348,7 +355,10 @@ async def _fetch_and_show(page: ft.Page, url: str):
         result = None
 
     # Dismiss loading spinner
-    page.pop_dialog()
+    try:
+        page.pop_dialog()
+    except Exception:
+        pass
 
     if not result:
         page.snack_bar = ft.SnackBar(
@@ -374,7 +384,10 @@ async def _fetch_and_show(page: ft.Page, url: str):
             await _save_text_content(page, str(content), "extracted_page.md")
 
     def _close_preview(_):
-        page.pop_dialog()
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
 
     # Title row actions
     actions_row = ft.Row(
@@ -408,7 +421,10 @@ async def _fetch_and_show(page: ft.Page, url: str):
             await storage_svc.set_extract_format(new_fmt)
         except Exception:
             pass
-        page.pop_dialog()
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
         await _fetch_and_show(page, url)
 
     preview_format_row = ft.Row(
