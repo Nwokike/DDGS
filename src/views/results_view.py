@@ -28,24 +28,34 @@ async def launch_url(url: str, page: ft.Page | None = None):
         webbrowser.open(url)
 
 
-def _on_link_tap(page: ft.Page, url: str):
-    """Directly fetch the tapped link and update the current view — like browser navigation."""
-    from core.utils import logger
+def _resolve_url(link: str, base_url: str = "") -> str:
+    """Resolve a potentially relative URL against a base URL."""
+    import urllib.parse
 
-    logger.info(f"[{LOG_TAG}] Link tapped: {url}")
+    if not link:
+        return ""
+    # Already absolute
+    if link.startswith(("http://", "https://")):
+        return link
+    # Relative link — resolve against base
+    if base_url:
+        return urllib.parse.urljoin(base_url, link)
+    return link
+
+
+def _on_link_tap(page: ft.Page, url: str, base_url: str = ""):
+    """Directly fetch the tapped link and update the current view — like browser navigation."""
     if not url or url.startswith("#") or url.startswith("mailto:"):
         return
-    page.run_task(_fetch_and_show_link, page, url)
+    resolved = _resolve_url(url, base_url)
+    page.run_task(_fetch_and_show_link, page, resolved)
 
 
 async def _fetch_and_show_link(page: ft.Page, url: str):
     """Wrapper that safely fetches a link tapped inside fetched content."""
-    from core.utils import logger
-
     try:
         await _fetch_and_show(page, url)
-    except Exception as ex:
-        logger.error(f"[{LOG_TAG}] Error fetching link {url}: {ex}")
+    except Exception:
         page.snack_bar = ft.SnackBar(
             ft.Text(f"Could not fetch: {url}"),
             bgcolor=AppColors.ERROR,
@@ -370,6 +380,12 @@ async def _fetch_and_show(page: ft.Page, url: str):
     actions_row = ft.Row(
         [
             ft.IconButton(
+                icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                icon_size=tokens.ICON_MD,
+                tooltip="Open in browser",
+                on_click=lambda _: page.run_task(launch_url, url),
+            ),
+            ft.IconButton(
                 icon=ft.Icons.SAVE_ALT_ROUNDED,
                 icon_size=tokens.ICON_MD,
                 tooltip="Save content to file",
@@ -463,7 +479,7 @@ async def _fetch_and_show(page: ft.Page, url: str):
                                 value=str(content),
                                 selectable=True,
                                 extension_set="gitHubWeb",
-                                on_tap_link=lambda e: _on_link_tap(page, e.data),
+                                on_tap_link=lambda e: _on_link_tap(page, e.data, url),
                             )
                             if not is_bytes
                             else ft.Text(
@@ -840,7 +856,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
             value=str(content),
             selectable=True,
             extension_set="gitHubWeb",
-            on_tap_link=lambda e: _on_link_tap(page, e.data),
+            on_tap_link=lambda e: _on_link_tap(page, e.data, url),
         )
 
     # Format switcher — re-fetch in different format
@@ -910,6 +926,12 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                             max_lines=2,
                             expand=True,
                             font_family="Outfit",
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                            icon_size=tokens.ICON_SM,
+                            tooltip="Open in browser",
+                            on_click=lambda e: page.run_task(launch_url, url),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.SAVE_ALT_ROUNDED,
