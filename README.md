@@ -85,7 +85,7 @@ graph TB
     end
 
     subgraph SEARCH_PROVIDERS ["🌐 14 SEARCH ENGINES"]
-        DDG["DuckDuckGo"]
+        DDG["🦆 DuckDuckGo"]
         Google["🔍 Google"]
         Brave["🦁 Brave"]
         Bing["🔵 Bing"]
