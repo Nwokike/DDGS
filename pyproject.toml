@@ -1,7 +1,7 @@
 [project]
 name = "ddgs-app"
 version = "1.0.0"
-description = "DDGS — Dux Distributed Global Search. Metasearch across 14 engines with DuckDuckGo privacy."
+description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 14 engines."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

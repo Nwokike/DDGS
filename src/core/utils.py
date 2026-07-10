@@ -37,13 +37,13 @@ def setup_logging():
     storage_env = os.getenv("FLET_APP_STORAGE_DATA")
     log_dirs = [
         os.path.join(storage_env, "logs") if storage_env else None,
-        os.path.join(os.path.expanduser("~"), ".duckduckgo_ui", "logs"),
+        os.path.join(os.path.expanduser("~"), ".ddgs_ui", "logs"),
         os.path.join(
-            os.getenv("APPDATA") or os.path.expanduser("~"), ".duckduckgo_ui", "logs"
+            os.getenv("APPDATA") or os.path.expanduser("~"), ".ddgs_ui", "logs"
         )
         if os.name == "nt"
         else None,
-        os.path.join(tempfile.gettempdir(), "duckduckgo_ui", "logs"),
+        os.path.join(tempfile.gettempdir(), "ddgs_ui", "logs"),
         os.path.join(os.getcwd(), "logs"),
     ]
 
@@ -107,7 +107,7 @@ def setup_logging():
         handlers=root_handlers,
     )
 
-    logger = logging.getLogger("duckduckgo_ui")
+    logger = logging.getLogger("ddgs_ui")
     logger.setLevel(logging.DEBUG)
     logger.propagate = False
 

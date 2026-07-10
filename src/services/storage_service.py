@@ -38,7 +38,7 @@ storage_env = os.getenv("FLET_APP_STORAGE_DATA")
 if storage_env:
     _STORAGE_DIR = Path(storage_env)
 else:
-    _STORAGE_DIR = Path.home() / ".duckduckgo_ui"
+    _STORAGE_DIR = Path.home() / ".ddgs_ui"
 
 _STORAGE_FILE = _STORAGE_DIR / "storage.json"
 _WRITE_DEBOUNCE_SEC = 1.0

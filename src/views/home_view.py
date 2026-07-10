@@ -28,7 +28,7 @@ SEARCH_TABS = [
     {
         "key": "text",
         "title": "Web Search",
-        "desc": "DuckDuckGo Metasearch",
+        "desc": "Global Metasearch",
         "icon": ft.Icons.SEARCH_ROUNDED,
         "color": AppColors.PRIMARY,
     },

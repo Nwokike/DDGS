@@ -602,14 +602,14 @@ def build_settings_view(
                         ),
                         ft.Row(
                             [
-                                ft.Text(
-                                    "Core Engines", size=FONT_SM, font_family="Outfit"
-                                ),
-                                ft.Text(
-                                    "DDGS + primp",
-                                    size=FONT_SM,
-                                    color=ft.Colors.ON_SURFACE_VARIANT,
-                                ),
+                        ft.Text(
+                            "Built with", size=FONT_SM, font_family="Outfit"
+                        ),
+                        ft.Text(
+                            "ddgs (MIT) + primp",
+                            size=FONT_SM,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),

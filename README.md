@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  Dux Distributed Global Search — Metasearch across 14 engines with full DuckDuckGo privacy
+  Dux Distributed Global Search — Metasearch across 14 engines with full privacy-first protection
 </p>
 
 <p align="center">
@@ -85,7 +85,7 @@ graph TB
     end
 
     subgraph SEARCH_PROVIDERS ["🌐 14 SEARCH ENGINES"]
-        DDG["🦆 DuckDuckGo"]
+        DDG["DuckDuckGo"]
         Google["🔍 Google"]
         Brave["🦁 Brave"]
         Bing["🔵 Bing"]
@@ -139,3 +139,11 @@ DDGS is designed with a strict **Privacy-First** philosophy:
 ## Legal Disclaimer
 
 DDGS is a metasearch tool that aggregates results from public search engines. It does not store, cache, or redistribute search results. Users are solely responsible for ensuring compliance with target search engines' Terms of Service and local privacy regulations (e.g. GDPR, CCPA). The authors take no responsibility for misuse of this tool.
+
+---
+
+## Credits
+
+- **Search core:** the [`ddgs`](https://github.com/deedy5/ddgs) library (MIT) by deedy5
+- **HTTP client:** [`primp`](https://github.com/deedy5/primp) (Rust, HTTP/2)
+- **UI:** [Flet](https://flet.dev) (Flutter engine)

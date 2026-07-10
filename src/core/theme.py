@@ -4,9 +4,9 @@ import flet as ft
 
 
 class AppColors:
-    # DuckDuckGo Darker Orange Brand Palette
+    # Brand Orange Palette
     PRIMARY = "#B33A1D"  # Premium Dark Orange/Terracotta
-    PRIMARY_LIGHT = "#DE5833"  # Standard DuckDuckGo Orange
+    PRIMARY_LIGHT = "#DE5833"  # Standard Brand Orange
     PRIMARY_DARK = "#8E250F"  # Deep Pressed Orange
     ACCENT = "#B33A1D"  # Neutral accent (avoid color mixing)
 

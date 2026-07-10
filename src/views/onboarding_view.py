@@ -17,11 +17,37 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
     indicator_row = ft.Ref[ft.Row]()
     slide_container = ft.Ref[ft.Container]()
 
+    def _show_policy_dialog(title: str, body: str):
+        page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                title=ft.Text(
+                    title, font_family="Outfit", weight=ft.FontWeight.BOLD
+                ),
+                content=ft.Text(body, size=13, style=ft.TextStyle(height=1.4)),
+                actions=[
+                    ft.TextButton("Close", on_click=lambda e: page.pop_dialog()),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+        )
+
     async def _launch_privacy(e):
-        await ft.UrlLauncher().launch_url("https://duckduckgo.com/privacy")
+        _show_policy_dialog(
+            "Privacy",
+            "DDGS searches directly from your device across multiple public "
+            "search engines. No account is required and your queries are not "
+            "stored on our servers. You are responsible for complying with each "
+            "engine's Terms of Service.",
+        )
 
     async def _launch_terms(e):
-        await ft.UrlLauncher().launch_url("https://duckduckgo.com/terms")
+        _show_policy_dialog(
+            "Terms",
+            "DDGS is a metasearch tool that aggregates public search results. "
+            "It does not cache or redistribute results. Use it responsibly and "
+            "in accordance with applicable laws and the target engines' terms.",
+        )
 
     slides = [
         {
@@ -30,7 +56,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
             "title": "100% Privacy-First",
             "body": (
                 "Your searches and queries are completely anonymous. "
-                "Metasearch securely across 14 engines with DuckDuckGo "
+                "Metasearch securely across 14 engines with built-in "
                 "privacy protection."
             ),
         },
