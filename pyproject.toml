@@ -32,6 +32,10 @@ bundle_id = "ng.kiri.ddgs"
 "android.permission.INTERNET" = true
 "android.permission.ACCESS_NETWORK_STATE" = true
 
+[tool.flet.android.signing]
+key_store = "/home/onyii/Desktop/kiri-apps/DDGS/kiri_keystore.jks"
+key_alias = "upload"
+
 [dependency-groups]
 dev = [
     "ruff>=0.15.17",
