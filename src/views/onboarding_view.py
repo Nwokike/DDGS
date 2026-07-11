@@ -21,9 +21,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
         page.show_dialog(
             ft.AlertDialog(
                 modal=True,
-                title=ft.Text(
-                    title, font_family="Outfit", weight=ft.FontWeight.BOLD
-                ),
+                title=ft.Text(title, font_family="Outfit", weight=ft.FontWeight.BOLD),
                 content=ft.Text(body, size=13, style=ft.TextStyle(height=1.4)),
                 actions=[
                     ft.TextButton("Close", on_click=lambda e: page.pop_dialog()),
