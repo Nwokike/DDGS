@@ -156,6 +156,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
     )
 
     page.show_dialog(dlg)
+    page.update()
 
     written = 0
     last_update = 0.0
@@ -289,20 +290,36 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     if is_media:
 
         def action_callback(_):
-            # Block YouTube downloads synchronously — Google Play policy
+            # Block YouTube downloads — Google Play policy violation
             if search_type == "videos" and is_youtube_url(r.url):
-                page.snack_bar = ft.SnackBar(
-                    ft.Text(
-                        "Downloading from YouTube is restricted by Google Play "
-                        "policies. Open in browser instead."
+                dlg = ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text(
+                        "YouTube downloads restricted",
+                        size=tokens.FONT_MD,
+                        font_family="Outfit",
                     ),
-                    action=ft.SnackBarAction(
-                        "Open", on_click=lambda e: page.run_task(launch_url, r.url)
+                    content=ft.Text(
+                        "Downloading from YouTube violates Google Play Developer "
+                        "Policies and YouTube's Terms of Service. Open the video "
+                        "in your browser instead.",
+                        size=tokens.FONT_SM,
                     ),
-                    bgcolor=AppColors.ERROR,
+                    actions=[
+                        ft.TextButton(
+                            "Cancel",
+                            on_click=lambda e: page.pop_dialog(),
+                        ),
+                        ft.TextButton(
+                            "Open in Browser",
+                            on_click=lambda e: (
+                                page.pop_dialog(),
+                                page.run_task(launch_url, r.url),
+                            ),
+                        ),
+                    ],
                 )
-                page.snack_bar.open = True
-                page.update()
+                page.show_dialog(dlg)
             else:
                 page.run_task(_download_media, page, r, search_type)
     else:
