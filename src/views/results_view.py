@@ -150,8 +150,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
 
     def _cancel():
         cancel_event.set()
-        dlg.open = False
-        page.update()
+        page.pop_dialog()
 
     dlg = ft.AlertDialog(
         modal=True,
@@ -172,9 +171,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         ),
     )
 
-    page.dialog = dlg
-    dlg.open = True
-    page.update()
+    page.show_dialog(dlg)
 
     written = 0
     last_update = 0.0
@@ -210,7 +207,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
                 cancel_event=cancel_event,
                 on_progress=_on_progress,
             )
-        dlg.open = False
+        page.pop_dialog()
         page.update()
         page.snack_bar = ft.SnackBar(
             ft.Text(f"Saved to {path}"), bgcolor=AppColors.SUCCESS
@@ -218,7 +215,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         page.snack_bar.open = True
         page.update()
     except NotMediaError:
-        dlg.open = False
+        page.pop_dialog()
         page.update()
         page.snack_bar = ft.SnackBar(
             ft.Text("Can't download this source directly — open in browser instead."),
@@ -230,7 +227,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         page.snack_bar.open = True
         page.update()
     except DownloadCancelled:
-        dlg.open = False
+        page.pop_dialog()
         page.update()
         page.snack_bar = ft.SnackBar(
             ft.Text("Download cancelled."), bgcolor=AppColors.WARNING
@@ -238,7 +235,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         page.snack_bar.open = True
         page.update()
     except Exception as ex:
-        dlg.open = False
+        page.pop_dialog()
         page.update()
         page.snack_bar = ft.SnackBar(
             ft.Text(f"Download failed: {ex}"), bgcolor=AppColors.ERROR
