@@ -27,6 +27,21 @@ from core.tokens import (
 from core.utils import logger, in_memory_log_handler
 from services.storage_service import StorageService
 
+try:
+    from importlib.metadata import version as _pkg_version
+
+    _APP_VERSION: str = _pkg_version("ddgs-app")
+except Exception:
+    import tomllib
+    from pathlib import Path
+
+    try:
+        _pp = Path(__file__).resolve().parent.parent.parent / "pyproject.toml"
+        with open(_pp, "rb") as f:
+            _APP_VERSION = tomllib.load(f)["project"]["version"]
+    except Exception:
+        _APP_VERSION = "1.0.0"
+
 LOG_TAG = "SettingsView"
 
 
@@ -379,6 +394,7 @@ def build_settings_view(
                 ),
                 page=page,
             ),
+            build_banner_ad(page),
             AppStyles.section_card(
                 "Search Backends",
                 ft.Icons.TRAVEL_EXPLORE_ROUNDED,
@@ -625,11 +641,21 @@ def build_settings_view(
                 ft.Icons.INFO_ROUNDED,
                 ft.Column(
                     [
+                        ft.Container(
+                            content=ft.Image(
+                                src="icon.png",
+                                width=96,
+                                height=96,
+                                fit=ft.BoxFit.CONTAIN,
+                            ),
+                            alignment=ft.Alignment.CENTER,
+                            margin=ft.Margin(0, 0, 0, SPACING_SM),
+                        ),
                         ft.Row(
                             [
                                 ft.Text("Version", size=FONT_SM, font_family="Outfit"),
                                 ft.Text(
-                                    "1.2.0",
+                                    _APP_VERSION,
                                     size=FONT_SM,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                 ),
