@@ -10,6 +10,7 @@ from core.constants import (
     BACKEND_OPTIONS_TEXT,
     EXTRACT_FORMATS,
     SAFE_SEARCH_OPTIONS,
+    VIDEO_QUALITY_OPTIONS,
 )
 from core.state import state
 from core.theme import AppColors, AppStyles
@@ -428,6 +429,40 @@ def build_settings_view(
                             ),
                             filled=True,
                             border_radius=BORDER_RADIUS_MD,
+                        ),
+                    ],
+                    spacing=10,
+                ),
+                page=page,
+            ),
+            AppStyles.section_card(
+                "Downloads",
+                ft.Icons.DOWNLOAD_ROUNDED,
+                ft.Column(
+                    [
+                        ft.Text(
+                            "Video Quality",
+                            size=FONT_MD,
+                            weight=ft.FontWeight.W_600,
+                            font_family="Outfit",
+                        ),
+                        ft.Dropdown(
+                            value=state.video_quality,
+                            options=[
+                                ft.dropdown.Option(q["key"], q["label"])
+                                for q in VIDEO_QUALITY_OPTIONS
+                            ],
+                            on_select=lambda e: page.run_task(
+                                _set, "video_quality", e.control.value
+                            ),
+                            filled=True,
+                            border_radius=BORDER_RADIUS_MD,
+                        ),
+                        ft.Text(
+                            "Preferred quality when downloading videos. "
+                            "YouTube is resolved to a direct file; other sources are fetched as-is.",
+                            size=FONT_XS,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
                     ],
                     spacing=10,

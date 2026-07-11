@@ -2,15 +2,26 @@ from __future__ import annotations
 
 from typing import Callable
 
+import asyncio
 import flet as ft
+import time
 
 from core import theme, tokens
 from core.constants import EXTRACT_FORMATS
 from core.state import SearchProgress, SearchResult, state
 from core.theme import AppColors
 from core.styles import build_banner_ad
+from core.utils import logger
 from services.search_service import SearchService
 from services.storage_service import StorageService
+from services.youtube_resolver import resolve_youtube, is_youtube_url
+from services.media_downloader import (
+    download_media,
+    NotMediaError,
+    DownloadCancelled,
+    sanitize_filename,
+    ext_from_url,
+)
 
 LOG_TAG = "ResultsView"
 
@@ -71,34 +82,167 @@ async def _fetch_and_show_link(page: ft.Page, url: str, from_dialog: bool = Fals
 _url_history: list[str] = []
 
 
-async def _download_media(page: ft.Page, url: str, default_name: str):
+def _human_bytes(n: int) -> str:
+    """Format a byte count as a human-readable string (e.g. '14.0 MB')."""
+    size = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(size)} B"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} PB"
+
+
+async def _download_media(page: ft.Page, result: SearchResult, search_type: str):
     file_picker = getattr(page, "file_picker", None)
     if not file_picker:
         file_picker = ft.FilePicker()
         page.services.append(file_picker)
         page.update()
 
+    is_image = search_type == "images"
+    is_video = search_type == "videos"
+
+    # Determine the source URL + file extension
+    if is_image:
+        media_url = result.image_url or result.url
+        ext = ext_from_url(media_url, "jpg")
+    elif is_video:
+        media_url = result.url
+        ext = "mp4"
+        if is_youtube_url(result.url):
+            page.snack_bar = ft.SnackBar(ft.Text("Resolving video…"))
+            page.snack_bar.open = True
+            page.update()
+            try:
+                stream = await resolve_youtube(
+                    result.url, getattr(state, "video_quality", "best")
+                )
+            except Exception as ex:
+                logger.warning("YouTube resolution failed: %s", ex)
+                stream = None
+            if stream:
+                media_url = stream.url
+                ext = stream.ext
+            # else: fall through and try the original URL directly
+    else:
+        media_url = result.url
+        ext = ext_from_url(media_url, "html")
+
+    default_name = sanitize_filename(result.title or "download", ext)
+
     path = await file_picker.save_file(file_name=default_name)
-    if path:
-        page.snack_bar = ft.SnackBar(ft.Text("Downloading file..."))
-        page.snack_bar.open = True
+    if not path:
+        return
+
+    # ── Live progress dialog (indeterminate until size is known) ──
+    prog_bar = ft.ProgressBar(
+        color=AppColors.PRIMARY,
+        bgcolor=ft.Colors.with_opacity(0.12, AppColors.PRIMARY),
+    )
+    prog_text = ft.Text(
+        "Starting download…",
+        size=tokens.FONT_XS,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+    )
+    cancel_event = asyncio.Event()
+
+    def _cancel():
+        cancel_event.set()
+        dlg.open = False
         page.update()
 
-        try:
-            import httpx
+    dlg = ft.AlertDialog(
+        modal=True,
+        title=ft.Text(
+            f"Downloading {default_name}", size=tokens.FONT_SM, font_family="Outfit"
+        ),
+        content=ft.Column(
+            [
+                prog_bar,
+                prog_text,
+                ft.Row(
+                    [ft.TextButton("Cancel", on_click=lambda e: _cancel())],
+                    alignment=ft.MainAxisAlignment.END,
+                ),
+            ],
+            spacing=tokens.SPACE_SM,
+            tight=True,
+        ),
+    )
 
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url, follow_redirects=True, timeout=30.0)
-                resp.raise_for_status()
-                with open(path, "wb") as f:
-                    f.write(resp.content)
-            page.snack_bar = ft.SnackBar(
-                ft.Text(f"File successfully saved to {path}"), bgcolor=AppColors.SUCCESS
+    page.dialog = dlg
+    dlg.open = True
+    page.update()
+
+    written = 0
+    last_update = 0.0
+
+    def _on_progress(w, total=None):
+        nonlocal written, last_update
+        written = w
+        if total:
+            prog_bar.value = min(w / total, 1.0)
+            prog_text.value = f"{_human_bytes(w)} / {_human_bytes(total)}"
+        else:
+            prog_text.value = f"{_human_bytes(w)} downloaded"
+        now = time.monotonic()
+        if now - last_update >= 0.2:
+            last_update = now
+            page.update()
+
+    try:
+        if is_video:
+            await download_media(
+                media_url,
+                path,
+                referer=result.url,
+                expect_media=True,
+                cancel_event=cancel_event,
+                on_progress=_on_progress,
             )
-        except Exception as ex:
-            page.snack_bar = ft.SnackBar(
-                ft.Text(f"Download failed: {ex}"), bgcolor=AppColors.ERROR
+        else:
+            await download_media(
+                media_url,
+                path,
+                referer=result.url,
+                cancel_event=cancel_event,
+                on_progress=_on_progress,
             )
+        dlg.open = False
+        page.update()
+        page.snack_bar = ft.SnackBar(
+            ft.Text(f"Saved to {path}"), bgcolor=AppColors.SUCCESS
+        )
+        page.snack_bar.open = True
+        page.update()
+    except NotMediaError:
+        dlg.open = False
+        page.update()
+        page.snack_bar = ft.SnackBar(
+            ft.Text("Can't download this source directly — open in browser instead."),
+            action=ft.SnackBarAction(
+                "Open", on_click=lambda e: page.run_task(launch_url, result.url)
+            ),
+            bgcolor=AppColors.ERROR,
+        )
+        page.snack_bar.open = True
+        page.update()
+    except DownloadCancelled:
+        dlg.open = False
+        page.update()
+        page.snack_bar = ft.SnackBar(
+            ft.Text("Download cancelled."), bgcolor=AppColors.WARNING
+        )
+        page.snack_bar.open = True
+        page.update()
+    except Exception as ex:
+        dlg.open = False
+        page.update()
+        page.snack_bar = ft.SnackBar(
+            ft.Text(f"Download failed: {ex}"), bgcolor=AppColors.ERROR
+        )
         page.snack_bar.open = True
         page.update()
 
@@ -160,13 +304,11 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         if search_type == "images"
         else ("Download Video" if search_type == "videos" else "View Page Content")
     )
-    default_name = "image.jpg" if search_type == "images" else "video.mp4"
-    media_url = r.image_url if search_type == "images" and r.image_url else r.url
 
     if is_media:
 
         def action_callback(_):
-            page.run_task(_download_media, page, media_url, default_name)
+            page.run_task(_download_media, page, r, search_type)
     else:
 
         def action_callback(_):
