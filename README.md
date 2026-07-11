@@ -62,6 +62,71 @@
 
 ---
 
+## Screenshots
+
+### Mobile Home Dashboard
+
+<table>
+  <tr>
+    <td width="50%"><img src="screenshots/home_light_mobile.png" width="100%" alt="Home Dashboard Light" /></td>
+    <td width="50%"><img src="screenshots/home_dark_mobile.png" width="100%" alt="Home Dashboard Dark" /></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Home Dashboard (Light Mode) — Clean search categories grid and parameters bar.</em></td>
+    <td align="center"><em>Home Dashboard (Dark Mode) — Sleek slate-black interface displaying recent queries.</em></td>
+  </tr>
+</table>
+
+### Search Results Views
+
+<table>
+  <tr>
+    <td width="33%"><img src="screenshots/results_text_dark_mobile.png" width="100%" alt="Text Search Results" /></td>
+    <td width="33%"><img src="screenshots/results_images_dark_mobile.png" width="100%" alt="Image Search Results" /></td>
+    <td width="33%"><img src="screenshots/results_videos_dark_mobile.png" width="100%" alt="Video Search Results" /></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Web Search — Clean card-based metasearch results with integrated sponsored ads.</em></td>
+    <td align="center"><em>Image Grid — 2-column scrollable image search with dimension overlays.</em></td>
+    <td align="center"><em>Video Index — Rich streaming lists with video duration tags and view counts.</em></td>
+  </tr>
+</table>
+
+### Page Extraction & News Results
+
+<table>
+  <tr>
+    <td width="50%"><img src="screenshots/extract_results_dark_mobile.png" width="100%" alt="Web Page Extraction" /></td>
+    <td width="50%"><img src="screenshots/results_news_dark_mobile.png" width="100%" alt="News Results" /></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Page Extraction — Rendered Markdown reader with source link browser launching.</em></td>
+    <td align="center"><em>News Results — Live news feed with publisher details and thumbnails.</em></td>
+  </tr>
+</table>
+
+### Advanced Settings & History
+
+<table>
+  <tr>
+    <td width="33%"><img src="screenshots/settings_rules_dark_mobile.png" width="100%" alt="Settings - Search Rules" /></td>
+    <td width="33%"><img src="screenshots/settings_backends_downloads_dark_mobile.png" width="100%" alt="Settings - Backends & Downloads" /></td>
+    <td width="33%"><img src="screenshots/settings_network_performance_dark_mobile.png" width="100%" alt="Settings - Network & Terminal" /></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Theme & Rules — Safe-search toggles, max results slider, and region filters.</em></td>
+    <td align="center"><em>Backends & Downloads — Preferred video qualities and extraction defaults.</em></td>
+    <td align="center"><em>Proxies & Diagnostics — Network proxy configurations and live activity logs terminal.</em></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="screenshots/history_light_mobile.png" width="45%" alt="Search History" />
+</p>
+<p align="center"><em>Local Search History (Light Mode) — Chronological log of recent search queries and extraction runs with clear-all controls and instant rerun shortcuts.</em></p>
+
+---
+
 ## Architecture
 
 | Layer | Technology | Purpose |
