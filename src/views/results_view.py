@@ -11,10 +11,9 @@ from core.constants import EXTRACT_FORMATS
 from core.state import SearchProgress, SearchResult, state
 from core.theme import AppColors
 from core.styles import build_banner_ad
-from core.utils import logger
 from services.search_service import SearchService
 from services.storage_service import StorageService
-from services.youtube_resolver import resolve_youtube, is_youtube_url
+from services.youtube_resolver import is_youtube_url
 from services.media_downloader import (
     download_media,
     NotMediaError,
@@ -112,20 +111,21 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         media_url = result.url
         ext = "mp4"
         if is_youtube_url(result.url):
-            page.snack_bar = ft.SnackBar(ft.Text("Resolving video…"))
+            # Block YouTube downloads — violates Google Play Developer Policy
+            # and YouTube Terms of Service. Open in browser instead.
+            page.snack_bar = ft.SnackBar(
+                ft.Text(
+                    "Downloading from YouTube is restricted by Google Play policies. "
+                    "Open in browser instead."
+                ),
+                action=ft.SnackBarAction(
+                    "Open", on_click=lambda e: page.run_task(launch_url, result.url)
+                ),
+                bgcolor=AppColors.ERROR,
+            )
             page.snack_bar.open = True
             page.update()
-            try:
-                stream = await resolve_youtube(
-                    result.url, getattr(state, "video_quality", "best")
-                )
-            except Exception as ex:
-                logger.warning("YouTube resolution failed: %s", ex)
-                stream = None
-            if stream:
-                media_url = stream.url
-                ext = stream.ext
-            # else: fall through and try the original URL directly
+            return
     else:
         media_url = result.url
         ext = ext_from_url(media_url, "html")
