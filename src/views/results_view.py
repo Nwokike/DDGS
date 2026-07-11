@@ -110,22 +110,6 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
     elif is_video:
         media_url = result.url
         ext = "mp4"
-        if is_youtube_url(result.url):
-            # Block YouTube downloads — violates Google Play Developer Policy
-            # and YouTube Terms of Service. Open in browser instead.
-            page.snack_bar = ft.SnackBar(
-                ft.Text(
-                    "Downloading from YouTube is restricted by Google Play policies. "
-                    "Open in browser instead."
-                ),
-                action=ft.SnackBarAction(
-                    "Open", on_click=lambda e: page.run_task(launch_url, result.url)
-                ),
-                bgcolor=AppColors.ERROR,
-            )
-            page.snack_bar.open = True
-            page.update()
-            return
     else:
         media_url = result.url
         ext = ext_from_url(media_url, "html")
@@ -305,7 +289,22 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     if is_media:
 
         def action_callback(_):
-            page.run_task(_download_media, page, r, search_type)
+            # Block YouTube downloads synchronously — Google Play policy
+            if search_type == "videos" and is_youtube_url(r.url):
+                page.snack_bar = ft.SnackBar(
+                    ft.Text(
+                        "Downloading from YouTube is restricted by Google Play "
+                        "policies. Open in browser instead."
+                    ),
+                    action=ft.SnackBarAction(
+                        "Open", on_click=lambda e: page.run_task(launch_url, r.url)
+                    ),
+                    bgcolor=AppColors.ERROR,
+                )
+                page.snack_bar.open = True
+                page.update()
+            else:
+                page.run_task(_download_media, page, r, search_type)
     else:
 
         def action_callback(_):
