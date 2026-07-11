@@ -9,6 +9,7 @@ from core.theme import AppTheme
 from core.utils import logger, log_error, log_performance, log_search_event
 from services.storage_service import StorageService
 from services.search_service import SearchService, _DDGS_AVAILABLE
+from services.ad_service import AdService
 
 LOG_TAG = "Main"
 
@@ -43,6 +44,10 @@ async def main(page: ft.Page):
 
     storage = StorageService(page)
     search_service = SearchService()
+
+    ad_service = AdService(page)
+    state.ad_service = ad_service
+    page.run_task(ad_service.preload_interstitial)
 
     try:
         t = await storage.get_theme()
@@ -183,6 +188,9 @@ async def main(page: ft.Page):
 
         show_view(result)
 
+        if state.ad_service:
+            await state.ad_service.show_interstitial()
+
     async def start_search(query: str, search_type: str = "text"):
         if not query or not query.strip():
             return
@@ -228,6 +236,9 @@ async def main(page: ft.Page):
                 pass
 
             await _refresh(progress)
+
+            if state.ad_service:
+                await state.ad_service.show_interstitial()
 
             if progress.error and "primp" in str(progress.error).lower():
                 logger.critical(

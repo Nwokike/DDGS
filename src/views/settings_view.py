@@ -13,6 +13,7 @@ from core.constants import (
 )
 from core.state import state
 from core.theme import AppColors, AppStyles
+from core.styles import build_banner_ad
 from core.tokens import (
     FONT_XS,
     FONT_SM,
@@ -602,14 +603,14 @@ def build_settings_view(
                         ),
                         ft.Row(
                             [
-                        ft.Text(
-                            "Built with", size=FONT_SM, font_family="Outfit"
-                        ),
-                        ft.Text(
-                            "ddgs (MIT) + primp",
-                            size=FONT_SM,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
+                                ft.Text(
+                                    "Built with", size=FONT_SM, font_family="Outfit"
+                                ),
+                                ft.Text(
+                                    "ddgs (MIT) + primp",
+                                    size=FONT_SM,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                         ),
@@ -628,6 +629,7 @@ def build_settings_view(
                 alignment=ft.Alignment.CENTER,
                 padding=ft.Padding(0, 12, 0, 24),
             ),
+            build_banner_ad(page),
         ],
         spacing=16,
         scroll=ft.ScrollMode.AUTO,

@@ -8,6 +8,7 @@ from core import theme, tokens
 from core.constants import EXTRACT_FORMATS
 from core.state import SearchProgress, SearchResult, state
 from core.theme import AppColors
+from core.styles import build_banner_ad
 from services.search_service import SearchService
 from services.storage_service import StorageService
 
@@ -1236,7 +1237,12 @@ def build_results_view(
             ft.SafeArea(
                 content=ft.Container(
                     content=ft.Column(
-                        [loading_box, error_box, results_container],
+                        [
+                            loading_box,
+                            error_box,
+                            results_container,
+                            build_banner_ad(page),
+                        ],
                         spacing=0,
                         expand=True,
                     ),

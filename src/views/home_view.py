@@ -19,6 +19,7 @@ from core.constants import (
 )
 from core.state import state
 from core.theme import AppColors
+from core.styles import build_banner_ad
 from services.storage_service import StorageService
 from core.utils import logger
 
@@ -564,7 +565,7 @@ def build_home_view(
                         ),
                         ft.Text(
                             "Your searches are never tracked, profiled, or stored. "
-                            "No ads, no filter bubbles, no data harvesting.",
+                            "No filter bubbles, no data harvesting.",
                             size=tokens.FONT_XS,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             font_family="Outfit",
@@ -785,7 +786,7 @@ def build_home_view(
                     ft.Icons.SEARCH_ROUNDED,
                     "Private Web Search",
                     "Search across multiple engines without being tracked. "
-                    "No ads, no profiling, no filter bubbles.",
+                    "No profiling, no filter bubbles.",
                     AppColors.PRIMARY,
                     page=page,
                 ),
@@ -915,6 +916,7 @@ def build_home_view(
             how_it_works,
             ft.Container(height=16),
             no_account_info,
+            build_banner_ad(page),
             ft.Container(height=80),
         ],
         scroll=ft.ScrollMode.AUTO,
