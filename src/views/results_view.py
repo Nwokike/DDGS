@@ -663,6 +663,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                         expand=True,
                         scroll=ft.ScrollMode.AUTO,
                     ),
+                    build_banner_ad(page),
                 ],
                 spacing=tokens.SPACE_SM,
             ),
@@ -1121,6 +1122,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                     height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)
                 ),
                 display,
+                build_banner_ad(page),
             ],
             spacing=tokens.SPACE_SM,
             scroll=ft.ScrollMode.AUTO,
@@ -1310,7 +1312,11 @@ def build_results_view(
                 expand=True,
             )
         else:
-            cards = [builder(r, i, page) for i, r in enumerate(results)]
+            cards = []
+            for idx, r in enumerate(results):
+                if idx > 0 and idx % 4 == 0:
+                    cards.append(build_banner_ad(page))
+                cards.append(builder(r, idx, page))
             results_content = ft.Column(
                 [
                     ft.Row(
