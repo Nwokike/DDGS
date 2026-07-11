@@ -16,6 +16,7 @@ STORAGE_PAGE = "page"
 STORAGE_EXTRACT_FORMAT = "extract_format"
 STORAGE_API_URL = "api_url"
 STORAGE_SPAWN_API = "spawn_api"
+STORAGE_VIDEO_QUALITY = "video_quality"
 
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
@@ -97,4 +98,12 @@ MAX_RESULTS_PRESETS = [
     {"key": 25, "label": "25"},
     {"key": 50, "label": "50"},
     {"key": 100, "label": "100"},
+]
+
+VIDEO_QUALITY_OPTIONS = [
+    {"key": "best", "label": "Best available"},
+    {"key": "1080p", "label": "1080p"},
+    {"key": "720p", "label": "720p"},
+    {"key": "480p", "label": "480p"},
+    {"key": "360p", "label": "360p"},
 ]

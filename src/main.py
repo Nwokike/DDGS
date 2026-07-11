@@ -71,6 +71,7 @@ async def main(page: ft.Page):
         state.api_url = await storage.get_api_url()
         state.spawn_api = await storage.get_spawn_api()
         state.default_tab = await storage.get_default_tab()
+        state.video_quality = await storage.get_video_quality()
         state.search_history = await storage.get_history() or []
 
         logger.info(f"[{LOG_TAG}] Settings loaded")

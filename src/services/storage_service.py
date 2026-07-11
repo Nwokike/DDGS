@@ -29,6 +29,7 @@ from core.constants import (
     STORAGE_EXTRACT_FORMAT,
     STORAGE_API_URL,
     STORAGE_SPAWN_API,
+    STORAGE_VIDEO_QUALITY,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ DEFAULTS: dict[str, Any] = {
     STORAGE_EXTRACT_FORMAT: "text_markdown",
     STORAGE_API_URL: "",
     STORAGE_SPAWN_API: False,
+    STORAGE_VIDEO_QUALITY: "best",
     STORAGE_ONBOARDING_DONE: False,
     STORAGE_DEFAULT_TAB: "text",
 }
@@ -177,6 +179,12 @@ class StorageService:
 
     async def set_theme(self, v: str) -> bool:
         return await self.set(STORAGE_THEME, v)
+
+    async def get_video_quality(self) -> str:
+        return str(self._cache.get(STORAGE_VIDEO_QUALITY, "best"))
+
+    async def set_video_quality(self, v: str) -> bool:
+        return await self.set(STORAGE_VIDEO_QUALITY, v)
 
     @property
     def _history(self) -> list[dict]:

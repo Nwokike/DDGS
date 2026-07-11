@@ -74,6 +74,8 @@ class AppState:
         self.extract_result: dict | None = None
         self.theme_mode: ft.ThemeMode = ft.ThemeMode.SYSTEM
 
+        self.video_quality: str = "best"
+
         self.ad_service = None
 
 
