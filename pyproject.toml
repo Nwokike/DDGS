@@ -1,5 +1,5 @@
 [project]
-name = "ddgs-app"
+name = "ddgs"
 version = "1.0.0"
 description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 14 engines."
 readme = "README.md"
