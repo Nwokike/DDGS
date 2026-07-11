@@ -300,9 +300,11 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                         font_family="Outfit",
                     ),
                     content=ft.Text(
-                        "Downloading from YouTube violates Google Play Developer "
+                        "Downloading from YouTube is restricted by Google Play "
                         "Policies and YouTube's Terms of Service. Open the video "
-                        "in your browser instead.",
+                        "in your browser instead.\n\n"
+                        "Other video sources (Vimeo, Dailymotion, etc.) can "
+                        "still be downloaded normally.",
                         size=tokens.FONT_SM,
                     ),
                     actions=[
