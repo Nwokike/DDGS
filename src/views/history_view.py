@@ -7,6 +7,7 @@ import flet as ft
 from core import theme, tokens
 from core.state import state
 from core.theme import AppColors
+from core.styles import build_banner_ad
 from services.storage_service import StorageService
 from core.utils import logger
 
@@ -214,6 +215,7 @@ def build_history_view(
                     padding=ft.Padding(tokens.SPACE_MD, 0, tokens.SPACE_MD, 0),
                     expand=True,
                 ),
+                build_banner_ad(page),
             ],
             spacing=0,
             expand=True,

@@ -74,5 +74,7 @@ class AppState:
         self.extract_result: dict | None = None
         self.theme_mode: ft.ThemeMode = ft.ThemeMode.SYSTEM
 
+        self.ad_service = None
+
 
 state = AppState()
