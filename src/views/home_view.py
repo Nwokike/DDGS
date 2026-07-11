@@ -152,7 +152,7 @@ def build_home_view(
             content=ft.Row(
                 [
                     ft.Image(
-                        src="icon.svg", width=28, height=28, color=AppColors.PRIMARY
+                        src="icon.png", width=28, height=28, color=AppColors.PRIMARY
                     ),
                     ft.Text(
                         "DDGS",
@@ -192,7 +192,7 @@ def build_home_view(
             [
                 ft.Container(height=tokens.SPACE_LG),
                 ft.Image(
-                    src="icon.svg",
+                    src="icon.png",
                     width=72,
                     height=72,
                     color=AppColors.PRIMARY,
