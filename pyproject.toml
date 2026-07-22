@@ -1,19 +1,20 @@
 [project]
 name = "ddgs"
-version = "1.0.0"
+version = "1.1.0"
 description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 14 engines."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ddgs>=9.14.4",
-    "flet>=0.85.3",
-    "flet-ads>=0.85.0",
+    "flet==0.86.0",
+    "flet-ads==0.86.0",
 ]
 
 [tool.flet]
 org = "ng.kiri"
 product = "DDGS"
-build_number = 1
+company = "Kiri Research Labs"
+build_number = 2
 
 [tool.flet.app]
 path = "src"

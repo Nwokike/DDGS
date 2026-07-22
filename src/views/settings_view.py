@@ -40,7 +40,7 @@ except Exception:
         with open(_pp, "rb") as f:
             _APP_VERSION = tomllib.load(f)["project"]["version"]
     except Exception:
-        _APP_VERSION = "1.0.0"
+        _APP_VERSION = "1.1.0"
 
 LOG_TAG = "SettingsView"
 
