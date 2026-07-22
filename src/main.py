@@ -238,9 +238,6 @@ async def main(page: ft.Page):
 
             await _refresh(progress)
 
-            if state.ad_service:
-                await state.ad_service.show_interstitial()
-
             if progress.error and "primp" in str(progress.error).lower():
                 logger.critical(
                     f"[{LOG_TAG}] PRIMP_CRASH: {search_type} \u2014 {progress.error}"
