@@ -13,7 +13,7 @@ from core.theme import AppColors
 from core.styles import build_banner_ad
 from services.search_service import SearchService
 from services.storage_service import StorageService
-from services.youtube_resolver import is_youtube_url
+from services.youtube_resolver import is_youtube_url, resolve_youtube
 from services.media_downloader import (
     download_media,
     NotMediaError,
@@ -110,6 +110,17 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
     elif is_video:
         media_url = result.url
         ext = "mp4"
+        if is_youtube_url(media_url):
+            try:
+                stream = await resolve_youtube(
+                    media_url,
+                    preferred_quality=getattr(state, "video_quality", "best") or "best",
+                )
+                if stream:
+                    media_url = stream.url
+                    ext = stream.ext
+            except Exception:
+                pass
     else:
         media_url = result.url
         ext = ext_from_url(media_url, "html")
@@ -290,40 +301,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     if is_media:
 
         def action_callback(_):
-            # Block YouTube downloads — Google Play policy violation
-            if search_type == "videos" and is_youtube_url(r.url):
-                dlg = ft.AlertDialog(
-                    modal=True,
-                    title=ft.Text(
-                        "YouTube downloads restricted",
-                        size=tokens.FONT_MD,
-                        font_family="Outfit",
-                    ),
-                    content=ft.Text(
-                        "Downloading from YouTube is restricted by Google Play "
-                        "Policies and YouTube's Terms of Service. Open the video "
-                        "in your browser instead.\n\n"
-                        "All other video sources can still be downloaded "
-                        "normally.",
-                        size=tokens.FONT_SM,
-                    ),
-                    actions=[
-                        ft.TextButton(
-                            "Cancel",
-                            on_click=lambda e: page.pop_dialog(),
-                        ),
-                        ft.TextButton(
-                            "Open in Browser",
-                            on_click=lambda e: (
-                                page.pop_dialog(),
-                                page.run_task(launch_url, r.url),
-                            ),
-                        ),
-                    ],
-                )
-                page.show_dialog(dlg)
-            else:
-                page.run_task(_download_media, page, r, search_type)
+            page.run_task(_download_media, page, r, search_type)
     else:
 
         def action_callback(_):
