@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import flet as ft
 
 from core import theme, tokens
 from core.state import state
-from core.theme import AppColors
 from core.styles import build_banner_ad
-from services.storage_service import StorageService
+from core.theme import AppColors
 from core.utils import logger
+from services.storage_service import StorageService
 
 LOG_TAG = "HistoryView"
 

@@ -201,7 +201,14 @@ def parse_decipher_algo(js_code: str) -> DecipherAlgorithm:
         logger.info("Successfully parsed base.js dynamically using XOR solver!")
         return DecipherAlgorithm(ops)
 
-    except Exception as e:
+    except (
+        ValueError,
+        TypeError,
+        OSError,
+        RuntimeError,
+        ConnectionError,
+        ImportError,
+    ) as e:
         logger.warning("XOR solver parsing failed (%s), trying legacy parser...", e)
         return parse_legacy_algo(js_code)
 
@@ -440,7 +447,14 @@ async def resolve_youtube(
                     )
                 if json_match:
                     player_response = json.loads(json_match.group(1))
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as e:
             logger.warning("Failed to extract details from watch page: %s", e)
 
         player_url = f"https://www.youtube.com/youtubei/v1/player?key={api_key}"
@@ -472,7 +486,14 @@ async def resolve_youtube(
             )
             if res.status_code == 200:
                 player_response = res.json()
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as e:
             logger.warning("InnerTube ANDROID player request failed: %s", e)
 
         if not player_response:
@@ -542,7 +563,14 @@ async def resolve_youtube(
                 if js_res.status_code == 200:
                     algo = parse_decipher_algo(js_res.text)
                     _ALGO_CACHE[js_url] = algo
-            except Exception as e:
+            except (
+                ValueError,
+                TypeError,
+                OSError,
+                RuntimeError,
+                ConnectionError,
+                ImportError,
+            ) as e:
                 logger.error("Failed to compile decipher algorithm from base.js: %s", e)
 
         if not algo:

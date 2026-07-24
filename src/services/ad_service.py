@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable, Optional
+from collections.abc import Callable
 
 import flet as ft
 
@@ -39,7 +39,7 @@ class AdService:
     def __init__(self, page: ft.Page):
         self.page = page
         self.interstitial = None
-        self._on_close: Optional[Callable] = None
+        self._on_close: Callable | None = None
 
     @property
     def banner_id(self) -> str:
@@ -56,7 +56,14 @@ class AdService:
     def _is_mobile(self) -> bool:
         try:
             return self.page.platform.is_mobile()
-        except Exception:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ):
             return False
 
     def get_banner_ad(self) -> ft.Control:
@@ -76,10 +83,17 @@ class AdService:
                 height=50,
                 alignment=ft.Alignment.CENTER,
             )
-        except Exception:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ):
             return ft.Container(width=0, height=0)
 
-    async def preload_interstitial(self, on_close: Optional[Callable] = None):
+    async def preload_interstitial(self, on_close: Callable | None = None):
         """Pre-load an interstitial ad for later display."""
         self._on_close = on_close
         if not _HAS_ADS or not self._is_mobile():
@@ -91,7 +105,14 @@ class AdService:
                 on_error=lambda e: None,
                 on_close=self._handle_close,
             )
-        except Exception:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ):
             self.interstitial = None
 
     async def _handle_close(self, e):
@@ -108,7 +129,14 @@ class AdService:
             try:
                 await self.interstitial.show()
                 return True
-            except Exception:
+            except (
+                ValueError,
+                TypeError,
+                OSError,
+                RuntimeError,
+                ConnectionError,
+                ImportError,
+            ):
                 return False
         return False
 
@@ -142,7 +170,14 @@ class AdService:
                 ),
             )
             return True
-        except Exception as err:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as err:
             logger.error("Failed to trigger rewarded interstitial: %s", err)
             if asyncio.iscoroutinefunction(on_close):
                 await on_close()

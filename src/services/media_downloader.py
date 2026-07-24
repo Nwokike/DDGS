@@ -52,7 +52,7 @@ def ext_from_url(url: str, default: str = "bin") -> str:
     """Extract a file extension from a URL path, or return ``default``."""
     try:
         path = urllib.parse.urlparse(url).path
-    except Exception:
+    except (ValueError, TypeError, OSError, RuntimeError, ConnectionError, ImportError):
         path = ""
     last = path.rsplit("/", 1)[-1]
     if "." in last:
