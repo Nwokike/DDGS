@@ -125,6 +125,7 @@ class SearchService:
             log_ddgs_call(search_type, query, params)
 
             call_start = time.perf_counter()
+            raw = []
             try:
                 raw = await asyncio.to_thread(lambda: list(method(**params)))
                 call_elapsed = time.perf_counter() - call_start
@@ -135,25 +136,37 @@ class SearchService:
             except Exception as e:
                 call_elapsed = time.perf_counter() - call_start
                 log_ddgs_call(search_type, query, params, error=e)
-                raise
+                if search_type != "videos":
+                    raise
 
             parsed = []
-            for i, r in enumerate(raw):
-                parsed.append(self._parse_one(r, search_type, i))
-                progress.loaded_results = i + 1
-                if on_progress and (i % 5 == 0 or i == len(raw) - 1):
-                    progress.results = parsed
-                    try:
-                        on_progress(progress)
-                    except (
-                        ValueError,
-                        TypeError,
-                        AttributeError,
-                        RuntimeError,
-                    ) as ex:
-                        logger.debug(f"Progress callback error: {ex}")
-                if self._is_cancelled:
-                    break
+            if raw:
+                for i, r in enumerate(raw):
+                    parsed.append(self._parse_one(r, search_type, i))
+                    progress.loaded_results = i + 1
+                    if on_progress and (i % 5 == 0 or i == len(raw) - 1):
+                        progress.results = parsed
+                        try:
+                            on_progress(progress)
+                        except (
+                            ValueError,
+                            TypeError,
+                            AttributeError,
+                            RuntimeError,
+                        ) as ex:
+                            logger.debug(f"Progress callback error: {ex}")
+                    if self._is_cancelled:
+                        break
+            elif search_type == "videos":
+                logger.info(
+                    f"[{LOG_TAG}] DDGS.videos returned 0 results/rate-limited; attempting YouTube InnerTube fallback"
+                )
+                yt_results = await self._youtube_video_fallback(query)
+                if yt_results:
+                    parsed = yt_results
+                    logger.info(
+                        f"[{LOG_TAG}] YouTube InnerTube fallback → {len(parsed)} results"
+                    )
 
             elapsed = time.perf_counter() - start_time
             log_performance(
@@ -163,6 +176,7 @@ class SearchService:
             progress.total_results = len(parsed)
             progress.results = parsed
             progress.is_running = False
+            progress.error = None
             state.last_results[search_type] = parsed
 
         except (
@@ -293,3 +307,95 @@ class SearchService:
                 search_type=search_type,
                 raw_data={"error": str(e), "raw": raw},
             )
+
+    async def _youtube_video_fallback(self, query: str) -> list[SearchResult]:
+        """Fetch video search results from YouTube InnerTube API when DDGS.videos is rate-limited."""
+        try:
+            import primp
+
+            client = primp.Client(timeout=10)
+            body = {
+                "context": {
+                    "client": {
+                        "clientName": "WEB",
+                        "clientVersion": "2.20240101.00.00",
+                        "hl": "en",
+                        "gl": "US",
+                    }
+                },
+                "query": query,
+            }
+            resp = await asyncio.to_thread(
+                lambda: client.post(
+                    "https://www.youtube.com/youtubei/v1/search", json=body
+                )
+            )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            contents = (
+                data.get("contents", {})
+                .get("twoColumnSearchResultsRenderer", {})
+                .get("primaryContents", {})
+                .get("sectionListRenderer", {})
+                .get("contents", [])
+            )
+            items = (
+                contents[0].get("itemSectionRenderer", {}).get("contents", [])
+                if contents
+                else []
+            )
+            parsed = []
+            for item in items:
+                if "videoRenderer" in item:
+                    vr = item["videoRenderer"]
+                    title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
+                    video_id = vr.get("videoId", "")
+                    url = f"https://www.youtube.com/watch?v={video_id}"
+                    duration = vr.get("lengthText", {}).get("simpleText", "")
+                    views_str = vr.get("viewCountText", {}).get("simpleText", "") or ""
+                    views = None
+                    if views_str:
+                        num_part = "".join(
+                            c for c in views_str.split()[0] if c.isdigit()
+                        )
+                        if num_part:
+                            views = int(num_part)
+                    publisher = (
+                        vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
+                    )
+                    thumbnail = (
+                        vr.get("thumbnail", {})
+                        .get("thumbnails", [{}])[-1]
+                        .get("url", "")
+                    )
+                    if title and video_id:
+                        parsed.append(
+                            SearchResult(
+                                title=title,
+                                url=url,
+                                snippet=f"{publisher} • {duration}"
+                                if publisher
+                                else title,
+                                search_type="videos",
+                                thumbnail=thumbnail,
+                                duration=duration,
+                                publisher=publisher,
+                                views=views,
+                            )
+                        )
+            return parsed
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+            IndexError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            TimeoutError,
+        ) as ex:
+            logger.warning(f"[{LOG_TAG}] YouTube video fallback error: {ex}")
+            return []
