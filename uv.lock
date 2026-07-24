@@ -183,7 +183,7 @@ wheels = [
 
 [[package]]
 name = "ddgs-app"
-version = "1.0.0"
+version = "1.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "ddgs" },
@@ -199,8 +199,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ddgs", specifier = ">=9.14.4" },
-    { name = "flet", specifier = ">=0.85.3" },
-    { name = "flet-ads", specifier = ">=0.85.0" },
+    { name = "flet", specifier = "==0.85.3" },
+    { name = "flet-ads", specifier = "==0.85.3" },
 ]
 
 [package.metadata.requires-dev]
