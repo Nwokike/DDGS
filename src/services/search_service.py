@@ -136,7 +136,7 @@ class SearchService:
             except Exception as e:
                 call_elapsed = time.perf_counter() - call_start
                 log_ddgs_call(search_type, query, params, error=e)
-                if search_type != "videos":
+                if search_type not in ("videos", "books"):
                     raise
 
             parsed = []
@@ -166,6 +166,16 @@ class SearchService:
                     parsed = yt_results
                     logger.info(
                         f"[{LOG_TAG}] YouTube InnerTube fallback → {len(parsed)} results"
+                    )
+            elif search_type == "books":
+                logger.info(
+                    f"[{LOG_TAG}] DDGS.books returned 0 results; attempting OpenLibrary fallback"
+                )
+                book_results = await self._openlibrary_book_fallback(query)
+                if book_results:
+                    parsed = book_results
+                    logger.info(
+                        f"[{LOG_TAG}] OpenLibrary fallback → {len(parsed)} results"
                     )
 
             elapsed = time.perf_counter() - start_time
@@ -259,7 +269,10 @@ class SearchService:
                     duration=raw.get("duration", ""),
                     embed_url=raw.get("embed_url", ""),
                     publisher=raw.get("publisher", ""),
-                    views=int(stats["viewCount"]) if stats.get("viewCount") else None,
+                    views=int(stats["viewCount"])
+                    if stats.get("viewCount") is not None
+                    and str(stats["viewCount"]).isdigit()
+                    else None,
                     published=raw.get("published", ""),
                     thumbnail=raw.get("images", {}).get("medium", ""),
                     source=raw.get("uploader", ""),
@@ -398,4 +411,65 @@ class SearchService:
             TimeoutError,
         ) as ex:
             logger.warning(f"[{LOG_TAG}] YouTube video fallback error: {ex}")
+            return []
+
+    async def _openlibrary_book_fallback(self, query: str) -> list[SearchResult]:
+        """Fetch book search results from OpenLibrary API when DDGS.books returns 0 results or fails."""
+        try:
+            import primp
+
+            client = primp.Client(timeout=10)
+            resp = await asyncio.to_thread(
+                lambda: client.get(
+                    "https://openlibrary.org/search.json",
+                    params={"q": query, "limit": "20"},
+                )
+            )
+            if resp.status_code != 200:
+                return []
+            docs = resp.json().get("docs", [])
+            results = []
+            for doc in docs:
+                title = doc.get("title", "")
+                authors = ", ".join(doc.get("author_name", []))
+                cover_i = doc.get("cover_i")
+                thumb = (
+                    f"https://covers.openlibrary.org/b/id/{cover_i}-M.jpg"
+                    if cover_i
+                    else ""
+                )
+                key = doc.get("key", "")
+                url = f"https://openlibrary.org{key}" if key else ""
+                first_publish_year = doc.get("first_publish_year", "")
+                snippet = (
+                    f"{authors} ({first_publish_year})"
+                    if authors
+                    else f"Published {first_publish_year}"
+                    if first_publish_year
+                    else title
+                )
+                if title:
+                    results.append(
+                        SearchResult(
+                            title=title,
+                            url=url,
+                            snippet=snippet,
+                            search_type="books",
+                            thumbnail=thumb,
+                        )
+                    )
+            return results
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+            IndexError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            TimeoutError,
+        ) as ex:
+            logger.warning(f"[{LOG_TAG}] OpenLibrary book fallback error: {ex}")
             return []
