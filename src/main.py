@@ -180,8 +180,11 @@ async def main(page: ft.Page):
             page.update()
 
         show_view()
-        result = await search_service.extract_url(url, fmt=state.extract_format)
+        result, error_msg = await search_service.extract_url(
+            url, fmt=state.extract_format
+        )
         progress.is_running = False
+        progress.error = error_msg
         state.extract_result = result
 
         try:
