@@ -194,6 +194,18 @@ def build_about_section(
                 ),
                 ft.Row(
                     [
+                        ft.Text("Edition", size=FONT_SM, font_family="Outfit"),
+                        ft.Text(
+                            "Google Play Edition (Policy Compliant)",
+                            size=FONT_SM,
+                            color=AppColors.PRIMARY,
+                            weight=ft.FontWeight.W_600,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Row(
+                    [
                         ft.Text("Built with", size=FONT_SM, font_family="Outfit"),
                         ft.Text(
                             "ddgs (MIT) + primp",

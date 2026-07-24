@@ -121,13 +121,17 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
             dlg = ft.AlertDialog(
                 modal=True,
                 title=ft.Text(
-                    "YouTube Download Restricted",
+                    "YouTube Downloading Restricted",
                     font_family="Outfit",
                     weight=ft.FontWeight.BOLD,
                 ),
                 content=ft.Text(
-                    "Downloading content directly from YouTube is restricted to comply with Google Play Developer Policy and YouTube Terms of Service.\n\n"
-                    "You can open the video directly in your browser or YouTube app instead. Downloads from other sources remain fully functional.",
+                    "Downloading from YouTube is restricted by Google Play "
+                    "Policies and YouTube's Terms of Service. Open the video "
+                    "in your browser instead.\n\n"
+                    "Other video sources (Vimeo, Dailymotion, etc.) can "
+                    "still be downloaded normally.",
+                    size=tokens.FONT_SM,
                     style=ft.TextStyle(height=1.4),
                 ),
                 actions=[
