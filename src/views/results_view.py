@@ -1336,24 +1336,62 @@ def build_results_view(
     )
 
     is_video_rate_limit = (search_type == "videos") and bool(error)
+
+    # ── Smart error classifier (offline vs server non-200 vs general error) ──
+    err_str = str(error or "").lower()
+    is_offline = any(
+        kw in err_str
+        for kw in (
+            "dns",
+            "connect",
+            "network",
+            "offline",
+            "unreachable",
+            "timed out",
+            "timeout",
+        )
+    )
+    is_server_err = any(
+        kw in err_str for kw in ("500", "502", "503", "504", "server error")
+    )
+
+    if is_offline:
+        err_icon = ft.Icons.WIFI_OFF_ROUNDED
+        err_title = "No Internet Connection"
+        err_desc = (
+            "Unable to reach search servers. Please check your Wi-Fi or mobile data "
+            "connection and try again."
+        )
+    elif is_server_err:
+        err_icon = ft.Icons.CLOUD_OFF_ROUNDED
+        err_title = "Server Unavailable"
+        err_desc = (
+            f"The search server returned a non-200 error ({error}). "
+            "Please try again in a few moments."
+        )
+    else:
+        err_icon = ft.Icons.ERROR_OUTLINE_ROUNDED
+        err_title = "Connection Failed"
+        err_desc = error or "Unknown protocol error. Check settings and proxies."
+
     # ── Error handler banner ──
     error_box = ft.Container(
         content=ft.Column(
             [
                 ft.Icon(
-                    ft.Icons.ERROR_OUTLINE_ROUNDED,
+                    err_icon,
                     size=tokens.ICON_LG,
                     color=AppColors.ERROR,
                 ),
                 ft.Text(
-                    "Connection Failed",
+                    err_title,
                     size=tokens.FONT_LG,
                     weight=ft.FontWeight.BOLD,
                     color=AppColors.ERROR,
                     font_family="Outfit",
                 ),
                 ft.Text(
-                    error or "Unknown protocol error. Check settings and proxies.",
+                    err_desc,
                     size=tokens.FONT_SM,
                     text_align=ft.TextAlign.CENTER,
                     style=ft.TextStyle(height=1.4),
