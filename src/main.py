@@ -75,7 +75,17 @@ async def main(page: ft.Page):
         state.search_history = await storage.get_history() or []
 
         logger.info(f"[{LOG_TAG}] Settings loaded")
-    except Exception as e:
+    except (
+        ValueError,
+        TypeError,
+        OSError,
+        RuntimeError,
+        ConnectionError,
+        ImportError,
+        KeyError,
+        IndexError,
+        AttributeError,
+    ) as e:
         log_error(f"[{LOG_TAG}] Settings load", e)
 
     async def navigate(route: str):
@@ -184,8 +194,18 @@ async def main(page: ft.Page):
                 }
             )
             state.search_history = await storage.get_history()
-        except Exception:
-            pass
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            KeyError,
+            IndexError,
+            AttributeError,
+        ) as ex:
+            logger.warning(f"Extract history save failed: {ex}")
 
         show_view(result)
 
@@ -233,8 +253,18 @@ async def main(page: ft.Page):
                     }
                 )
                 state.search_history = await storage.get_history()
-            except Exception:
-                pass
+            except (
+                ValueError,
+                TypeError,
+                OSError,
+                RuntimeError,
+                ConnectionError,
+                ImportError,
+                KeyError,
+                IndexError,
+                AttributeError,
+            ) as ex:
+                logger.warning(f"Search history save failed: {ex}")
 
             await _refresh(progress)
 

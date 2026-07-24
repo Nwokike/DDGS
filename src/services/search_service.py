@@ -143,8 +143,13 @@ class SearchService:
                     progress.results = parsed
                     try:
                         on_progress(progress)
-                    except Exception:
-                        pass
+                    except (
+                        ValueError,
+                        TypeError,
+                        AttributeError,
+                        RuntimeError,
+                    ) as ex:
+                        logger.debug(f"Progress callback error: {ex}")
                 if self._is_cancelled:
                     break
 
@@ -158,7 +163,18 @@ class SearchService:
             progress.is_running = False
             state.last_results[search_type] = parsed
 
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            IndexError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            TimeoutError,
+        ) as e:
             elapsed = time.perf_counter() - start_time
             log_error(f"[{LOG_TAG}] {search_type} search", e, query=query)
             progress.is_running = False
@@ -181,7 +197,18 @@ class SearchService:
             log_performance("extract", elapsed, url=url, fmt=fmt)
             logger.info(f"[{LOG_TAG}] Extract success: {type(result)}")
             return result
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            IndexError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            TimeoutError,
+        ) as e:
             elapsed = time.perf_counter() - start
             log_error(f"[{LOG_TAG}] extract({url})", e)
             return None
@@ -245,7 +272,13 @@ class SearchService:
                     search_type=search_type,
                     raw_data=raw,
                 )
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            IndexError,
+        ) as e:
             logger.warning(f"[{LOG_TAG}] Parse fail [{index}]: {e}")
             return SearchResult(
                 title="Parse Error",

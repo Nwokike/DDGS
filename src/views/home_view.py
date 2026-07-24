@@ -122,7 +122,13 @@ def build_home_view(
             if text and search_field_ref.current:
                 search_field_ref.current.value = text.strip()
                 search_field_ref.current.update()
-        except Exception as ex:
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+            OSError,
+            RuntimeError,
+        ) as ex:
             logger.warning(f"Clipboard paste failed: {ex}")
 
     def _rebuild():
