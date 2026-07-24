@@ -16,7 +16,7 @@ from services.media_downloader import (
     ext_from_url,
     sanitize_filename,
 )
-from services.youtube_resolver import is_youtube_url, resolve_youtube
+from services.youtube import is_youtube_url, resolve_youtube
 
 
 def _human_bytes(n: int) -> str:
