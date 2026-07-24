@@ -7,7 +7,7 @@ import time
 import flet as ft
 
 from core import tokens
-from core.state import SearchResult, state
+from core.state import SearchResult
 from core.theme import AppColors
 from services.media_downloader import (
     DownloadCancelled,
@@ -16,7 +16,7 @@ from services.media_downloader import (
     ext_from_url,
     sanitize_filename,
 )
-from services.youtube import is_youtube_url, resolve_youtube
+from services.youtube import is_youtube_url
 
 
 def _human_bytes(n: int) -> str:
@@ -117,26 +117,40 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         media_url = result.image_url or result.url
         ext = ext_from_url(media_url, "jpg")
     elif is_video:
+        if is_youtube_url(result.url):
+            dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(
+                    "YouTube Download Restricted",
+                    font_family="Outfit",
+                    weight=ft.FontWeight.BOLD,
+                ),
+                content=ft.Text(
+                    "Downloading content directly from YouTube is restricted to comply with Google Play Developer Policy and YouTube Terms of Service.\n\n"
+                    "You can open the video directly in your browser or YouTube app instead. Downloads from other sources remain fully functional.",
+                    style=ft.TextStyle(height=1.4),
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
+                    ft.FilledButton(
+                        "Open in Browser",
+                        icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                        on_click=lambda e: (
+                            page.pop_dialog(),
+                            page.run_task(launch_url, result.url),
+                        ),
+                        style=ft.ButtonStyle(
+                            bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE
+                        ),
+                    ),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.show_dialog(dlg)
+            page.update()
+            return
         media_url = result.url
         ext = "mp4"
-        if is_youtube_url(media_url):
-            try:
-                stream = await resolve_youtube(
-                    media_url,
-                    preferred_quality=getattr(state, "video_quality", "best") or "best",
-                )
-                if stream:
-                    media_url = stream.url
-                    ext = stream.ext
-            except (
-                ValueError,
-                TypeError,
-                OSError,
-                RuntimeError,
-                ConnectionError,
-                ImportError,
-            ) as _ex:
-                __import__("logging").getLogger("app").debug(f"Ignored: {_ex}")
     else:
         media_url = result.url
         ext = ext_from_url(media_url, "html")
