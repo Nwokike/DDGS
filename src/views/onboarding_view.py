@@ -154,9 +154,7 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
     agree_container_ref = ft.Ref[ft.Container]()
 
     def on_agree_changed(e):
-        if button_ref.current:
-            button_ref.current.disabled = not e.control.value
-            page.update(button_ref.current)
+        pass
 
     button_ref = ft.Ref[ft.FilledButton]()
 
@@ -175,16 +173,22 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
             button_ref.current.icon = (
                 ft.Icons.CHECK_ROUNDED if is_last else ft.Icons.ARROW_FORWARD_ROUNDED
             )
-            # Disable button on last slide if checkbox is unchecked
-            button_ref.current.disabled = is_last and not (
-                agree_checkbox_ref.current and agree_checkbox_ref.current.value
-            )
+            button_ref.current.disabled = False
         page.update()
 
     def on_next(e):
         is_last = current_page["index"] == len(slides) - 1
         if is_last:
             if agree_checkbox_ref.current and not agree_checkbox_ref.current.value:
+                snack = ft.SnackBar(
+                    content=ft.Text(
+                        "Please accept the Privacy Policy & Terms of Service to continue."
+                    ),
+                    bgcolor=AppColors.ERROR,
+                )
+                snack.open = True
+                page.show_dialog(snack)
+                page.update()
                 return
             page.run_task(_finish)
         else:
