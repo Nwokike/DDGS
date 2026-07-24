@@ -1,27 +1,27 @@
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import flet as ft
 
 from core import theme, tokens
 from core.constants import (
-    BACKEND_OPTIONS_TEXT,
-    BACKEND_OPTIONS_IMAGES,
-    BACKEND_OPTIONS_VIDEOS,
-    BACKEND_OPTIONS_NEWS,
     BACKEND_OPTIONS_BOOKS,
-    TIMELIMIT_OPTIONS,
+    BACKEND_OPTIONS_IMAGES,
+    BACKEND_OPTIONS_NEWS,
+    BACKEND_OPTIONS_TEXT,
+    BACKEND_OPTIONS_VIDEOS,
+    EXTRACT_FORMATS,
+    MAX_RESULTS_PRESETS,
     REGIONS,
     SAFE_SEARCH_OPTIONS,
-    MAX_RESULTS_PRESETS,
-    EXTRACT_FORMATS,
+    TIMELIMIT_OPTIONS,
 )
 from core.state import state
-from core.theme import AppColors
 from core.styles import build_banner_ad
-from services.storage_service import StorageService
+from core.theme import AppColors
 from core.utils import logger
+from services.storage_service import StorageService
 
 LOG_TAG = "HomeView"
 
@@ -624,8 +624,6 @@ def build_home_view(
             ),
             padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
         )
-
-
 
     # ── What DDGS Can Do (Feature Showcase) ──
     features_section = ft.Container(

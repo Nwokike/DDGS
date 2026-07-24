@@ -6,8 +6,8 @@ import asyncio
 import time
 from typing import Any
 
-from core.state import SearchResult, SearchProgress, state
-from core.utils import log_ddgs_call, log_performance, log_error, logger
+from core.state import SearchProgress, SearchResult, state
+from core.utils import log_ddgs_call, log_error, log_performance, logger
 
 LOG_TAG = "SearchService"
 

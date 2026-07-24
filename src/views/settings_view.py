@@ -1,30 +1,30 @@
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import flet as ft
 
 from core.constants import (
-    REGIONS,
-    TIMELIMIT_OPTIONS,
     BACKEND_OPTIONS_TEXT,
     EXTRACT_FORMATS,
+    REGIONS,
     SAFE_SEARCH_OPTIONS,
+    TIMELIMIT_OPTIONS,
     VIDEO_QUALITY_OPTIONS,
 )
 from core.state import state
-from core.theme import AppColors, AppStyles
 from core.styles import build_banner_ad
+from core.theme import AppColors, AppStyles
 from core.tokens import (
-    FONT_XS,
-    FONT_SM,
-    FONT_MD,
-    FONT_LG,
-    SPACING_SM,
     BORDER_RADIUS_MD,
+    FONT_LG,
+    FONT_MD,
+    FONT_SM,
+    FONT_XS,
     ICON_MD,
+    SPACING_SM,
 )
-from core.utils import logger, in_memory_log_handler
+from core.utils import in_memory_log_handler, logger
 from services.storage_service import StorageService
 
 try:

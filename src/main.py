@@ -6,10 +6,10 @@ import flet as ft
 
 from core.state import SearchProgress, state
 from core.theme import AppTheme
-from core.utils import logger, log_error, log_performance, log_search_event
-from services.storage_service import StorageService
-from services.search_service import SearchService, _DDGS_AVAILABLE
+from core.utils import log_error, log_performance, log_search_event, logger
 from services.ad_service import AdService
+from services.search_service import _DDGS_AVAILABLE, SearchService
+from services.storage_service import StorageService
 
 LOG_TAG = "Main"
 
