@@ -1320,8 +1320,7 @@ def build_results_view(
         visible=is_running,
     )
 
-    is_video_rate_limit = (search_type == "videos") and (not results or bool(error))
-
+    is_video_rate_limit = (search_type == "videos") and bool(error)
     # ── Error handler banner ──
     error_box = ft.Container(
         content=ft.Column(
