@@ -126,11 +126,10 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
                     weight=ft.FontWeight.BOLD,
                 ),
                 content=ft.Text(
-                    "Downloading from YouTube is restricted by Google Play "
-                    "Policies and YouTube's Terms of Service. Open the video "
-                    "in your browser instead.\n\n"
-                    "Other video sources (Vimeo, Dailymotion, etc.) can "
-                    "still be downloaded normally.",
+                    "Downloading from YouTube is disabled in the Google Play Store version "
+                    "of DDGS to comply with Google Play Developer Policies and YouTube's Terms of Service. "
+                    "Open the video in your browser instead.\n\n"
+                    "Other video sources (Vimeo, Dailymotion, etc.) can still be downloaded normally.",
                     size=tokens.FONT_SM,
                     style=ft.TextStyle(height=1.4),
                 ),

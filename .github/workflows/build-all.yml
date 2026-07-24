@@ -1,6 +1,9 @@
 name: Build DDGS (Android)
 
 on:
+  push:
+    branches: ["playstore"]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
     inputs:
