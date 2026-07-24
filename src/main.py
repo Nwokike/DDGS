@@ -161,7 +161,7 @@ async def main(page: ft.Page):
 
         progress = SearchProgress(query=url, search_type="extract", is_running=True)
         state.search_progress = progress
-        from views.results_view import build_results_view
+        from views.results import build_results_view
 
         def show_view(extract_result=None):
             page.views.clear()
@@ -278,7 +278,7 @@ async def main(page: ft.Page):
 
         async def _refresh(progress: SearchProgress):
             page.views.clear()
-            from views.results_view import build_results_view
+            from views.results import build_results_view
 
             v = build_results_view(
                 page,
@@ -319,7 +319,7 @@ async def main(page: ft.Page):
         page.views.clear()
 
         if route in ("/home", "/"):
-            from views.home_view import build_home_view
+            from views.home import build_home_view
 
             v = build_home_view(
                 page,
@@ -339,7 +339,7 @@ async def main(page: ft.Page):
             )
             page.views.append(v)
         elif route == "/settings":
-            from views.settings_view import build_settings_view
+            from views.settings import build_settings_view
 
             v = build_settings_view(page, navigate_sync, storage)
             page.views.append(v)
