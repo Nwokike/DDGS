@@ -231,7 +231,7 @@ def build_settings_view(
             selectable=True,
         )
 
-        async def copy_logs(e):
+        async def copy_logs(e=None):
             try:
                 await page.clipboard.set(logs)
                 snack = ft.SnackBar(ft.Text("Activity log copied to clipboard!"))
