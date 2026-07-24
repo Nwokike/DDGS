@@ -625,8 +625,6 @@ def build_home_view(
             padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
         )
 
-
-
     # ── What DDGS Can Do (Feature Showcase) ──
     features_section = ft.Container(
         content=ft.Column(
