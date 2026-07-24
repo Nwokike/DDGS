@@ -564,7 +564,9 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     page.show_dialog(loading_dialog)
 
     try:
-        result = await _search_service.extract_url(url, fmt=state.extract_format)
+        result, error_msg = await _search_service.extract_url(
+            url, fmt=state.extract_format
+        )
     except (
         ValueError,
         TypeError,
@@ -576,17 +578,49 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         IndexError,
         AttributeError,
         TimeoutError,
-    ):
-        result = None
+    ) as ex:
+        result, error_msg = None, str(ex)
 
     # Dismiss loading spinner
     page.pop_dialog()
 
     if not result:
-        snack_tmp = ft.SnackBar(
-            ft.Text("Failed to retrieve content from target URL"),
-            bgcolor=AppColors.ERROR,
+        err_str = str(error_msg or "").lower()
+        is_offline = any(
+            kw in err_str
+            for kw in (
+                "dns",
+                "connect",
+                "network",
+                "offline",
+                "unreachable",
+                "timed out",
+                "timeout",
+                "refused",
+            )
         )
+        if is_offline:
+            snack_tmp = ft.SnackBar(
+                ft.Text(
+                    "No internet connection. Please check your network and try again."
+                ),
+                action=ft.SnackBarAction(
+                    "Retry",
+                    on_click=lambda e: page.run_task(_fetch_and_show, page, url, False),
+                ),
+                bgcolor=AppColors.ERROR,
+            )
+        else:
+            snack_tmp = ft.SnackBar(
+                ft.Text(
+                    f"Could not extract page content ({error_msg or 'Unavailable'})"
+                ),
+                action=ft.SnackBarAction(
+                    "Open Browser",
+                    on_click=lambda e: page.run_task(launch_url, url),
+                ),
+                bgcolor=AppColors.ERROR,
+            )
         snack_tmp.open = True
         page.show_dialog(snack_tmp)
         page.update()

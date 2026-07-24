@@ -189,8 +189,10 @@ class SearchService:
 
         return progress
 
-    async def extract_url(self, url: str, fmt: str = "text_markdown") -> dict | None:
-        """Extract content from a URL in any format."""
+    async def extract_url(
+        self, url: str, fmt: str = "text_markdown"
+    ) -> tuple[dict | None, str | None]:
+        """Extract content from a URL in any format. Returns (result_dict, error_string)."""
         logger.info(f"[{LOG_TAG}] Extracting: {url} fmt={fmt}")
         start = time.perf_counter()
         try:
@@ -199,7 +201,7 @@ class SearchService:
             elapsed = time.perf_counter() - start
             log_performance("extract", elapsed, url=url, fmt=fmt)
             logger.info(f"[{LOG_TAG}] Extract success: {type(result)}")
-            return result
+            return result, None
         except (
             DDGSException,
             ValueError,
@@ -215,7 +217,7 @@ class SearchService:
         ) as e:
             elapsed = time.perf_counter() - start
             log_error(f"[{LOG_TAG}] extract({url})", e)
-            return None
+            return None, str(e)
 
     def _parse_one(self, raw: dict, search_type: str, index: int) -> SearchResult:
         """Parse a raw result dict into SearchResult."""
