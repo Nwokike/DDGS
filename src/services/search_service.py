@@ -14,10 +14,12 @@ LOG_TAG = "SearchService"
 _DDGS_AVAILABLE = False
 try:
     from ddgs import DDGS
+    from ddgs.exceptions import DDGSException
 
     _DDGS_AVAILABLE = True
 except ImportError as e:
     DDGS = None
+    DDGSException = Exception  # fallback
     logger.error(f"[{LOG_TAG}] DDGS import failed: {e}")
     logger.error(f"[{LOG_TAG}] This is critical - primp may have crashed on import")
 
@@ -164,6 +166,7 @@ class SearchService:
             state.last_results[search_type] = parsed
 
         except (
+            DDGSException,
             ValueError,
             TypeError,
             KeyError,
@@ -198,6 +201,7 @@ class SearchService:
             logger.info(f"[{LOG_TAG}] Extract success: {type(result)}")
             return result
         except (
+            DDGSException,
             ValueError,
             TypeError,
             KeyError,
