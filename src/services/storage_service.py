@@ -2,33 +2,33 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import time
-import asyncio
 from pathlib import Path
 from typing import Any
 
 import flet as ft
 
 from core.constants import (
-    STORAGE_THEME,
+    STORAGE_API_URL,
+    STORAGE_BACKEND,
+    STORAGE_DEFAULT_TAB,
+    STORAGE_EXTRACT_FORMAT,
     STORAGE_HISTORY,
-    STORAGE_SAFE_SEARCH,
-    STORAGE_REGION,
     STORAGE_MAX_RESULTS,
     STORAGE_ONBOARDING_DONE,
-    STORAGE_DEFAULT_TAB,
-    STORAGE_TIMELIMIT,
-    STORAGE_BACKEND,
-    STORAGE_PROXY,
-    STORAGE_VERIFY_SSL,
-    STORAGE_THREADS,
     STORAGE_PAGE,
-    STORAGE_EXTRACT_FORMAT,
-    STORAGE_API_URL,
+    STORAGE_PROXY,
+    STORAGE_REGION,
+    STORAGE_SAFE_SEARCH,
     STORAGE_SPAWN_API,
+    STORAGE_THEME,
+    STORAGE_THREADS,
+    STORAGE_TIMELIMIT,
+    STORAGE_VERIFY_SSL,
     STORAGE_VIDEO_QUALITY,
 )
 
@@ -88,7 +88,14 @@ class StorageService:
             raw = cs.get("ddgs_storage")
             loaded = json.loads(raw) if raw else {}
             self._cache.update(loaded)
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as e:
             logger.warning("StorageService._load_web failed: %s", e)
 
     def _load(self) -> None:
@@ -98,7 +105,14 @@ class StorageService:
                 raw = _STORAGE_FILE.read_text(encoding="utf-8")
                 loaded = json.loads(raw) if raw else {}
                 self._cache.update(loaded)
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as e:
             logger.warning("StorageService._load failed: %s", e)
 
     def _save_now(self) -> None:
@@ -113,7 +127,14 @@ class StorageService:
             )
             self._dirty = False
             self._last_write = time.monotonic()
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as e:
             logger.warning("StorageService._save_now failed: %s", e)
 
     def _save_now_web(self) -> None:
@@ -122,7 +143,14 @@ class StorageService:
             cs.set("ddgs_storage", json.dumps(self._cache))
             self._dirty = False
             self._last_write = time.monotonic()
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as e:
             logger.warning("StorageService._save_now_web failed: %s", e)
 
     def _schedule_write(self) -> None:

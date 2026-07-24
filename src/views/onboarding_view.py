@@ -30,22 +30,43 @@ def build_onboarding_view(page: ft.Page, on_done: Callable, storage=None) -> ft.
             )
         )
 
-    async def _launch_privacy(e):
-        _show_policy_dialog(
-            "Privacy",
-            "DDGS searches directly from your device across multiple public "
-            "search engines. No account is required and your queries are not "
-            "stored on our servers. You are responsible for complying with each "
-            "engine's Terms of Service.",
-        )
+    async def _launch_privacy(e=None):
+        try:
+            await ft.UrlLauncher().launch_url("https://kiri.ng/privacy")
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            KeyError,
+            IndexError,
+            AttributeError,
+            TimeoutError,
+        ):
+            import webbrowser
 
-    async def _launch_terms(e):
-        _show_policy_dialog(
-            "Terms",
-            "DDGS is a metasearch tool that aggregates public search results. "
-            "It does not cache or redistribute results. Use it responsibly and "
-            "in accordance with applicable laws and the target engines' terms.",
-        )
+            webbrowser.open("https://kiri.ng/privacy")
+
+    async def _launch_terms(e=None):
+        try:
+            await ft.UrlLauncher().launch_url("https://kiri.ng/terms")
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            KeyError,
+            IndexError,
+            AttributeError,
+            TimeoutError,
+        ):
+            import webbrowser
+
+            webbrowser.open("https://kiri.ng/terms")
 
     slides = [
         {

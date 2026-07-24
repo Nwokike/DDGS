@@ -1,26 +1,26 @@
 from __future__ import annotations
 
-from typing import Callable
-
 import asyncio
-import flet as ft
 import time
+from collections.abc import Callable
+
+import flet as ft
 
 from core import theme, tokens
 from core.constants import EXTRACT_FORMATS
 from core.state import SearchProgress, SearchResult, state
-from core.theme import AppColors
 from core.styles import build_banner_ad
+from core.theme import AppColors
+from services.media_downloader import (
+    DownloadCancelled,
+    NotMediaError,
+    download_media,
+    ext_from_url,
+    sanitize_filename,
+)
 from services.search_service import SearchService
 from services.storage_service import StorageService
 from services.youtube_resolver import is_youtube_url
-from services.media_downloader import (
-    download_media,
-    NotMediaError,
-    DownloadCancelled,
-    sanitize_filename,
-    ext_from_url,
-)
 
 LOG_TAG = "ResultsView"
 
@@ -33,7 +33,18 @@ async def launch_url(url: str, page: ft.Page | None = None):
         return
     try:
         await ft.UrlLauncher().launch_url(url)
-    except Exception:
+    except (
+        ValueError,
+        TypeError,
+        OSError,
+        RuntimeError,
+        ConnectionError,
+        ImportError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TimeoutError,
+    ):
         import webbrowser
 
         webbrowser.open(url)
@@ -58,7 +69,7 @@ def _on_link_tap(
     page: ft.Page, url: str, base_url: str = "", from_dialog: bool = False
 ):
     """Directly fetch the tapped link and update the current view — like browser navigation."""
-    if not url or url.startswith("#") or url.startswith("mailto:"):
+    if not url or url.startswith(("#", "mailto:")):
         return
     resolved = _resolve_url(url, base_url)
     page.run_task(_fetch_and_show_link, page, resolved, from_dialog)
@@ -68,12 +79,24 @@ async def _fetch_and_show_link(page: ft.Page, url: str, from_dialog: bool = Fals
     """Wrapper that safely fetches a link tapped inside fetched content."""
     try:
         await _fetch_and_show(page, url, pop_current=from_dialog)
-    except Exception:
-        page.snack_bar = ft.SnackBar(
+    except (
+        ValueError,
+        TypeError,
+        OSError,
+        RuntimeError,
+        ConnectionError,
+        ImportError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TimeoutError,
+    ):
+        snack_tmp = ft.SnackBar(
             ft.Text(f"Could not fetch: {url}"),
             bgcolor=AppColors.ERROR,
         )
-        page.snack_bar.open = True
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
 
 
@@ -194,38 +217,47 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
             )
         page.pop_dialog()
         page.update()
-        page.snack_bar = ft.SnackBar(
-            ft.Text(f"Saved to {path}"), bgcolor=AppColors.SUCCESS
-        )
-        page.snack_bar.open = True
+        snack_tmp = ft.SnackBar(ft.Text(f"Saved to {path}"), bgcolor=AppColors.SUCCESS)
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
     except NotMediaError:
         page.pop_dialog()
         page.update()
-        page.snack_bar = ft.SnackBar(
+        snack_tmp = ft.SnackBar(
             ft.Text("Can't download this source directly — open in browser instead."),
             action=ft.SnackBarAction(
                 "Open", on_click=lambda e: page.run_task(launch_url, result.url)
             ),
             bgcolor=AppColors.ERROR,
         )
-        page.snack_bar.open = True
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
     except DownloadCancelled:
         page.pop_dialog()
         page.update()
-        page.snack_bar = ft.SnackBar(
+        snack_tmp = ft.SnackBar(
             ft.Text("Download cancelled."), bgcolor=AppColors.WARNING
         )
-        page.snack_bar.open = True
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
-    except Exception as ex:
+    except (
+        ValueError,
+        TypeError,
+        OSError,
+        RuntimeError,
+        ConnectionError,
+        ImportError,
+    ) as ex:
         page.pop_dialog()
         page.update()
-        page.snack_bar = ft.SnackBar(
+        snack_tmp = ft.SnackBar(
             ft.Text(f"Download failed: {ex}"), bgcolor=AppColors.ERROR
         )
-        page.snack_bar.open = True
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
 
 
@@ -239,16 +271,27 @@ async def _save_text_content(page: ft.Page, text: str, default_name: str):
     path = await file_picker.save_file(file_name=default_name)
     if path:
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(text)
-            page.snack_bar = ft.SnackBar(
+            await __import__("asyncio").to_thread(
+                lambda: (
+                    __import__("pathlib").Path(path).write_text(text, encoding="utf-8")
+                )
+            )
+            snack_tmp = ft.SnackBar(
                 ft.Text(f"File successfully saved to {path}"), bgcolor=AppColors.SUCCESS
             )
-        except Exception as ex:
-            page.snack_bar = ft.SnackBar(
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as ex:
+            snack_tmp = ft.SnackBar(
                 ft.Text(f"Failed to save file: {ex}"), bgcolor=AppColors.ERROR
             )
-        page.snack_bar.open = True
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
 
 
@@ -262,16 +305,25 @@ async def _save_bytes_content(page: ft.Page, data: bytes, default_name: str):
     path = await file_picker.save_file(file_name=default_name)
     if path:
         try:
-            with open(path, "wb") as f:
-                f.write(data)
-            page.snack_bar = ft.SnackBar(
+            await __import__("asyncio").to_thread(
+                lambda: __import__("pathlib").Path(path).write_bytes(data)
+            )
+            snack_tmp = ft.SnackBar(
                 ft.Text(f"File successfully saved to {path}"), bgcolor=AppColors.SUCCESS
             )
-        except Exception as ex:
-            page.snack_bar = ft.SnackBar(
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as ex:
+            snack_tmp = ft.SnackBar(
                 ft.Text(f"Failed to save file: {ex}"), bgcolor=AppColors.ERROR
             )
-        page.snack_bar.open = True
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
     page.update()
 
@@ -333,14 +385,28 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     def _close_details(_):
         try:
             page.pop_dialog()
-        except Exception:
-            pass
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as _ex:
+            __import__("logging").getLogger("app").debug(f"Ignored: {_ex}")
 
     def _open_in_browser(_):
         try:
             page.pop_dialog()
-        except Exception:
-            pass
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as _ex:
+            __import__("logging").getLogger("app").debug(f"Ignored: {_ex}")
         page.run_task(launch_url, r.url)
 
     sheet_content = ft.Container(
@@ -471,11 +537,12 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
 
     sanitized = sanitize_url(url)
     if not sanitized:
-        page.snack_bar = ft.SnackBar(
+        snack_tmp = ft.SnackBar(
             ft.Text("Invalid URL format. Please provide a valid web link."),
             bgcolor=AppColors.ERROR,
         )
-        page.snack_bar.open = True
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
         return
     url = sanitized
@@ -513,18 +580,30 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
 
     try:
         result = await _search_service.extract_url(url, fmt=state.extract_format)
-    except Exception:
+    except (
+        ValueError,
+        TypeError,
+        OSError,
+        RuntimeError,
+        ConnectionError,
+        ImportError,
+        KeyError,
+        IndexError,
+        AttributeError,
+        TimeoutError,
+    ):
         result = None
 
     # Dismiss loading spinner
     page.pop_dialog()
 
     if not result:
-        page.snack_bar = ft.SnackBar(
+        snack_tmp = ft.SnackBar(
             ft.Text("Failed to retrieve content from target URL"),
             bgcolor=AppColors.ERROR,
         )
-        page.snack_bar.open = True
+        snack_tmp.open = True
+        page.show_dialog(snack_tmp)
         page.update()
         return
 
@@ -610,8 +689,15 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         try:
             storage_svc = StorageService()
             await storage_svc.set_extract_format(new_fmt)
-        except Exception:
-            pass
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as _ex:
+            __import__("logging").getLogger("app").debug(f"Ignored: {_ex}")
         page.pop_dialog()
         await _fetch_and_show(page, url, pop_current=False)
 
@@ -1058,8 +1144,15 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
         try:
             storage_svc = StorageService()
             await storage_svc.set_extract_format(new_fmt)
-        except Exception:
-            pass
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as _ex:
+            __import__("logging").getLogger("app").debug(f"Ignored: {_ex}")
         # Re-fetch the same URL with the new format
         await _fetch_and_show(page, url)
 

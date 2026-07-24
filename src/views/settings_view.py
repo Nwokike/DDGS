@@ -59,6 +59,44 @@ def build_settings_view(
     def _rebuild():
         on_navigate(page.route)
 
+    async def _launch_privacy(e=None):
+        try:
+            await ft.UrlLauncher().launch_url("https://kiri.ng/privacy")
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            KeyError,
+            IndexError,
+            AttributeError,
+            TimeoutError,
+        ):
+            import webbrowser
+
+            webbrowser.open("https://kiri.ng/privacy")
+
+    async def _launch_terms(e=None):
+        try:
+            await ft.UrlLauncher().launch_url("https://kiri.ng/terms")
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            KeyError,
+            IndexError,
+            AttributeError,
+            TimeoutError,
+        ):
+            import webbrowser
+
+            webbrowser.open("https://kiri.ng/terms")
+
     # ── Theme toggle cards ──
     current_theme = "system"
     if page.theme_mode == ft.ThemeMode.DARK:
@@ -193,13 +231,12 @@ def build_settings_view(
             selectable=True,
         )
 
-        def copy_logs(e):
+        async def copy_logs(e):
             try:
-                page.set_clipboard(logs)
-                page.snack_bar = ft.SnackBar(
-                    ft.Text("Activity log copied to clipboard!")
-                )
-                page.snack_bar.open = True
+                await page.clipboard.set(logs)
+                snack = ft.SnackBar(ft.Text("Activity log copied to clipboard!"))
+                snack.open = True
+                page.show_dialog(snack)
                 page.update()
             except Exception as ex:
                 logger.error(f"Copy logs failed: {ex}")
@@ -252,7 +289,7 @@ def build_settings_view(
                 ft.IconButton(
                     icon=ft.Icons.COPY_ROUNDED,
                     tooltip="Copy to Clipboard",
-                    on_click=copy_logs,
+                    on_click=lambda e: page.run_task(copy_logs),
                 ),
                 ft.TextButton("Close", on_click=_close_dialog),
             ],
@@ -674,6 +711,27 @@ def build_settings_view(
                                 ),
                             ],
                             alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        ),
+                        ft.Divider(
+                            height=1,
+                            color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                        ),
+                        ft.Row(
+                            [
+                                ft.TextButton(
+                                    "Privacy Policy",
+                                    icon=ft.Icons.PRIVACY_TIP_ROUNDED,
+                                    style=ft.ButtonStyle(color=AppColors.PRIMARY),
+                                    on_click=lambda e: page.run_task(_launch_privacy),
+                                ),
+                                ft.TextButton(
+                                    "Terms of Service",
+                                    icon=ft.Icons.GAVEL_ROUNDED,
+                                    style=ft.ButtonStyle(color=AppColors.PRIMARY),
+                                    on_click=lambda e: page.run_task(_launch_terms),
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_EVENLY,
                         ),
                     ],
                     spacing=8,

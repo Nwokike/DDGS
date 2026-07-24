@@ -5,12 +5,10 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import time
-from functools import wraps
-from typing import Callable
-
-
 import tempfile
+import time
+from collections.abc import Callable
+from functools import wraps
 
 
 class InMemoryLogHandler(logging.Handler):
@@ -25,7 +23,14 @@ class InMemoryLogHandler(logging.Handler):
             self.records.append(msg)
             if len(self.records) > self.limit:
                 self.records.pop(0)
-        except Exception:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ):
             self.handleError(record)
 
 
@@ -144,9 +149,16 @@ def log_function_call(func: Callable) -> Callable:
                 f"← {func.__name__} completed in {elapsed:.3f}s: {type(result).__name__}"
             )
             return result
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as e:
             elapsed = time.perf_counter() - start_time
-            logger.exception(f"← {func.__name__} failed in {elapsed:.3f}s: {e}")
+            logger.exception(f"← {func.__name__} failed in {elapsed:.3f}s: {e}")  # noqa: TRY401
             raise
 
     return _wrapper
@@ -169,9 +181,16 @@ def log_async_function_call(func: Callable) -> Callable:
                 f"← async {func.__name__} completed in {elapsed:.3f}s: {type(result).__name__}"
             )
             return result
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as e:
             elapsed = time.perf_counter() - start_time
-            logger.exception(f"← async {func.__name__} failed in {elapsed:.3f}s: {e}")
+            logger.exception(f"← async {func.__name__} failed in {elapsed:.3f}s: {e}")  # noqa: TRY401
             raise
 
     return _wrapper
@@ -185,7 +204,7 @@ def log_search_event(event: str, **data):
 
 def log_error(context: str, error: Exception, **extra):
     """Log errors with context."""
-    logger.error(f"ERROR in {context}: {error}", extra=extra, exc_info=True)
+    logger.error(f"ERROR in {context}: {error}", extra=extra)
 
 
 def log_performance(operation: str, duration: float, **metrics):
@@ -210,7 +229,7 @@ def log_ddgs_call(
     if error:
         log_data["error"] = str(error)
         log_data["error_type"] = type(error).__name__
-        logger.error(f"DDGS_CALL_FAILED: {log_data}", exc_info=True)
+        logger.error(f"DDGS_CALL_FAILED: {log_data}")
     else:
         logger.debug(f"DDGS_CALL: {log_data}")
 
