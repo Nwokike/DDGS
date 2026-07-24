@@ -104,16 +104,19 @@ async def download_media(
 
         total = _safe_int(r.headers.get("content-length"))
         try:
-            with open(dest, "wb") as f:
+            f = await asyncio.to_thread(open, dest, "wb")
+            try:
                 async for chunk in r.aiter_bytes(chunk_size):
                     if not chunk:
                         continue
                     if cancel_event is not None and cancel_event.is_set():
                         raise DownloadCancelled()
-                    f.write(chunk)
+                    await asyncio.to_thread(f.write, chunk)
                     written += len(chunk)
                     if on_progress is not None:
                         on_progress(written, total)
+            finally:
+                await asyncio.to_thread(f.close)
         except DownloadCancelled:
             # Remove the partial file so we don't leave a broken download behind.
             try:
