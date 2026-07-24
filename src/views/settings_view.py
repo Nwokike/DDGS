@@ -1,3 +1,3 @@
 """Legacy entry point — re-exports from modular views/settings package."""
 
-from views.settings import *  # noqa: F403
+from views.settings import *

@@ -1,3 +1,3 @@
 """Legacy entry point — re-exports from modular services/youtube package."""
 
-from services.youtube import *  # noqa: F403
+from services.youtube import *
