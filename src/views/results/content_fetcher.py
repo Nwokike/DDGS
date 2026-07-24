@@ -184,7 +184,29 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 page, result.get("content", b""), "extracted_file.bin"
             )
         else:
-            await _save_text_content(page, str(content), "extracted_page.md")
+            fmt_map = {
+                "text_markdown": ".md",
+                "text": ".txt",
+                "text_html": ".html",
+                "text_rich": ".html",
+            }
+            ext = fmt_map.get(state.extract_format, ".md")
+            import urllib.parse
+
+            parsed_url = urllib.parse.urlparse(url)
+            domain_name = (
+                (parsed_url.netloc or parsed_url.path or "extracted_page")
+                .replace("www.", "")
+                .replace(".", "_")
+            )
+            clean_name = (
+                "".join(c for c in domain_name if c.isalnum() or c in ("_", "-")).strip(
+                    "_"
+                )
+                or "extracted_page"
+            )
+            file_name = f"{clean_name}{ext}"
+            await _save_text_content(page, str(content), file_name)
 
     def _close_preview(_):
         _url_history.clear()
