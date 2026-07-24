@@ -251,7 +251,9 @@ async def main(page: ft.Page):
                 page,
                 progress,
                 navigate_sync,
-                lambda q: page.run_task(start_search, q, progress.search_type),
+                lambda q, st=None: page.run_task(
+                    start_search, q, st or progress.search_type
+                ),
                 lambda: page.run_task(cancel_and_go_home),
             )
             page.views.append(v)

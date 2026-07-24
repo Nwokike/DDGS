@@ -1320,6 +1320,8 @@ def build_results_view(
         visible=is_running,
     )
 
+    is_video_rate_limit = (search_type == "videos") and (not results or bool(error))
+
     # ── Error handler banner ──
     error_box = ft.Container(
         content=ft.Column(
@@ -1374,11 +1376,103 @@ def build_results_view(
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
         ),
         padding=ft.Padding(32, 48, 32, 48),
-        visible=bool(error) and not is_running,
+        visible=bool(error) and not is_running and not is_video_rate_limit,
     )
 
     # ── Render Search results ──
-    if search_type == "extract":
+    if is_video_rate_limit:
+        results_content = ft.Container(
+            content=ft.Column(
+                [
+                    ft.Icon(
+                        ft.Icons.SCHEDULE_ROUNDED,
+                        size=tokens.ICON_LG,
+                        color=AppColors.WARNING,
+                    ),
+                    ft.Text(
+                        "Video Search Rate-Limited",
+                        size=tokens.FONT_LG,
+                        weight=ft.FontWeight.BOLD,
+                        color=AppColors.WARNING,
+                        font_family="Outfit",
+                    ),
+                    ft.Text(
+                        "DuckDuckGo strictly rate-limits automated video search queries. "
+                        "When rate-limited, zero video results are returned.\n\n"
+                        "Please try again later or switch to Web search.",
+                        size=tokens.FONT_SM,
+                        text_align=ft.TextAlign.CENTER,
+                        style=ft.TextStyle(height=1.4),
+                    ),
+                    ft.Container(height=12),
+                    ft.Row(
+                        [
+                            ft.FilledButton(
+                                content=ft.Row(
+                                    [
+                                        ft.Icon(
+                                            ft.Icons.SEARCH_ROUNDED,
+                                            size=tokens.ICON_SM,
+                                            color=ft.Colors.WHITE,
+                                        ),
+                                        ft.Text(
+                                            "Try Web Search",
+                                            size=tokens.FONT_SM,
+                                            weight=ft.FontWeight.W_600,
+                                            color=ft.Colors.WHITE,
+                                            font_family="Outfit",
+                                        ),
+                                    ],
+                                    spacing=6,
+                                    tight=True,
+                                ),
+                                on_click=lambda _: on_restart(query, "text"),
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(
+                                        radius=tokens.RADIUS_MD
+                                    ),
+                                    bgcolor=AppColors.PRIMARY,
+                                    padding=ft.Padding(16, 12, 16, 12),
+                                ),
+                            ),
+                            ft.OutlinedButton(
+                                content=ft.Row(
+                                    [
+                                        ft.Icon(
+                                            ft.Icons.REFRESH_ROUNDED,
+                                            size=tokens.ICON_SM,
+                                        ),
+                                        ft.Text(
+                                            "Retry Video",
+                                            size=tokens.FONT_SM,
+                                            weight=ft.FontWeight.W_600,
+                                            font_family="Outfit",
+                                        ),
+                                    ],
+                                    spacing=6,
+                                    tight=True,
+                                ),
+                                on_click=lambda _: on_restart(query, "videos"),
+                                style=ft.ButtonStyle(
+                                    shape=ft.RoundedRectangleBorder(
+                                        radius=tokens.RADIUS_MD
+                                    ),
+                                    padding=ft.Padding(16, 12, 16, 12),
+                                ),
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        spacing=tokens.SPACE_SM,
+                    ),
+                ],
+                spacing=tokens.SPACE_MD,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.Padding(32, 48, 32, 48),
+            expand=True,
+            alignment=ft.Alignment.CENTER,
+        )
+    elif search_type == "extract":
         results_content = _extract_card(extract_result, page)
     elif results:
         builder = CARD_BUILDERS.get(search_type, _text_card)
@@ -1469,7 +1563,7 @@ def build_results_view(
             tokens.SPACE_MD, tokens.SPACE_SM, tokens.SPACE_MD, tokens.SPACE_SM
         ),
         expand=True,
-        visible=not is_running and not bool(error),
+        visible=not is_running and (not bool(error) or is_video_rate_limit),
     )
 
     return ft.View(
