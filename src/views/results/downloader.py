@@ -103,6 +103,43 @@ async def _resolve_save_path(page: ft.Page, default_name: str) -> str | None:
     return path
 
 
+def _show_feedback(page: ft.Page, title: str, message: str, is_error: bool = False):
+    """Display a clear, prominent completion/error dialog on both mobile and desktop screens."""
+    icon = ft.Icons.CHECK_CIRCLE_ROUNDED if not is_error else ft.Icons.ERROR_OUTLINED
+    icon_color = AppColors.SUCCESS if not is_error else AppColors.ERROR
+    dlg = ft.AlertDialog(
+        modal=False,
+        title=ft.Row(
+            [
+                ft.Icon(icon, color=icon_color, size=24),
+                ft.Text(
+                    title,
+                    size=tokens.FONT_MD,
+                    font_family="Outfit",
+                    weight=ft.FontWeight.BOLD,
+                ),
+            ],
+            spacing=tokens.SPACE_XS,
+        ),
+        content=ft.Text(
+            message,
+            size=tokens.FONT_SM,
+            selectable=True,
+            style=ft.TextStyle(height=1.4),
+        ),
+        actions=[
+            ft.FilledButton(
+                "OK",
+                on_click=lambda e: page.pop_dialog(),
+                style=ft.ButtonStyle(bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE),
+            )
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+    page.show_dialog(dlg)
+    page.update()
+
+
 async def _download_media(page: ft.Page, result: SearchResult, search_type: str):
     file_picker = getattr(page, "file_picker", None)
     if not file_picker:
@@ -165,7 +202,9 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
     dlg = ft.AlertDialog(
         modal=True,
         title=ft.Text(
-            f"Downloading {default_name}", size=tokens.FONT_SM, font_family="Outfit"
+            f"Downloading {default_name}",
+            size=tokens.FONT_SM,
+            font_family="Outfit",
         ),
         content=ft.Column(
             [
@@ -220,32 +259,27 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
             )
         page.pop_dialog()
         page.update()
-        snack_tmp = ft.SnackBar(ft.Text(f"Saved to {path}"), bgcolor=AppColors.SUCCESS)
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
-        page.update()
+        _show_feedback(
+            page,
+            "Download Complete",
+            f"File successfully saved to:\n\n{path}",
+            is_error=False,
+        )
     except NotMediaError:
         page.pop_dialog()
         page.update()
-        snack_tmp = ft.SnackBar(
-            ft.Text("Can't download this source directly — open in browser instead."),
-            action=ft.SnackBarAction(
-                "Open", on_click=lambda e: page.run_task(launch_url, result.url)
-            ),
-            bgcolor=AppColors.ERROR,
+        _show_feedback(
+            page,
+            "Download Unavailable",
+            "Can't download this source directly — open in browser instead.",
+            is_error=True,
         )
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
-        page.update()
     except DownloadCancelled:
         page.pop_dialog()
         page.update()
-        snack_tmp = ft.SnackBar(
-            ft.Text("Download cancelled."), bgcolor=AppColors.WARNING
+        _show_feedback(
+            page, "Download Cancelled", "Download was cancelled.", is_error=True
         )
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
-        page.update()
     except (
         ValueError,
         TypeError,
@@ -256,12 +290,9 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
     ) as ex:
         page.pop_dialog()
         page.update()
-        snack_tmp = ft.SnackBar(
-            ft.Text(f"Download failed: {ex}"), bgcolor=AppColors.ERROR
+        _show_feedback(
+            page, "Download Failed", f"Failed to download: {ex}", is_error=True
         )
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
-        page.update()
 
 
 async def _save_text_content(page: ft.Page, text: str, default_name: str):
@@ -273,8 +304,11 @@ async def _save_text_content(page: ft.Page, text: str, default_name: str):
                     __import__("pathlib").Path(path).write_text(text, encoding="utf-8")
                 )
             )
-            snack_tmp = ft.SnackBar(
-                ft.Text(f"File successfully saved to {path}"), bgcolor=AppColors.SUCCESS
+            _show_feedback(
+                page,
+                "File Saved",
+                f"File successfully saved to:\n\n{path}",
+                is_error=False,
             )
         except (
             ValueError,
@@ -284,12 +318,9 @@ async def _save_text_content(page: ft.Page, text: str, default_name: str):
             ConnectionError,
             ImportError,
         ) as ex:
-            snack_tmp = ft.SnackBar(
-                ft.Text(f"Failed to save file: {ex}"), bgcolor=AppColors.ERROR
+            _show_feedback(
+                page, "Save Failed", f"Failed to save file: {ex}", is_error=True
             )
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
-        page.update()
 
 
 async def _save_bytes_content(page: ft.Page, data: bytes, default_name: str):
@@ -299,8 +330,11 @@ async def _save_bytes_content(page: ft.Page, data: bytes, default_name: str):
             await asyncio.to_thread(
                 lambda: __import__("pathlib").Path(path).write_bytes(data)
             )
-            snack_tmp = ft.SnackBar(
-                ft.Text(f"File successfully saved to {path}"), bgcolor=AppColors.SUCCESS
+            _show_feedback(
+                page,
+                "File Saved",
+                f"File successfully saved to:\n\n{path}",
+                is_error=False,
             )
         except (
             ValueError,
@@ -310,10 +344,6 @@ async def _save_bytes_content(page: ft.Page, data: bytes, default_name: str):
             ConnectionError,
             ImportError,
         ) as ex:
-            snack_tmp = ft.SnackBar(
-                ft.Text(f"Failed to save file: {ex}"), bgcolor=AppColors.ERROR
+            _show_feedback(
+                page, "Save Failed", f"Failed to save file: {ex}", is_error=True
             )
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
-        page.update()
-    page.update()
