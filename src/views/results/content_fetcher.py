@@ -186,9 +186,10 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         else:
             fmt_map = {
                 "text_markdown": ".md",
-                "text": ".txt",
-                "text_html": ".html",
+                "text_plain": ".txt",
                 "text_rich": ".html",
+                "text": ".html",
+                "content": ".bin",
             }
             ext = fmt_map.get(state.extract_format, ".md")
             import urllib.parse
