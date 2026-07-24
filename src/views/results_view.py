@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections.abc import Callable
 
@@ -123,10 +124,66 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         page.services.append(file_picker)
         page.update()
 
+
+async def _resolve_save_path(page: ft.Page, default_name: str) -> str | None:
+    """Resolve destination file save path across Android/iOS mobile and desktop platforms."""
+    is_mobile = page.platform in (
+        ft.PagePlatform.ANDROID,
+        getattr(ft.PagePlatform, "ANDROID_TV", ft.PagePlatform.ANDROID),
+        ft.PagePlatform.IOS,
+    )
+    if is_mobile:
+        dl_dir = "/storage/emulated/0/Download"
+        if not os.path.exists(dl_dir):
+            dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+        os.makedirs(dl_dir, exist_ok=True)
+
+        name_part, ext_part = os.path.splitext(default_name)
+        counter = 1
+        unique_name = default_name
+        while os.path.exists(os.path.join(dl_dir, unique_name)):
+            unique_name = f"{name_part} ({counter}){ext_part}"
+            counter += 1
+        return os.path.join(dl_dir, unique_name)
+
+    file_picker = getattr(page, "file_picker", None)
+    if not file_picker:
+        file_picker = ft.FilePicker()
+        page.services.append(file_picker)
+        page.update()
+
+    try:
+        path = await file_picker.save_file(
+            dialog_title=f"Save {default_name}",
+            file_name=default_name,
+        )
+    except (ValueError, TypeError, OSError, RuntimeError, AttributeError):
+        path = None
+
+    if not path:
+        dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+        os.makedirs(dl_dir, exist_ok=True)
+        name_part, ext_part = os.path.splitext(default_name)
+        counter = 1
+        unique_name = default_name
+        while os.path.exists(os.path.join(dl_dir, unique_name)):
+            unique_name = f"{name_part} ({counter}){ext_part}"
+            counter += 1
+        path = os.path.join(dl_dir, unique_name)
+
+    return path
+
+
+async def _download_media(page: ft.Page, result: SearchResult, search_type: str):
+    file_picker = getattr(page, "file_picker", None)
+    if not file_picker:
+        file_picker = ft.FilePicker()
+        page.services.append(file_picker)
+        page.update()
+
     is_image = search_type == "images"
     is_video = search_type == "videos"
 
-    # Determine the source URL + file extension
     if is_image:
         media_url = result.image_url or result.url
         ext = ext_from_url(media_url, "jpg")
@@ -139,7 +196,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
 
     default_name = sanitize_filename(result.title or "download", ext)
 
-    path = await file_picker.save_file(file_name=default_name)
+    path = await _resolve_save_path(page, default_name)
     if not path:
         return
 
@@ -262,13 +319,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
 
 
 async def _save_text_content(page: ft.Page, text: str, default_name: str):
-    file_picker = getattr(page, "file_picker", None)
-    if not file_picker:
-        file_picker = ft.FilePicker()
-        page.services.append(file_picker)
-        page.update()
-
-    path = await file_picker.save_file(file_name=default_name)
+    path = await _resolve_save_path(page, default_name)
     if path:
         try:
             await __import__("asyncio").to_thread(
@@ -296,13 +347,7 @@ async def _save_text_content(page: ft.Page, text: str, default_name: str):
 
 
 async def _save_bytes_content(page: ft.Page, data: bytes, default_name: str):
-    file_picker = getattr(page, "file_picker", None)
-    if not file_picker:
-        file_picker = ft.FilePicker()
-        page.services.append(file_picker)
-        page.update()
-
-    path = await file_picker.save_file(file_name=default_name)
+    path = await _resolve_save_path(page, default_name)
     if path:
         try:
             await __import__("asyncio").to_thread(
