@@ -172,9 +172,7 @@ def build_history_view(
         page.pop_dialog()
         state.search_history.clear()
         await storage.set_history([])
-        page.views.clear()
-        page.views.append(build_history_view(page, on_navigate, on_search, storage))
-        page.update()
+        on_navigate("/history")
 
     header = ft.Container(
         content=ft.Row(

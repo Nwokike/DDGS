@@ -7,7 +7,7 @@ import time
 import flet as ft
 
 from core import tokens
-from core.state import SearchResult
+from core.state import SearchResult, state
 from core.theme import AppColors
 from services.media_downloader import (
     DownloadCancelled,
@@ -276,6 +276,21 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
             )
         page.pop_dialog()
         page.update()
+        if getattr(state, "ad_service", None):
+            try:
+                await state.ad_service.show_interstitial()
+            except (
+                ValueError,
+                TypeError,
+                OSError,
+                RuntimeError,
+                ConnectionError,
+                ImportError,
+                AttributeError,
+            ) as _ex:
+                __import__("logging").getLogger("app").debug(
+                    f"Ad display ignored: {_ex}"
+                )
         _show_feedback(
             page,
             "Download Complete",
