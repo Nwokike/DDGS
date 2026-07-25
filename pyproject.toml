@@ -35,7 +35,7 @@ bundle_id = "ng.kiri.ddgs"
 "android.permission.ACCESS_NETWORK_STATE" = true
 
 [tool.flet.android.meta_data]
-"com.google.android.gms.ads.APPLICATION_ID" = "ca-app-pub-5679949845754640~1261089274"
+"com.google.android.gms.ads.APPLICATION_ID" = "ca-app-pub-5679949845754640~2413783608"
 
 [tool.flet.android.signing]
 key_store = "../../../../kiri_keystore.jks"
