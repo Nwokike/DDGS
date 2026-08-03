@@ -96,6 +96,7 @@ _HINT_MAP = {
 # ── Helper components (stateless, no hooks) ────────────────────────────
 
 
+@ft.memo
 def _action_card(
     icon: str,
     title: str,
@@ -153,6 +154,7 @@ def _action_card(
     )
 
 
+@ft.memo
 def _feature_card(
     icon: str,
     title: str,
