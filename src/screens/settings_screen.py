@@ -224,7 +224,7 @@ def SettingsScreen() -> Control:
             build_search_rules_section(
                 page,
                 controller.save_async,
-                controller.save_async,
+                lambda v: controller.save_async("safe_search", v),
             ),
             build_banner_ad(page),
             build_backends_section(page, controller.save_async),
