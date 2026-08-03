@@ -6,8 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ddgs>=9.14.4",
-    "flet==0.85.3",
-    "flet-ads==0.85.3",
+    "flet>=0.86.2",
+    "flet-ads>=0.86.2",
 ]
 
 [tool.flet]
@@ -20,12 +20,7 @@ build_number = 2
 path = "src"
 
 [tool.flet.app.boot_screen]
-show = true
-message = "Initializing DDGS..."
-
-[tool.flet.app.startup_screen]
-show = true
-message = "Dux Distributed Global Search"
+startup_message = "Initializing DDGS..."
 
 [tool.flet.android]
 bundle_id = "ng.kiri.ddgs"

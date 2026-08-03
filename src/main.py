@@ -47,6 +47,7 @@ async def main(page: ft.Page):
 
     ad_service = AdService(page)
     state.ad_service = ad_service
+    await ad_service.gather_consent()
     page.run_task(ad_service.preload_interstitial)
 
     try:
