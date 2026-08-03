@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import flet as ft
 
+from components.results.content_fetcher import _fetch_and_show, _url_history
+from components.results.downloader import _download_media, launch_url
 from core import theme, tokens
 from core.state import SearchResult
 from core.theme import AppColors
-from views.results.content_fetcher import _fetch_and_show, _url_history
-from views.results.downloader import _download_media, launch_url
 
 
 def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):

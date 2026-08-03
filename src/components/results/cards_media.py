@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import flet as ft
 
+from components.results.detail_sheet import _show_result_sheet
 from core import theme, tokens
 from core.state import SearchResult
 from core.theme import AppColors
-from views.results.detail_sheet import _show_result_sheet
 
 
 def _image_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:

@@ -175,19 +175,19 @@ def SettingsScreen() -> Control:
         page.show_dialog(dlg)
 
     # ── Import old section builders during migration ──
-    from views.settings.sections_about import (
+    from components.settings.sections_about import (
         build_about_section,
         build_logs_section,
         build_storage_section,
     )
-    from views.settings.sections_advanced import (
+    from components.settings.sections_advanced import (
         build_backends_section,
         build_connection_section,
         build_downloads_section,
         build_extraction_section,
         build_performance_section,
     )
-    from views.settings.sections_general import (
+    from components.settings.sections_general import (
         build_search_rules_section,
         build_theme_section,
     )

@@ -2,25 +2,25 @@ from __future__ import annotations
 
 import flet as ft
 
+from components.results.cards_media import (
+    _books_card,
+    _image_card,
+    _news_card,
+    _video_card,
+)
+from components.results.content_fetcher import _fetch_and_show, _on_link_tap
+from components.results.detail_sheet import _show_result_sheet
+from components.results.downloader import (
+    _save_bytes_content,
+    _save_text_content,
+    launch_url,
+)
 from core import theme, tokens
 from core.constants import EXTRACT_FORMATS
 from core.state import SearchResult, state
 from core.styles import build_banner_ad
 from core.theme import AppColors
 from services.storage_service import StorageService
-from views.results.cards_media import (
-    _books_card,
-    _image_card,
-    _news_card,
-    _video_card,
-)
-from views.results.content_fetcher import _fetch_and_show, _on_link_tap
-from views.results.detail_sheet import _show_result_sheet
-from views.results.downloader import (
-    _save_bytes_content,
-    _save_text_content,
-    launch_url,
-)
 
 
 def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:

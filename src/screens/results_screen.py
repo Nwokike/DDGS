@@ -294,12 +294,12 @@ def ResultsScreen() -> Control:
         # Import extract card from old views/ during migration
         from flet import context as flet_context
 
-        from views.results.cards import _extract_card
+        from components.results.cards import _extract_card
 
         results_content = _extract_card(extract_result, flet_context.page)
     elif results:
         # Import card builders from old views/ during migration
-        from views.results.cards import CARD_BUILDERS, _text_card
+        from components.results.cards import CARD_BUILDERS, _text_card
 
         builder = CARD_BUILDERS.get(search_type, _text_card)
 

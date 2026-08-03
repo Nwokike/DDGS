@@ -4,14 +4,14 @@ from collections.abc import Callable
 
 import flet as ft
 
+from components.home.cards import _action_card, _feature_card, _step_row
+from components.home.header import build_appbar, build_hero
+from components.home.search_box import build_search_section
 from core import theme, tokens
 from core.state import state
 from core.styles import build_banner_ad
 from core.theme import AppColors
 from services.storage_service import StorageService
-from views.home.cards import _action_card, _feature_card, _step_row
-from views.home.header import build_appbar, build_hero
-from views.home.search_box import build_search_section
 
 SEARCH_TABS = [
     {

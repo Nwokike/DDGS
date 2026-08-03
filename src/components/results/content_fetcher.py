@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import flet as ft
 
+from components.results.downloader import (
+    _save_bytes_content,
+    _save_text_content,
+    launch_url,
+)
 from core import theme, tokens
 from core.constants import EXTRACT_FORMATS
 from core.state import state
@@ -9,11 +14,6 @@ from core.styles import build_banner_ad
 from core.theme import AppColors
 from services.search_service import SearchService
 from services.storage_service import StorageService
-from views.results.downloader import (
-    _save_bytes_content,
-    _save_text_content,
-    launch_url,
-)
 
 _search_service = SearchService()
 _url_history: list[str] = []

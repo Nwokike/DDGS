@@ -4,16 +4,16 @@ from collections.abc import Callable
 
 import flet as ft
 
-from core import theme, tokens
-from core.state import SearchProgress
-from core.styles import build_banner_ad
-from views.results.cards import CARD_BUILDERS, _extract_card, _text_card
-from views.results.empty_states import (
+from components.results.cards import CARD_BUILDERS, _extract_card, _text_card
+from components.results.empty_states import (
     build_empty_results_box,
     build_error_box,
     build_loading_box,
     build_video_rate_limit_box,
 )
+from core import theme, tokens
+from core.state import SearchProgress
+from core.styles import build_banner_ad
 
 
 def build_results_view(
