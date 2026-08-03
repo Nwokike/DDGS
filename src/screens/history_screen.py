@@ -144,8 +144,10 @@ def HistoryScreen() -> Control:
                         tokens.SPACE_SM,
                     ),
                     border_radius=tokens.BORDER_RADIUS_LG,
-                    bgcolor=theme.adaptive_glass_bg(None),
-                    border=ft.Border.all(1, theme.adaptive_glass_border(None)),
+                    bgcolor=theme.adaptive_glass_bg(flet_context.page),
+                    border=ft.Border.all(
+                        1, theme.adaptive_glass_border(flet_context.page)
+                    ),
                     ink=True,
                     on_click=lambda _, qq=q, stt=st: _on_research(qq, stt),
                 )
@@ -232,6 +234,6 @@ def HistoryScreen() -> Control:
             spacing=0,
             expand=True,
         ),
-        gradient=theme.AppStyles.brand_gradient(None),
+        gradient=theme.AppStyles.brand_gradient(flet_context.page),
         expand=True,
     )

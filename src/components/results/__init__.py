@@ -24,7 +24,6 @@ from components.results.downloader import (
     _save_text_content,
     launch_url,
 )
-from components.results.view_builder import build_results_view
 
 __all__ = [
     "CARD_BUILDERS",
@@ -44,6 +43,5 @@ __all__ = [
     "_show_result_sheet",
     "_text_card",
     "_video_card",
-    "build_results_view",
     "launch_url",
 ]

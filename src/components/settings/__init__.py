@@ -1,3 +1,3 @@
-from components.settings.view_builder import build_settings_view
+"""Settings section builders."""
 
-__all__ = ["build_settings_view"]
+__all__ = []

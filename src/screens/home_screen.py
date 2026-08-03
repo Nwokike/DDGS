@@ -348,27 +348,6 @@ def HomeScreen() -> Control:
         set_active_tab(search_type)
         _get_page().run_task(controller.start_search, query, search_type)
 
-    # ── Theme toggle ──
-
-    def _toggle_theme(e):
-        page = _get_page()
-        if page.theme_mode == ft.ThemeMode.DARK:
-            page.theme_mode = ft.ThemeMode.LIGHT
-        elif page.theme_mode == ft.ThemeMode.LIGHT:
-            page.theme_mode = ft.ThemeMode.SYSTEM
-        else:
-            page.theme_mode = ft.ThemeMode.DARK
-        state.theme_mode = page.theme_mode
-        controller.save("theme", page.theme_mode.value)
-
-    def _get_theme_icon():
-        page = _get_page()
-        if page.theme_mode == ft.ThemeMode.DARK:
-            return ft.Icons.DARK_MODE_ROUNDED
-        elif page.theme_mode == ft.ThemeMode.LIGHT:
-            return ft.Icons.LIGHT_MODE_ROUNDED
-        return ft.Icons.SETTINGS_SYSTEM_DAYDREAM_ROUNDED
-
     # ── Build UI ──
 
     is_dark = _is_dark()

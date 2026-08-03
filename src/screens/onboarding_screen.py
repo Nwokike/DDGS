@@ -160,22 +160,6 @@ def OnboardingScreen() -> Control:
         await controller.save_async("onboarding_done", True)
         state.has_accepted_terms = True
 
-    def _show_policy(title: str, body: str):
-        from flet import context as flet_context
-
-        page = flet_context.page
-        page.show_dialog(
-            ft.AlertDialog(
-                modal=True,
-                title=ft.Text(title, font_family="Outfit", weight=ft.FontWeight.BOLD),
-                content=ft.Text(body, size=13, style=ft.TextStyle(height=1.4)),
-                actions=[
-                    ft.TextButton("Close", on_click=lambda e: page.pop_dialog()),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-        )
-
     return ft.Container(
         content=ft.Column(
             [

@@ -17,10 +17,8 @@ from core.styles import build_banner_ad
 from core.theme import AppColors
 from core.tokens import (
     FONT_LG,
-    FONT_XS,
     ICON_MD,
 )
-from core.utils import in_memory_log_handler, logger
 
 
 async def _launch_url(url: str):
@@ -31,93 +29,6 @@ async def _launch_url(url: str):
         import webbrowser
 
         webbrowser.open(url)
-
-
-def _build_logs_dialog():
-    """Build the live activity logs dialog."""
-    from flet import context as flet_context
-
-    logs = (
-        "\n".join(in_memory_log_handler.records)
-        if in_memory_log_handler.records
-        else "No activity recorded yet. Perform a search to see live output."
-    )
-
-    log_text_control = ft.Text(
-        logs,
-        font_family="Courier New",
-        size=11,
-        color="#A6E22E",
-        selectable=True,
-    )
-
-    async def copy_logs(e=None):
-        try:
-            page = flet_context.page
-            await page.clipboard.set(logs)
-            snack = ft.SnackBar(ft.Text("Activity log copied to clipboard!"))
-            snack.open = True
-            page.show_dialog(snack)
-            page.update()
-        except Exception as ex:
-            logger.error(f"Copy logs failed: {ex}")
-
-    def close_dialog(e=None):
-        flet_context.page.pop_dialog()
-
-    return ft.AlertDialog(
-        title=ft.Row(
-            [
-                ft.Icon(ft.Icons.TERMINAL_ROUNDED, size=22, color=AppColors.PRIMARY),
-                ft.Text(
-                    "Live Activity",
-                    font_family="Outfit",
-                    size=FONT_LG,
-                    weight=ft.FontWeight.BOLD,
-                ),
-            ],
-            spacing=8,
-        ),
-        content=ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(
-                        "Real-time log of every search, connection, and response. "
-                        "Copy and share if you encounter errors.",
-                        size=FONT_XS,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                    ),
-                    ft.Container(
-                        content=ft.Column(
-                            [log_text_control], scroll=ft.ScrollMode.AUTO
-                        ),
-                        padding=12,
-                        bgcolor="#0D0D0D",
-                        border=ft.Border.all(
-                            1, ft.Colors.with_opacity(0.15, ft.Colors.WHITE)
-                        ),
-                        border_radius=8,
-                        expand=True,
-                    ),
-                ],
-                spacing=8,
-            ),
-            width=450,
-            height=500,
-        ),
-        actions=[
-            ft.IconButton(
-                icon=ft.Icons.COPY_ROUNDED,
-                tooltip="Copy to Clipboard",
-                on_click=lambda e: copy_logs(),
-            ),
-            ft.TextButton(
-                "Close",
-                on_click=close_dialog,
-            ),
-        ],
-        actions_alignment=ft.MainAxisAlignment.END,
-    )
 
 
 @ft.component

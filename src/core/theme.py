@@ -31,10 +31,69 @@ class AppColors:
     LIGHT_TEXT = "#1A1A2E"  # Deep Charcoal slate body text
     LIGHT_TEXT_DIM = "#757575"  # Secondary gray text
 
+    @staticmethod
+    def _resolve_page(page: ft.Page | None) -> ft.Page | None:
+        """Return the active page, falling back to ``flet.context.page``."""
+        if page is not None:
+            return page
+        try:
+            from flet import context as flet_context
+
+            return flet_context.page
+        except Exception:
+            return None
+
+    @staticmethod
+    def get_bg(page: ft.Page | None = None) -> str:
+        resolved = AppColors._resolve_page(page)
+        is_dark = is_dark_mode(resolved)
+        return AppColors.DARK_BG_1 if is_dark else AppColors.LIGHT_BG
+
+    @staticmethod
+    def get_surface(page: ft.Page | None = None) -> str:
+        resolved = AppColors._resolve_page(page)
+        is_dark = is_dark_mode(resolved)
+        return AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE
+
+    @staticmethod
+    def get_surface_2(page: ft.Page | None = None) -> str:
+        resolved = AppColors._resolve_page(page)
+        is_dark = is_dark_mode(resolved)
+        return AppColors.DARK_SURFACE_2 if is_dark else AppColors.LIGHT_SURFACE_2
+
+    @staticmethod
+    def get_border(page: ft.Page | None = None) -> str:
+        resolved = AppColors._resolve_page(page)
+        is_dark = is_dark_mode(resolved)
+        return AppColors.DARK_BORDER if is_dark else AppColors.LIGHT_BORDER
+
+    @staticmethod
+    def get_text(page: ft.Page | None = None) -> str:
+        resolved = AppColors._resolve_page(page)
+        is_dark = is_dark_mode(resolved)
+        return AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT
+
+    @staticmethod
+    def get_text_dim(page: ft.Page | None = None) -> str:
+        resolved = AppColors._resolve_page(page)
+        is_dark = is_dark_mode(resolved)
+        return AppColors.DARK_TEXT_DIM if is_dark else AppColors.LIGHT_TEXT_DIM
+
 
 def is_dark_mode(page: ft.Page | None) -> bool:
-    """Check if the page is currently in dark mode (explicit or system)."""
-    if not page:
+    """Check if the page is currently in dark mode (explicit or system).
+
+    When ``page`` is ``None``, attempts to resolve the active Flet page via
+    ``flet.context.page``. If that fails, defaults to dark mode.
+    """
+    if page is None:
+        try:
+            from flet import context as flet_context
+
+            page = flet_context.page
+        except Exception:
+            return True  # fallback to dark
+    if page is None:
         return True
     return page.theme_mode == ft.ThemeMode.DARK or (
         page.theme_mode == ft.ThemeMode.SYSTEM
