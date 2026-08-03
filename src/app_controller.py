@@ -88,11 +88,14 @@ class AppController:
             cancel_search=self.cancel_search,
             go_home=self.go_home,
             navigate_tab=self.navigate_tab,
+            open_content_reader=self.open_content_reader,
             save=self.save,
             save_async=self.save_setting,
             show_snack=self.show_snack,
         )
         self.page.render(lambda: ControllerMethodsCtx(methods, lambda: AppShell()))
+        # Store controller reference on page for access from plain functions
+        self.page._ddgs_controller = self
         logger.info(f"[{LOG_TAG}] UI mounted")
 
     # ── Settings persistence ───────────────────────────────────────────
@@ -198,6 +201,19 @@ class AppController:
         self.cancel_search()
         state.search_active = False
         state.selected_tab = 0
+
+    def open_content_reader(self, url: str, content: str | None = None):
+        """Push the full-screen content reader as a new View."""
+        from screens.content_reader_screen import ContentReaderScreen
+
+        reader_view = ft.View(
+            route="/reader",
+            controls=[ContentReaderScreen(url=url, content=content)],
+            padding=0,
+            spacing=0,
+        )
+        self.page.views.append(reader_view)
+        self.page.update()
 
     def cancel_search(self):
         """Cancel all running search tasks."""

@@ -60,6 +60,7 @@ class ControllerMethods:
     cancel_search: Callable[[], None] = _noop_sync
     go_home: Callable[[], Awaitable[None]] = _noop_async
     navigate_tab: Callable[[int], None] = _noop_tab
+    open_content_reader: Callable[[str, str | None], None] = _noop_tab
     save: Callable[[str, object], None] = _noop_tab  # sync: save(key, value)
     save_async: Callable[[str, object], Awaitable[None]] = (
         _noop_setting  # async version

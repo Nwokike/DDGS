@@ -160,6 +160,14 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
+    def _open_reader():
+        from flet import context as flet_context
+
+        page = flet_context.page
+        ctrl = getattr(page, "_ddgs_controller", None)
+        if ctrl:
+            ctrl.open_content_reader(url, str(content) if not is_bytes else None)
+
     return ft.Container(
         content=ft.Column(
             [
@@ -184,6 +192,12 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                             max_lines=2,
                             expand=True,
                             font_family="Outfit",
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.OPEN_IN_NEW_ROUNDED,
+                            icon_size=tokens.ICON_SM,
+                            tooltip="Open in full reader",
+                            on_click=lambda e: _open_reader(),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
