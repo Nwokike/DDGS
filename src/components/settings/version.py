@@ -16,4 +16,4 @@ except (ImportError, KeyError, OSError):
         with open(_pp, "rb") as f:
             _APP_VERSION = tomllib.load(f)["project"]["version"]
     except (ImportError, KeyError, OSError, tomllib.TOMLDecodeError):
-        _APP_VERSION = "1.1.0"
+        _APP_VERSION = "1.2.0"

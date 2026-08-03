@@ -163,7 +163,8 @@ def build_content_reader(
 
     async def _copy_url():
         try:
-            await page.clipboard.set(_current_url or "")
+            clipboard = ft.Clipboard()
+            await clipboard.set(_current_url or "")
             page.snack_bar = ft.SnackBar(ft.Text("URL copied"))
             page.snack_bar.open = True
             page.update()
@@ -229,6 +230,12 @@ def build_content_reader(
                 icon_size=tokens.ICON_SM,
                 tooltip="Save content to file",
                 on_click=lambda _: page.run_task(_save_content),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.REFRESH_ROUNDED,
+                icon_size=tokens.ICON_SM,
+                tooltip="Refresh content",
+                on_click=lambda _: page.run_task(_fetch, _current_url),
             ),
             ft.IconButton(
                 icon=ft.Icons.CONTENT_COPY_ROUNDED,

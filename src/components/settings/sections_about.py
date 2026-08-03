@@ -28,7 +28,8 @@ def build_logs_dialog(page: ft.Page):
 
     async def copy_logs(e=None):
         try:
-            await page.clipboard.set(logs)
+            clipboard = ft.Clipboard()
+            await clipboard.set(logs)
             snack = ft.SnackBar(ft.Text("Activity log copied to clipboard!"))
             snack.open = True
             page.show_dialog(snack)

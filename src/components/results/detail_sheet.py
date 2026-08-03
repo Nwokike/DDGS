@@ -46,7 +46,8 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     def _copy_url(_):
         async def _do():
             try:
-                await page.clipboard.set(r.url)
+                clipboard = ft.Clipboard()
+                await clipboard.set(r.url)
                 page.snack_bar = ft.SnackBar(ft.Text("URL copied"))
                 page.snack_bar.open = True
                 page.update()
@@ -98,7 +99,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                             weight=ft.FontWeight.BOLD,
                         ),
                         padding=ft.Padding(8, 4, 8, 4),
-                        bgcolor=ft.Colors.BLACK87,
+                        bgcolor=ft.Colors.BLACK_87,
                         border_radius=tokens.RADIUS_SM,
                         right=8,
                         bottom=8,
@@ -156,7 +157,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         border_radius=2,
         bgcolor=ft.Colors.with_opacity(0.3, ft.Colors.ON_SURFACE),
         alignment=ft.Alignment.CENTER,
-        margin=ft.margin.only(bottom=8),
+        margin=ft.Margin(0, 0, 0, 8),
     )
 
     # ── Assemble sheet ──
@@ -238,43 +239,6 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             expand=True,
         )
     )
-
-    # "Open in Full Reader" button (non-media only)
-    if not is_media:
-
-        def _open_reader(_):
-            try:
-                page.pop_dialog()
-            except Exception:
-                pass
-            ctrl = getattr(page, "_ddgs_controller", None)
-            if ctrl:
-                ctrl.open_content_reader(r.url, None)
-
-        controls.append(
-            ft.OutlinedButton(
-                content=ft.Row(
-                    [
-                        ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=tokens.ICON_SM),
-                        ft.Text(
-                            "Open in Full Reader",
-                            size=tokens.FONT_SM,
-                            weight=ft.FontWeight.W_600,
-                            font_family="Outfit",
-                        ),
-                    ],
-                    spacing=6,
-                    tight=True,
-                ),
-                on_click=_open_reader,
-                style=ft.ButtonStyle(
-                    shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
-                    side=ft.BorderSide(1, AppColors.PRIMARY),
-                    padding=ft.Padding(16, 12, 16, 12),
-                ),
-                expand=True,
-            )
-        )
 
     # Secondary actions row
     controls.append(
