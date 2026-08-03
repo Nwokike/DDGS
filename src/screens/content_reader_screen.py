@@ -24,7 +24,9 @@ def build_content_reader(
     _current_content = content
     _is_loading = content is None
     _error = None
-    _format = state.extract_format
+    # Map extract_format to valid dropdown options
+    _VALID_FORMATS = {"text_markdown", "text_plain", "text_rich", "text", "content"}
+    _format = state.extract_format if state.extract_format in _VALID_FORMATS else "text_markdown"
 
     # UI references
     content_text = ft.Ref[ft.Markdown]()
@@ -92,6 +94,14 @@ def build_content_reader(
         except Exception:
             pass
 
+    def _handle_keyboard(e):
+        """Handle hardware back button on Android."""
+        if e.key in ("Back", "Escape", "BrowserBack"):
+            _go_back()
+
+    # Register keyboard handler
+    page.on_keyboard_event = _handle_keyboard
+
     def _on_link_tap(e):
         import urllib.parse
 
@@ -114,6 +124,7 @@ def build_content_reader(
     def _exit_reader():
         """Always exit the reader — pop back to whatever was underneath."""
         try:
+            page.on_keyboard_event = None
             if len(page.views) > 1:
                 page.views.pop()
                 page.update()

@@ -24,6 +24,7 @@ from core.constants import (
     SAFE_SEARCH_OPTIONS,
     TIMELIMIT_OPTIONS,
 )
+from core.styles import build_banner_ad
 from core.theme import AppColors
 from core.utils import logger
 
@@ -185,6 +186,112 @@ def _history_row(
         border=ft.Border.all(1, theme.adaptive_glass_border()),
         ink=True,
         on_click=on_click,
+    )
+
+
+# ── Feature card ───────────────────────────────────────────────────────
+
+
+@ft.memo
+def _feature_card(
+    icon: str,
+    title: str,
+    desc: str,
+    color: str,
+    on_click=None,
+    page: ft.Page | None = None,
+) -> ft.Container:
+    """Feature highlight card row."""
+    return ft.Container(
+        content=ft.Row(
+            controls=[
+                ft.Container(
+                    content=ft.Icon(icon, size=20, color=color),
+                    width=38,
+                    height=38,
+                    border_radius=10,
+                    bgcolor=ft.Colors.with_opacity(0.1, color),
+                    alignment=ft.Alignment.CENTER,
+                ),
+                ft.Column(
+                    controls=[
+                        ft.Text(
+                            title,
+                            size=tokens.FONT_SM,
+                            weight=ft.FontWeight.W_600,
+                            font_family="Outfit",
+                            max_lines=1,
+                            overflow="ellipsis",
+                        ),
+                        ft.Text(
+                            desc,
+                            size=tokens.FONT_XS,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            max_lines=2,
+                            overflow="ellipsis",
+                            font_family="Outfit",
+                        ),
+                    ],
+                    spacing=2,
+                    expand=True,
+                ),
+            ],
+            spacing=tokens.SPACE_MD,
+            vertical_alignment="center",
+        ),
+        padding=12,
+        border_radius=12,
+        bgcolor=theme.adaptive_glass_bg(page),
+        border=ft.Border.all(1, theme.adaptive_glass_border(page)),
+        on_click=on_click,
+        ink=on_click is not None,
+    )
+
+
+# ── Step row ───────────────────────────────────────────────────────────
+
+
+@ft.memo
+def _step_row(number: str, title: str, desc: str) -> ft.Row:
+    """Numbered step row."""
+    return ft.Row(
+        controls=[
+            ft.Container(
+                content=ft.Text(
+                    number,
+                    size=tokens.FONT_SM,
+                    weight=ft.FontWeight.W_700,
+                    color=ft.Colors.WHITE,
+                    text_align=ft.TextAlign.CENTER,
+                    font_family="Outfit",
+                ),
+                width=26,
+                height=26,
+                border_radius=13,
+                bgcolor=AppColors.PRIMARY,
+                alignment=ft.Alignment.CENTER,
+            ),
+            ft.Column(
+                controls=[
+                    ft.Text(
+                        title,
+                        size=tokens.FONT_SM,
+                        weight=ft.FontWeight.W_600,
+                        font_family="Outfit",
+                    ),
+                    ft.Text(
+                        desc,
+                        size=tokens.FONT_XS,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        font_family="Outfit",
+                    ),
+                ],
+                spacing=tokens.SPACE_XXS,
+                expand=True,
+            ),
+        ],
+        spacing=tokens.SPACE_MD,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
 
@@ -656,35 +763,120 @@ def HomeScreen() -> Control:
                 if recent_rows
                 else []
             ),
-            # Privacy banner (compact)
+            # Banner ad (after category chips)
+            ft.Container(
+                content=build_banner_ad(_get_page()),
+                padding=ft.Padding(tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0),
+            ),
+            # What DDGS Can Do (condensed - 3 features)
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "What DDGS Can Do",
+                            size=tokens.FONT_SM,
+                            weight=ft.FontWeight.W_600,
+                            font_family="Outfit",
+                        ),
+                        ft.Container(height=tokens.SPACE_SM),
+                        _feature_card(
+                            ft.Icons.SEARCH_ROUNDED,
+                            "Private Web Search",
+                            "Search across engines without being tracked. No profiling, no filter bubbles.",
+                            AppColors.PRIMARY,
+                            page=_get_page(),
+                        ),
+                        ft.Container(height=tokens.SPACE_SM),
+                        _feature_card(
+                            ft.Icons.LANGUAGE_ROUNDED,
+                            "Instant Page Fetch",
+                            "Paste any URL and extract full text instantly — articles, docs, recipes. Save as markdown or plain text.",
+                            AppColors.PRIMARY_DARK,
+                            page=_get_page(),
+                        ),
+                        ft.Container(height=tokens.SPACE_SM),
+                        _feature_card(
+                            ft.Icons.IMAGE_ROUNDED,
+                            "Image & Video Discovery",
+                            "Find media from across the web. Download directly to your device.",
+                            AppColors.PRIMARY_LIGHT,
+                            page=_get_page(),
+                        ),
+                    ],
+                    spacing=0,
+                ),
+                padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+            ),
+            # How It Works (3 steps)
+            ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "How It Works",
+                            size=tokens.FONT_SM,
+                            weight=ft.FontWeight.W_600,
+                            font_family="Outfit",
+                        ),
+                        ft.Container(height=tokens.SPACE_SM),
+                        _step_row(
+                            "1",
+                            "Choose",
+                            "Pick what you're looking for — web, images, videos, news, books, or fetch a page",
+                        ),
+                        _step_row(
+                            "2",
+                            "Search",
+                            "Type your query, adjust filters if needed, hit search",
+                        ),
+                        _step_row(
+                            "3",
+                            "Done",
+                            "Get private results instantly. Download, save, or open in browser",
+                        ),
+                    ],
+                    spacing=tokens.SPACE_SM,
+                ),
+                padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+            ),
+            # Privacy banner (prominent)
             ft.Container(
                 content=ft.Row(
                     [
                         ft.Icon(
                             ft.Icons.SHIELD_ROUNDED,
-                            size=18,
+                            size=20,
                             color=AppColors.PRIMARY,
                         ),
-                        ft.Text(
-                            "Your searches are private. No tracking, no profiling.",
-                            size=tokens.FONT_XS,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                            font_family="Outfit",
+                        ft.Column(
+                            [
+                                ft.Text(
+                                    "100% Privacy-First",
+                                    size=tokens.FONT_SM,
+                                    weight=ft.FontWeight.W_600,
+                                    font_family="Outfit",
+                                ),
+                                ft.Text(
+                                    "Your searches are never tracked, profiled, or stored. No filter bubbles, no data harvesting.",
+                                    size=tokens.FONT_XS,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    font_family="Outfit",
+                                    style=ft.TextStyle(height=1.3),
+                                ),
+                            ],
+                            spacing=tokens.SPACE_XXS,
                             expand=True,
                         ),
                     ],
-                    spacing=8,
+                    spacing=tokens.SPACE_MD,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 padding=ft.Padding(
-                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, tokens.SPACE_SM
+                    tokens.SPACE_LG, tokens.SPACE_MD, tokens.SPACE_LG, tokens.SPACE_MD
                 ),
-                margin=ft.Margin(tokens.SPACE_LG, 0, tokens.SPACE_LG, 0),
-                border_radius=tokens.RADIUS_MD,
+                margin=ft.Margin(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+                border_radius=tokens.RADIUS_LG,
                 bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY),
-                border=ft.Border.all(
-                    1, ft.Colors.with_opacity(0.12, AppColors.PRIMARY)
-                ),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.15, AppColors.PRIMARY)),
             ),
             # Banner ad
             ft.Container(height=tokens.SPACE_SM),
