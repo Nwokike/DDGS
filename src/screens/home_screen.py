@@ -1,8 +1,7 @@
-"""HomeScreen — main dashboard with hero, search, categories, features.
+"""HomeScreen — compact search-first dashboard.
 
-Converted from views/home/view_builder.py to declarative @ft.component.
-Uses use_state for local UI state (active tab, tools panel, search query);
-reads/writes observable state via context.
+Search bar above the fold, compact category chips, recent searches,
+and privacy banner.  Marketing content moved to onboarding only.
 """
 
 from __future__ import annotations
@@ -39,48 +38,12 @@ BACKEND_OPTIONS_MAP = {
 }
 
 SEARCH_TABS = [
-    {
-        "key": "text",
-        "title": "Web Search",
-        "desc": "Global Metasearch",
-        "icon": ft.Icons.SEARCH_ROUNDED,
-        "color": AppColors.PRIMARY,
-    },
-    {
-        "key": "images",
-        "title": "Images",
-        "desc": "Visual media search",
-        "icon": ft.Icons.IMAGE_ROUNDED,
-        "color": AppColors.PRIMARY_LIGHT,
-    },
-    {
-        "key": "videos",
-        "title": "Videos",
-        "desc": "Video streaming indexing",
-        "icon": ft.Icons.PLAY_CIRCLE_ROUNDED,
-        "color": AppColors.ACCENT,
-    },
-    {
-        "key": "news",
-        "title": "News Feed",
-        "desc": "Current global stories",
-        "icon": ft.Icons.ARTICLE_ROUNDED,
-        "color": AppColors.SUCCESS,
-    },
-    {
-        "key": "books",
-        "title": "Books",
-        "desc": "Linguistic & literature",
-        "icon": ft.Icons.BOOK_ROUNDED,
-        "color": AppColors.WARNING,
-    },
-    {
-        "key": "extract",
-        "title": "Fetch Page",
-        "desc": "Read any URL's content",
-        "icon": ft.Icons.LANGUAGE_ROUNDED,
-        "color": AppColors.PRIMARY_DARK,
-    },
+    {"key": "text", "label": "Web", "icon": ft.Icons.SEARCH_ROUNDED, "color": AppColors.PRIMARY},
+    {"key": "images", "label": "Images", "icon": ft.Icons.IMAGE_ROUNDED, "color": AppColors.PRIMARY_LIGHT},
+    {"key": "videos", "label": "Videos", "icon": ft.Icons.PLAY_CIRCLE_ROUNDED, "color": AppColors.ACCENT},
+    {"key": "news", "label": "News", "icon": ft.Icons.ARTICLE_ROUNDED, "color": AppColors.SUCCESS},
+    {"key": "books", "label": "Books", "icon": ft.Icons.BOOK_ROUNDED, "color": AppColors.WARNING},
+    {"key": "extract", "label": "Extract", "icon": ft.Icons.LANGUAGE_ROUNDED, "color": AppColors.PRIMARY_DARK},
 ]
 
 _HINT_MAP = {
@@ -92,168 +55,104 @@ _HINT_MAP = {
     "extract": "Paste a URL to fetch its content...",
 }
 
+_TAB_ICONS = {
+    "text": ft.Icons.SEARCH_ROUNDED,
+    "images": ft.Icons.IMAGE_ROUNDED,
+    "videos": ft.Icons.PLAY_CIRCLE_ROUNDED,
+    "news": ft.Icons.ARTICLE_ROUNDED,
+    "books": ft.Icons.BOOK_ROUNDED,
+    "extract": ft.Icons.LANGUAGE_ROUNDED,
+}
 
-# ── Helper components (stateless, no hooks) ────────────────────────────
+
+# ── Compact category chip ─────────────────────────────────────────────
 
 
 @ft.memo
-def _action_card(
+def _category_chip(
     icon: str,
-    title: str,
-    subtitle: str,
+    label: str,
     color: str,
     is_active: bool,
     on_click=None,
-    page: ft.Page | None = None,
 ) -> ft.Container:
-    """Quick action category card."""
-    border_color = AppColors.PRIMARY if is_active else theme.adaptive_glass_border(page)
-    bg_color = (
-        ft.Colors.with_opacity(0.12, AppColors.PRIMARY)
-        if is_active
-        else theme.adaptive_glass_bg(page)
-    )
+    """Compact filter-chip style category selector."""
     return ft.Container(
-        content=ft.Column(
-            controls=[
-                ft.Container(
-                    content=ft.Icon(icon, size=24, color=color),
-                    width=44,
-                    height=44,
-                    border_radius=12,
-                    bgcolor=ft.Colors.with_opacity(0.1, color),
-                    alignment=ft.Alignment.CENTER,
-                ),
+        content=ft.Row(
+            [
+                ft.Icon(icon, size=16, color=color if is_active else ft.Colors.ON_SURFACE_VARIANT),
                 ft.Text(
-                    title,
+                    label,
                     size=12,
-                    weight=ft.FontWeight.W_600,
+                    weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_400,
+                    color=color if is_active else ft.Colors.ON_SURFACE,
                     font_family="Outfit",
-                    max_lines=1,
-                    overflow="ellipsis",
-                ),
-                ft.Text(
-                    subtitle,
-                    size=9,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                    font_family="Outfit",
-                    max_lines=1,
-                    overflow="ellipsis",
                 ),
             ],
             spacing=4,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
         ),
-        expand=True,
-        padding=12,
-        border_radius=16,
-        bgcolor=bg_color,
-        border=ft.Border.all(1.5 if is_active else 1, border_color),
+        padding=ft.Padding(12, 6, 12, 6),
+        border_radius=20,
+        border=ft.Border.all(
+            1.5 if is_active else 1,
+            color if is_active else ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
+        ),
+        bgcolor=ft.Colors.with_opacity(0.1, color) if is_active else ft.Colors.TRANSPARENT,
         on_click=on_click,
-        ink=True,
+        animate=ft.Animation(tokens.ANIMATION_FAST, ft.AnimationCurve.EASE_OUT),
     )
+
+
+# ── Compact history row ───────────────────────────────────────────────
 
 
 @ft.memo
-def _feature_card(
-    icon: str,
-    title: str,
-    desc: str,
-    color: str,
+def _history_row(
+    query: str,
+    search_type: str,
+    timestamp: str,
     on_click=None,
-    page: ft.Page | None = None,
 ) -> ft.Container:
-    """Feature highlight card row."""
+    """Compact recent search row."""
+    icon = _TAB_ICONS.get(search_type, ft.Icons.SEARCH_ROUNDED)
     return ft.Container(
         content=ft.Row(
-            controls=[
-                ft.Container(
-                    content=ft.Icon(icon, size=20, color=color),
-                    width=38,
-                    height=38,
-                    border_radius=10,
-                    bgcolor=ft.Colors.with_opacity(0.1, color),
-                    alignment=ft.Alignment.CENTER,
-                ),
-                ft.Column(
-                    controls=[
-                        ft.Text(
-                            title,
-                            size=tokens.FONT_SM,
-                            weight=ft.FontWeight.W_600,
-                            font_family="Outfit",
-                            max_lines=1,
-                            overflow="ellipsis",
-                        ),
-                        ft.Text(
-                            desc,
-                            size=tokens.FONT_XS,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                            max_lines=2,
-                            overflow="ellipsis",
-                            font_family="Outfit",
-                        ),
-                    ],
-                    spacing=2,
+            [
+                ft.Icon(icon, size=16, color=AppColors.PRIMARY),
+                ft.Text(
+                    query,
+                    size=12,
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                     expand=True,
-                ),
-            ],
-            spacing=tokens.SPACE_MD,
-            vertical_alignment="center",
-        ),
-        padding=12,
-        border_radius=12,
-        bgcolor=theme.adaptive_glass_bg(page),
-        border=ft.Border.all(1, theme.adaptive_glass_border(page)),
-        on_click=on_click,
-        ink=on_click is not None,
-    )
-
-
-def _step_row(number: str, title: str, desc: str) -> ft.Row:
-    """Numbered step row."""
-    return ft.Row(
-        controls=[
-            ft.Container(
-                content=ft.Text(
-                    number,
-                    size=tokens.FONT_SM,
-                    weight=ft.FontWeight.W_700,
-                    color=ft.Colors.WHITE,
-                    text_align=ft.TextAlign.CENTER,
                     font_family="Outfit",
                 ),
-                width=26,
-                height=26,
-                border_radius=13,
-                bgcolor=AppColors.PRIMARY,
-                alignment=ft.Alignment.CENTER,
-            ),
-            ft.Column(
-                controls=[
-                    ft.Text(
-                        title,
-                        size=tokens.FONT_SM,
-                        weight=ft.FontWeight.W_600,
-                        font_family="Outfit",
-                    ),
-                    ft.Text(
-                        desc,
-                        size=tokens.FONT_XS,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                        font_family="Outfit",
-                    ),
-                ],
-                spacing=tokens.SPACE_XXS,
-                expand=True,
-            ),
-        ],
-        spacing=tokens.SPACE_MD,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ft.Text(
+                    timestamp,
+                    size=10,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    font_family="Outfit",
+                ),
+                ft.Icon(
+                    ft.Icons.ARROW_FORWARD_ROUNDED,
+                    size=14,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        ),
+        padding=ft.Padding(12, 8, 12, 8),
+        border_radius=tokens.RADIUS_MD,
+        bgcolor=theme.adaptive_glass_bg(),
+        border=ft.Border.all(1, theme.adaptive_glass_border()),
+        ink=True,
+        on_click=on_click,
     )
 
 
-# ── Compact dropdown builder ──────────────────────────────────────────
+# ── Make compact dropdown (for search tools) ──────────────────────────
 
 
 def _make_compact_dropdown(label, icon, value, options, on_change, width=140):
@@ -290,12 +189,12 @@ def _make_compact_dropdown(label, icon, value, options, on_change, width=140):
     )
 
 
-# ── Main screen component ─────────────────────────────────────────────
+# ── Main screen ───────────────────────────────────────────────────────
 
 
 @ft.component
 def HomeScreen() -> Control:
-    """Home dashboard with hero, search, category grid, and features."""
+    """Compact search-first home dashboard."""
     state = ft.use_context(AppStateCtx)
     controller = ft.use_context(ControllerMethodsCtx)
 
@@ -335,8 +234,7 @@ def HomeScreen() -> Control:
             except Exception as ex:
                 logger.warning(f"Clipboard paste failed: {ex}")
 
-        page = _get_page()
-        page.run_task(_paste)
+        _get_page().run_task(_paste)
 
     def _on_tab_change(tab_key: str):
         set_active_tab(tab_key)
@@ -348,70 +246,64 @@ def HomeScreen() -> Control:
         set_active_tab(search_type)
         _get_page().run_task(controller.start_search, query, search_type)
 
+    # ── Theme toggle ──
+
+    def _toggle_theme(e):
+        page = _get_page()
+        if page.theme_mode == ft.ThemeMode.DARK:
+            page.theme_mode = ft.ThemeMode.LIGHT
+        elif page.theme_mode == ft.ThemeMode.LIGHT:
+            page.theme_mode = ft.ThemeMode.SYSTEM
+        else:
+            page.theme_mode = ft.ThemeMode.DARK
+        state.theme_mode = page.theme_mode
+        controller.save("theme", page.theme_mode.value)
+
+    def _get_theme_icon():
+        page = _get_page()
+        if page.theme_mode == ft.ThemeMode.DARK:
+            return ft.Icons.DARK_MODE_ROUNDED
+        elif page.theme_mode == ft.ThemeMode.LIGHT:
+            return ft.Icons.LIGHT_MODE_ROUNDED
+        return ft.Icons.SETTINGS_SYSTEM_DAYDREAM_ROUNDED
+
     # ── Build UI ──
 
     is_dark = _is_dark()
-    prefix_icon = (
-        ft.Icons.LINK_ROUNDED if active_tab == "extract" else ft.Icons.SEARCH_ROUNDED
-    )
+    prefix_icon = ft.Icons.LINK_ROUNDED if active_tab == "extract" else ft.Icons.SEARCH_ROUNDED
 
-    backend_options = BACKEND_OPTIONS_MAP.get(active_tab, BACKEND_OPTIONS_TEXT)
-    current_backend = state.backend or "auto"
-
-    # Category grid
-    grid_cards_row1 = []
-    grid_cards_row2 = []
-    for i, tab in enumerate(SEARCH_TABS):
-        card = _action_card(
+    # Category chips
+    chips = []
+    for tab in SEARCH_TABS:
+        chip = _category_chip(
             icon=tab["icon"],
-            title=tab["title"],
-            subtitle=tab["desc"],
+            label=tab["label"],
             color=tab["color"],
             is_active=tab["key"] == active_tab,
             on_click=lambda _, k=tab["key"]: _on_tab_change(k),
-            page=_get_page(),
         )
-        if i < 3:
-            grid_cards_row1.append(card)
-        else:
-            grid_cards_row2.append(card)
+        chips.append(chip)
 
-    # Recent queries
-    recent_section = None
+    # Recent searches
+    recent_rows = []
     if state.search_history:
-        history_cards = []
-        for entry in state.search_history[:4]:
+        for entry in state.search_history[:3]:
             q = entry.get("query", "")
             st = entry.get("search_type", "text")
             ts = entry.get("timestamp", "")
-            tab_info = next((t for t in SEARCH_TABS if t["key"] == st), SEARCH_TABS[0])
-            card = _feature_card(
-                icon=tab_info["icon"],
-                title=q,
-                desc=f"{tab_info['title']} \u00b7 {ts}",
-                color=tab_info["color"],
-                on_click=lambda _, qq=q, stt=st: _on_history_click(qq, stt),
-                page=_get_page(),
+            recent_rows.append(
+                _history_row(
+                    query=q,
+                    search_type=st,
+                    timestamp=ts,
+                    on_click=lambda _, qq=q, stt=st: _on_history_click(qq, stt),
+                )
             )
-            history_cards.append(card)
-        recent_section = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(
-                        "Recent Search Queries",
-                        size=tokens.FONT_MD,
-                        weight=ft.FontWeight.W_600,
-                        font_family="Outfit",
-                    ),
-                    ft.Container(height=tokens.SPACE_SM),
-                    ft.Column(history_cards, spacing=tokens.SPACE_SM),
-                ],
-                spacing=0,
-            ),
-            padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
-        )
 
-    # Tools panel (for extract tab, only show output format)
+    # Search tools panel
+    backend_options = BACKEND_OPTIONS_MAP.get(active_tab, BACKEND_OPTIONS_TEXT)
+    current_backend = state.backend or "auto"
+
     if active_tab == "extract":
         tools_controls = [
             _make_compact_dropdown(
@@ -445,10 +337,7 @@ def HomeScreen() -> Control:
                 "Max Results",
                 ft.Icons.FORMAT_LIST_NUMBERED_ROUNDED,
                 str(state.max_results),
-                [
-                    ft.dropdown.Option(str(p["key"]), p["label"])
-                    for p in MAX_RESULTS_PRESETS
-                ],
+                [ft.dropdown.Option(str(p["key"]), p["label"]) for p in MAX_RESULTS_PRESETS],
                 lambda e: controller.save("max_results", int(e.control.value)),
                 width=100,
             ),
@@ -476,87 +365,109 @@ def HomeScreen() -> Control:
 
     content = ft.Column(
         controls=[
-            # Hero
+            # Compact header
             ft.Container(
-                content=ft.Column(
+                content=ft.Row(
                     [
-                        ft.Container(height=tokens.SPACE_LG),
-                        ft.Image(
-                            src="icon.png",
-                            width=72,
-                            height=72,
-                            color=AppColors.PRIMARY,
-                            fit=ft.BoxFit.CONTAIN,
-                        ),
-                        ft.Container(height=tokens.SPACE_SM),
-                        ft.Text(
-                            "Search the web privately.\nFetch any webpage instantly.",
-                            size=tokens.FONT_SM,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                            text_align=ft.TextAlign.CENTER,
-                            font_family="Outfit",
-                            weight=ft.FontWeight.W_500,
-                        ),
-                        ft.Container(height=tokens.SPACE_XL),
-                    ],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=0,
-                ),
-            ),
-            # Search section
-            ft.Container(
-                content=ft.Column(
-                    [
-                        ft.TextField(
-                            value=search_query,
-                            hint_text=_HINT_MAP.get(active_tab, "Search the web..."),
-                            hint_style=ft.TextStyle(
-                                size=tokens.FONT_MD,
-                                weight=ft.FontWeight.W_400,
-                                italic=True,
-                                color=ft.Colors.with_opacity(
-                                    0.4,
-                                    AppColors.DARK_TEXT
-                                    if is_dark
-                                    else AppColors.LIGHT_TEXT,
+                        ft.Row(
+                            [
+                                ft.Image(
+                                    src="icon.png",
+                                    width=28,
+                                    height=28,
+                                    color=AppColors.PRIMARY,
                                 ),
-                            ),
-                            text_style=ft.TextStyle(
-                                size=tokens.FONT_MD, weight=ft.FontWeight.W_500
-                            ),
-                            prefix_icon=prefix_icon,
-                            content_padding=ft.Padding(
-                                left=18, top=14, right=18, bottom=14
-                            ),
-                            border_radius=tokens.RADIUS_MD,
-                            border_width=1.0,
-                            border_color=ft.Colors.with_opacity(
-                                0.12,
-                                AppColors.DARK_TEXT
-                                if is_dark
-                                else AppColors.LIGHT_TEXT,
-                            ),
-                            focused_border_color=AppColors.PRIMARY,
-                            focused_border_width=1.5,
-                            border=ft.InputBorder.OUTLINE,
-                            filled=True,
-                            bgcolor=(
-                                AppColors.DARK_SURFACE
-                                if is_dark
-                                else AppColors.LIGHT_SURFACE
-                            ),
-                            cursor_color=AppColors.PRIMARY,
-                            on_submit=lambda e: _on_search(),
-                            on_change=lambda e: set_search_query(e.control.value),
-                            suffix=ft.IconButton(
-                                icon=ft.Icons.PASTE_ROUNDED,
-                                icon_size=18,
-                                icon_color=AppColors.PRIMARY,
-                                tooltip="Paste from clipboard",
-                                on_click=_on_paste,
-                            ),
+                                ft.Text(
+                                    "DDGS",
+                                    size=tokens.FONT_LG,
+                                    weight=ft.FontWeight.BOLD,
+                                    font_family="Outfit",
+                                ),
+                            ],
+                            spacing=8,
+                            tight=True,
                         ),
-                        # Tools toggle
+                        ft.Row(
+                            [
+                                ft.IconButton(
+                                    icon=_get_theme_icon(),
+                                    icon_size=20,
+                                    on_click=_toggle_theme,
+                                    tooltip="Toggle Theme",
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.SETTINGS_ROUNDED,
+                                    icon_size=20,
+                                    on_click=lambda e: controller.navigate_tab(2),
+                                    tooltip="Settings",
+                                ),
+                            ],
+                            spacing=0,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                padding=ft.Padding(tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0),
+            ),
+            # Search field
+            ft.Container(
+                content=ft.TextField(
+                    value=search_query,
+                    hint_text=_HINT_MAP.get(active_tab, "Search the web..."),
+                    hint_style=ft.TextStyle(
+                        size=tokens.FONT_MD,
+                        weight=ft.FontWeight.W_400,
+                        italic=True,
+                        color=ft.Colors.with_opacity(
+                            0.4,
+                            AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
+                        ),
+                    ),
+                    text_style=ft.TextStyle(
+                        size=tokens.FONT_MD, weight=ft.FontWeight.W_500
+                    ),
+                    prefix_icon=prefix_icon,
+                    content_padding=ft.Padding(left=18, top=14, right=18, bottom=14),
+                    border_radius=tokens.RADIUS_MD,
+                    border_width=1.0,
+                    border_color=ft.Colors.with_opacity(
+                        0.12,
+                        AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
+                    ),
+                    focused_border_color=AppColors.PRIMARY,
+                    focused_border_width=1.5,
+                    border=ft.InputBorder.OUTLINE,
+                    filled=True,
+                    bgcolor=(
+                        AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE
+                    ),
+                    cursor_color=AppColors.PRIMARY,
+                    on_submit=lambda e: _on_search(),
+                    on_change=lambda e: set_search_query(e.control.value),
+                    suffix=ft.IconButton(
+                        icon=ft.Icons.PASTE_ROUNDED,
+                        icon_size=18,
+                        icon_color=AppColors.PRIMARY,
+                        tooltip="Paste from clipboard",
+                        on_click=_on_paste,
+                    ),
+                ),
+                padding=ft.Padding(tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0),
+            ),
+            # Category chips (horizontal scroll)
+            ft.Container(
+                content=ft.Row(
+                    chips,
+                    wrap=False,
+                    scroll=ft.ScrollMode.AUTO,
+                    spacing=tokens.SPACE_SM,
+                ),
+                padding=ft.Padding(tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0),
+            ),
+            # Tools toggle + search button
+            ft.Container(
+                content=ft.Column(
+                    [
                         ft.Row(
                             [
                                 ft.Container(
@@ -586,20 +497,15 @@ def HomeScreen() -> Control:
                                         alignment=ft.MainAxisAlignment.CENTER,
                                         tight=True,
                                     ),
-                                    on_click=lambda e: set_tools_expanded(
-                                        not tools_expanded
-                                    ),
+                                    on_click=lambda e: set_tools_expanded(not tools_expanded),
                                     padding=ft.Padding(12, 6, 12, 6),
                                     border_radius=tokens.RADIUS_PILL,
                                     border=ft.Border.all(
-                                        1,
-                                        ft.Colors.with_opacity(0.2, AppColors.PRIMARY),
+                                        1, ft.Colors.with_opacity(0.2, AppColors.PRIMARY)
                                     ),
-                                    bgcolor=ft.Colors.with_opacity(
-                                        0.06, AppColors.PRIMARY
-                                    ),
+                                    bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY),
                                     animate=ft.Animation(
-                                        200, ft.AnimationCurve.EASE_OUT
+                                        tokens.ANIMATION_FAST, ft.AnimationCurve.EASE_OUT
                                     ),
                                 ),
                             ],
@@ -621,7 +527,9 @@ def HomeScreen() -> Control:
                                 1, ft.Colors.with_opacity(0.08, AppColors.PRIMARY)
                             ),
                             visible=tools_expanded,
-                            animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
+                            animate=ft.Animation(
+                                tokens.ANIMATION_FAST, ft.AnimationCurve.EASE_OUT
+                            ),
                         ),
                         # Search button
                         ft.Row(
@@ -661,222 +569,69 @@ def HomeScreen() -> Control:
                         ),
                     ],
                     spacing=tokens.SPACE_SM,
-                    tight=True,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 ),
                 padding=ft.Padding(
-                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
+                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, tokens.SPACE_SM
                 ),
             ),
-            # Category grid
+            # Recent searches
+            *(
+                [
+                    ft.Container(
+                        content=ft.Column(
+                            [
+                                ft.Text(
+                                    "Recent",
+                                    size=tokens.FONT_SM,
+                                    weight=ft.FontWeight.W_600,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    font_family="Outfit",
+                                ),
+                                *recent_rows,
+                            ],
+                            spacing=tokens.SPACE_SM,
+                        ),
+                        padding=ft.Padding(
+                            tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_SM
+                        ),
+                    )
+                ]
+                if recent_rows
+                else []
+            ),
+            # Privacy banner (compact)
             ft.Container(
-                content=ft.Column(
-                    controls=[
-                        ft.Text(
-                            "Search Categories",
-                            size=tokens.FONT_MD,
-                            weight=ft.FontWeight.W_600,
-                            font_family="Outfit",
+                content=ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.SHIELD_ROUNDED,
+                            size=18,
+                            color=AppColors.PRIMARY,
                         ),
                         ft.Text(
-                            "Tap a category to change what you're searching for",
+                            "Your searches are private. No tracking, no profiling.",
                             size=tokens.FONT_XS,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             font_family="Outfit",
-                        ),
-                        ft.Container(height=tokens.SPACE_SM),
-                        ft.Row(controls=grid_cards_row1, spacing=tokens.SPACE_MD),
-                        ft.Container(height=tokens.SPACE_MD),
-                        ft.Row(controls=grid_cards_row2, spacing=tokens.SPACE_MD),
-                    ],
-                    spacing=0,
-                ),
-                padding=ft.Padding(
-                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
-                ),
-            ),
-            # Privacy banner
-            ft.Container(
-                content=ft.Row(
-                    controls=[
-                        ft.Icon(
-                            ft.Icons.SHIELD_ROUNDED,
-                            size=tokens.ICON_MD,
-                            color=AppColors.PRIMARY,
-                        ),
-                        ft.Column(
-                            controls=[
-                                ft.Text(
-                                    "100% Privacy-First",
-                                    size=tokens.FONT_SM,
-                                    weight=ft.FontWeight.W_600,
-                                    font_family="Outfit",
-                                ),
-                                ft.Text(
-                                    "Your searches are never tracked, profiled, or stored. "
-                                    "No filter bubbles, no data harvesting.",
-                                    size=tokens.FONT_XS,
-                                    color=ft.Colors.ON_SURFACE_VARIANT,
-                                    font_family="Outfit",
-                                    style=ft.TextStyle(height=1.3),
-                                ),
-                            ],
-                            spacing=tokens.SPACE_XXS,
                             expand=True,
                         ),
                     ],
-                    spacing=tokens.SPACE_MD,
+                    spacing=8,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 padding=ft.Padding(
-                    tokens.SPACE_LG, tokens.SPACE_MD, tokens.SPACE_LG, tokens.SPACE_MD
+                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, tokens.SPACE_SM
                 ),
-                margin=ft.Margin(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
-                border_radius=tokens.RADIUS_LG,
+                margin=ft.Margin(tokens.SPACE_LG, 0, tokens.SPACE_LG, 0),
+                border_radius=tokens.RADIUS_MD,
                 bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY),
                 border=ft.Border.all(
-                    1, ft.Colors.with_opacity(0.15, AppColors.PRIMARY)
+                    1, ft.Colors.with_opacity(0.12, AppColors.PRIMARY)
                 ),
             ),
-            # Recent queries
-            recent_section if recent_section else ft.Container(),
-            # Features section
-            ft.Container(
-                content=ft.Column(
-                    controls=[
-                        ft.Text(
-                            "What DDGS Can Do",
-                            size=tokens.FONT_MD,
-                            weight=ft.FontWeight.W_600,
-                            font_family="Outfit",
-                        ),
-                        ft.Container(height=tokens.SPACE_SM),
-                        _feature_card(
-                            ft.Icons.SEARCH_ROUNDED,
-                            "Private Web Search",
-                            "Search across multiple engines without being tracked. "
-                            "No profiling, no filter bubbles.",
-                            AppColors.PRIMARY,
-                            page=_get_page(),
-                        ),
-                        ft.Container(height=tokens.SPACE_SM),
-                        _feature_card(
-                            ft.Icons.LANGUAGE_ROUNDED,
-                            "Instant Page Fetch",
-                            "Paste any URL and extract the full text content instantly — "
-                            "articles, documentation, recipes, anything. "
-                            "Save as markdown or plain text.",
-                            AppColors.PRIMARY_DARK,
-                            page=_get_page(),
-                        ),
-                        ft.Container(height=tokens.SPACE_SM),
-                        _feature_card(
-                            ft.Icons.IMAGE_ROUNDED,
-                            "Image & Video Discovery",
-                            "Find images and videos from across the web. "
-                            "Download directly to your device with one tap.",
-                            AppColors.PRIMARY_LIGHT,
-                            page=_get_page(),
-                        ),
-                        ft.Container(height=tokens.SPACE_SM),
-                        _feature_card(
-                            ft.Icons.ARTICLE_ROUNDED,
-                            "Live News Feed",
-                            "Get breaking news from every source, uncensored "
-                            "and unfiltered by algorithm bias.",
-                            AppColors.SUCCESS,
-                            page=_get_page(),
-                        ),
-                        ft.Container(height=tokens.SPACE_SM),
-                        _feature_card(
-                            ft.Icons.BOOK_ROUNDED,
-                            "Book & Literature Search",
-                            "Find books, papers, and academic texts from "
-                            "global archives and open libraries.",
-                            AppColors.WARNING,
-                            page=_get_page(),
-                        ),
-                    ],
-                    spacing=0,
-                ),
-                padding=ft.Padding(
-                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
-                ),
-            ),
-            # How it works
-            ft.Container(
-                content=ft.Column(
-                    controls=[
-                        ft.Text(
-                            "How It Works",
-                            size=tokens.FONT_MD,
-                            weight=ft.FontWeight.W_600,
-                            font_family="Outfit",
-                        ),
-                        ft.Container(height=tokens.SPACE_SM),
-                        _step_row(
-                            "1",
-                            "Choose",
-                            "Pick what you're looking for — web pages, images, videos, news, or books",
-                        ),
-                        _step_row(
-                            "2",
-                            "Search",
-                            "Type your query and hit search. Adjust filters if you want",
-                        ),
-                        _step_row(
-                            "3",
-                            "Done",
-                            "Get private results instantly. Download, save, or open in browser",
-                        ),
-                    ],
-                    spacing=tokens.SPACE_MD,
-                ),
-                padding=ft.Padding(
-                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
-                ),
-            ),
-            # No account info
-            ft.Container(
-                content=ft.Row(
-                    controls=[
-                        ft.Icon(ft.Icons.BOLT_ROUNDED, size=20, color=AppColors.ACCENT),
-                        ft.Column(
-                            [
-                                ft.Text(
-                                    "Unlimited Searches, No Account Required",
-                                    size=tokens.FONT_SM,
-                                    weight=ft.FontWeight.W_600,
-                                    font_family="Outfit",
-                                ),
-                                ft.Text(
-                                    "Search as much as you want. We never ask for "
-                                    "sign-up, email, or personal data.",
-                                    size=tokens.FONT_XS,
-                                    color=ft.Colors.ON_SURFACE_VARIANT,
-                                    font_family="Outfit",
-                                    style=ft.TextStyle(height=1.3),
-                                ),
-                            ],
-                            spacing=2,
-                            expand=True,
-                        ),
-                    ],
-                    spacing=tokens.SPACE_MD,
-                    vertical_alignment="center",
-                ),
-                padding=ft.Padding(
-                    tokens.SPACE_LG,
-                    tokens.SPACE_MD,
-                    tokens.SPACE_LG,
-                    tokens.SPACE_MD,
-                ),
-                margin=ft.Margin(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
-                border_radius=tokens.RADIUS_LG,
-                bgcolor=ft.Colors.with_opacity(0.06, AppColors.ACCENT),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.15, AppColors.ACCENT)),
-            ),
-            ft.Container(height=16),
+            # Banner ad
+            ft.Container(height=tokens.SPACE_SM),
             ft.Container(height=80),  # Bottom nav bar spacing
         ],
         scroll=ft.ScrollMode.AUTO,
