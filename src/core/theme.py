@@ -8,7 +8,7 @@ class AppColors:
     PRIMARY = "#B33A1D"  # Premium Dark Orange/Terracotta
     PRIMARY_LIGHT = "#DE5833"  # Standard Brand Orange
     PRIMARY_DARK = "#8E250F"  # Deep Pressed Orange
-    ACCENT = "#B33A1D"  # Neutral accent (avoid color mixing)
+    ACCENT = "#0EA5E9"  # Sky Blue accent for visual variety
 
     SUCCESS = "#2E7D32"  # Clean Material Green
     WARNING = "#F9A825"  # Amber Gold
@@ -212,7 +212,7 @@ class AppTheme:
                 surface=AppColors.LIGHT_BG,
                 on_surface=AppColors.LIGHT_TEXT,
                 surface_container=AppColors.LIGHT_SURFACE,
-                surface_container_highest=AppColors.LIGHT_SURFACE,
+                surface_container_highest=AppColors.LIGHT_SURFACE_2,
                 on_surface_variant=AppColors.LIGHT_TEXT_DIM,
                 error=AppColors.ERROR,
                 on_error=ft.Colors.WHITE,
@@ -232,11 +232,11 @@ class AppTheme:
                 primary_container=ft.Colors.with_opacity(0.15, AppColors.PRIMARY_LIGHT),
                 on_primary_container=AppColors.PRIMARY_LIGHT,
                 secondary=AppColors.ACCENT,
-                on_secondary=ft.Colors.BLACK,
+                on_secondary=ft.Colors.WHITE,
                 surface=AppColors.DARK_BG_1,
                 on_surface=AppColors.DARK_TEXT,
                 surface_container=AppColors.DARK_SURFACE,
-                surface_container_highest=AppColors.DARK_SURFACE,
+                surface_container_highest=AppColors.DARK_SURFACE_2,
                 on_surface_variant=AppColors.DARK_TEXT_DIM,
                 error=AppColors.ERROR,
                 on_error=ft.Colors.WHITE,
