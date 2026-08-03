@@ -16,15 +16,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import flet_ads as fta
-    import flet_ads.base_ad as base_ad
 
-    def _patched_init(self):
-        try:
-            super(base_ad.BaseAd, self).init()
-        except Exception:
-            pass
-
-    base_ad.BaseAd.init = _patched_init
     _HAS_ADS = True
 except ImportError:
     _HAS_ADS = False
