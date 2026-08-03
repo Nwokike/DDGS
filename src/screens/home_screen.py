@@ -766,7 +766,9 @@ def HomeScreen() -> Control:
             # Banner ad (after category chips)
             ft.Container(
                 content=build_banner_ad(_get_page()),
-                padding=ft.Padding(tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
+                ),
             ),
             # What DDGS Can Do (condensed - 3 features)
             ft.Container(
@@ -805,7 +807,9 @@ def HomeScreen() -> Control:
                     ],
                     spacing=0,
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
+                ),
             ),
             # How It Works (3 steps)
             ft.Container(
@@ -836,7 +840,9 @@ def HomeScreen() -> Control:
                     ],
                     spacing=tokens.SPACE_SM,
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
+                ),
             ),
             # Privacy banner (prominent)
             ft.Container(
@@ -876,7 +882,9 @@ def HomeScreen() -> Control:
                 margin=ft.Margin(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
                 border_radius=tokens.RADIUS_LG,
                 bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.15, AppColors.PRIMARY)),
+                border=ft.Border.all(
+                    1, ft.Colors.with_opacity(0.15, AppColors.PRIMARY)
+                ),
             ),
             # Banner ad
             ft.Container(height=tokens.SPACE_SM),

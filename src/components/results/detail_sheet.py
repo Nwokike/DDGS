@@ -241,6 +241,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
 
     # "Open in Full Reader" button (non-media only)
     if not is_media:
+
         def _open_reader(_):
             try:
                 page.pop_dialog()

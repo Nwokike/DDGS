@@ -26,7 +26,11 @@ def build_content_reader(
     _error = None
     # Map extract_format to valid dropdown options
     _VALID_FORMATS = {"text_markdown", "text_plain", "text_rich", "text", "content"}
-    _format = state.extract_format if state.extract_format in _VALID_FORMATS else "text_markdown"
+    _format = (
+        state.extract_format
+        if state.extract_format in _VALID_FORMATS
+        else "text_markdown"
+    )
 
     # UI references
     content_text = ft.Ref[ft.Markdown]()
@@ -144,7 +148,9 @@ def build_content_reader(
             if isinstance(_current_content, bytes):
                 await _save_bytes_content(page, _current_content, "extracted_file.bin")
             else:
-                await _save_text_content(page, str(_current_content), "extracted_page.md")
+                await _save_text_content(
+                    page, str(_current_content), "extracted_page.md"
+                )
         except Exception as ex:
             page.snack_bar = ft.SnackBar(ft.Text(f"Save failed: {ex}"))
             page.snack_bar.open = True
