@@ -616,6 +616,7 @@ def HomeScreen() -> Control:
                     wrap=False,
                     scroll=ft.ScrollMode.AUTO,
                     spacing=tokens.SPACE_SM,
+                    alignment=ft.MainAxisAlignment.CENTER,
                 ),
                 padding=ft.Padding(
                     tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
