@@ -239,6 +239,42 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         )
     )
 
+    # "Open in Full Reader" button (non-media only)
+    if not is_media:
+        def _open_reader(_):
+            try:
+                page.pop_dialog()
+            except Exception:
+                pass
+            ctrl = getattr(page, "_ddgs_controller", None)
+            if ctrl:
+                ctrl.open_content_reader(r.url, None)
+
+        controls.append(
+            ft.OutlinedButton(
+                content=ft.Row(
+                    [
+                        ft.Icon(ft.Icons.OPEN_IN_NEW_ROUNDED, size=tokens.ICON_SM),
+                        ft.Text(
+                            "Open in Full Reader",
+                            size=tokens.FONT_SM,
+                            weight=ft.FontWeight.W_600,
+                            font_family="Outfit",
+                        ),
+                    ],
+                    spacing=6,
+                    tight=True,
+                ),
+                on_click=_open_reader,
+                style=ft.ButtonStyle(
+                    shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                    side=ft.BorderSide(1, AppColors.PRIMARY),
+                    padding=ft.Padding(16, 12, 16, 12),
+                ),
+                expand=True,
+            )
+        )
+
     # Secondary actions row
     controls.append(
         ft.Row(

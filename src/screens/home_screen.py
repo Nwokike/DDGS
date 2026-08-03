@@ -452,48 +452,51 @@ def HomeScreen() -> Control:
                     tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
                 ),
             ),
-            # Search field
+            # Search field — modern SearchBar
             ft.Container(
-                content=ft.TextField(
+                content=ft.SearchBar(
                     value=search_query,
-                    hint_text=_HINT_MAP.get(active_tab, "Search the web..."),
-                    hint_style=ft.TextStyle(
+                    bar_hint_text=_HINT_MAP.get(active_tab, "Search the web..."),
+                    bar_leading=ft.Icon(
+                        prefix_icon,
+                        color=AppColors.PRIMARY,
+                    ),
+                    bar_trailing=[
+                        ft.IconButton(
+                            icon=ft.Icons.PASTE_ROUNDED,
+                            icon_size=18,
+                            icon_color=AppColors.PRIMARY,
+                            tooltip="Paste from clipboard",
+                            on_click=_on_paste,
+                        ),
+                    ],
+                    bar_bgcolor=(
+                        AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE
+                    ),
+                    bar_border_side=ft.BorderSide(
+                        1,
+                        ft.Colors.with_opacity(
+                            0.12,
+                            AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
+                        ),
+                    ),
+                    bar_shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                    bar_text_style=ft.TextStyle(
+                        size=tokens.FONT_MD,
+                        weight=ft.FontWeight.W_500,
+                    ),
+                    bar_hint_text_style=ft.TextStyle(
                         size=tokens.FONT_MD,
                         weight=ft.FontWeight.W_400,
-                        italic=True,
                         color=ft.Colors.with_opacity(
                             0.4,
                             AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
                         ),
                     ),
-                    text_style=ft.TextStyle(
-                        size=tokens.FONT_MD, weight=ft.FontWeight.W_500
-                    ),
-                    prefix_icon=prefix_icon,
-                    content_padding=ft.Padding(left=18, top=14, right=18, bottom=14),
-                    border_radius=tokens.RADIUS_MD,
-                    border_width=1.0,
-                    border_color=ft.Colors.with_opacity(
-                        0.12,
-                        AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
-                    ),
-                    focused_border_color=AppColors.PRIMARY,
-                    focused_border_width=1.5,
-                    border=ft.InputBorder.OUTLINE,
-                    filled=True,
-                    bgcolor=(
-                        AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE
-                    ),
-                    cursor_color=AppColors.PRIMARY,
+                    full_screen=True,
                     on_submit=lambda e: _on_search(),
                     on_change=lambda e: set_search_query(e.control.value),
-                    suffix=ft.IconButton(
-                        icon=ft.Icons.PASTE_ROUNDED,
-                        icon_size=18,
-                        icon_color=AppColors.PRIMARY,
-                        tooltip="Paste from clipboard",
-                        on_click=_on_paste,
-                    ),
+                    autofocus=False,
                 ),
                 padding=ft.Padding(
                     tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0

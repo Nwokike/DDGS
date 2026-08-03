@@ -14,7 +14,9 @@ from core.state import state
 from core.theme import AppColors
 
 
-def build_content_reader(page: ft.Page, url: str, content: str | None = None) -> ft.View:
+def build_content_reader(
+    page: ft.Page, url: str, content: str | None = None
+) -> ft.View:
     """Build a full-screen content reader View with back stack."""
     # Imperative state (since this runs outside the component tree)
     _url_stack: list[str] = []
@@ -107,9 +109,35 @@ def build_content_reader(page: ft.Page, url: str, content: str | None = None) ->
             prev = _url_stack.pop()
             page.run_task(_fetch, prev)
         else:
+            _exit_reader()
+
+    def _exit_reader():
+        """Always exit the reader — pop back to whatever was underneath."""
+        try:
             if len(page.views) > 1:
                 page.views.pop()
                 page.update()
+        except Exception:
+            pass
+
+    async def _save_content():
+        """Save the current content to a file."""
+        if not _current_content:
+            return
+        try:
+            from components.results.downloader import (
+                _save_bytes_content,
+                _save_text_content,
+            )
+
+            if isinstance(_current_content, bytes):
+                await _save_bytes_content(page, _current_content, "extracted_file.bin")
+            else:
+                await _save_text_content(page, str(_current_content), "extracted_page.md")
+        except Exception as ex:
+            page.snack_bar = ft.SnackBar(ft.Text(f"Save failed: {ex}"))
+            page.snack_bar.open = True
+            page.update()
 
     def _on_format_change(e):
         nonlocal _format
@@ -130,6 +158,7 @@ def build_content_reader(page: ft.Page, url: str, content: str | None = None) ->
             await ft.UrlLauncher().launch_url(_current_url or "")
         except Exception:
             import webbrowser
+
             webbrowser.open(_current_url or "")
 
     # ── Build UI ──
@@ -166,15 +195,23 @@ def build_content_reader(page: ft.Page, url: str, content: str | None = None) ->
                 value=_format,
                 options=[
                     ft.dropdown.Option("text_markdown", "Markdown"),
-                    ft.dropdown.Option("text_plain", "Plain"),
-                    ft.dropdown.Option("text_rich", "Rich"),
+                    ft.dropdown.Option("text_plain", "Plain Text"),
+                    ft.dropdown.Option("text_rich", "Rich Text"),
+                    ft.dropdown.Option("text", "Raw HTML"),
+                    ft.dropdown.Option("content", "Raw Bytes"),
                 ],
                 on_select=_on_format_change,
                 dense=True,
                 text_size=tokens.FONT_XS,
                 content_padding=ft.Padding(8, 2, 8, 2),
-                width=110,
+                width=130,
                 height=36,
+            ),
+            ft.IconButton(
+                icon=ft.Icons.SAVE_ALT_ROUNDED,
+                icon_size=tokens.ICON_SM,
+                tooltip="Save content to file",
+                on_click=lambda _: page.run_task(_save_content),
             ),
             ft.IconButton(
                 icon=ft.Icons.CONTENT_COPY_ROUNDED,
@@ -188,7 +225,12 @@ def build_content_reader(page: ft.Page, url: str, content: str | None = None) ->
                 tooltip="Open in Browser",
                 on_click=lambda _: page.run_task(_open_browser),
             ),
-            ft.Container(width=4),
+            ft.IconButton(
+                icon=ft.Icons.CLOSE_ROUNDED,
+                icon_size=tokens.ICON_MD,
+                tooltip="Exit Reader",
+                on_click=lambda _: _exit_reader(),
+            ),
         ],
         bgcolor=ft.Colors.TRANSPARENT,
         elevation=0,

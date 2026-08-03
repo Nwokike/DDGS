@@ -209,6 +209,14 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
             file_name = f"{clean_name}{ext}"
             await _save_text_content(page, str(content), file_name)
 
+    def _expand_to_reader():
+        """Close this preview and open the full-screen content reader."""
+        _url_history.clear()
+        page.pop_dialog()
+        ctrl = getattr(page, "_ddgs_controller", None)
+        if ctrl:
+            ctrl.open_content_reader(url, str(content) if content else None)
+
     def _close_preview(_):
         _url_history.clear()
         page.pop_dialog()
@@ -255,6 +263,12 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 icon_size=tokens.ICON_MD,
                 tooltip="Save content to file",
                 on_click=lambda _: page.run_task(save_extract),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.FULLSCREEN_ROUNDED,
+                icon_size=tokens.ICON_MD,
+                tooltip="Open in full reader",
+                on_click=lambda _: _expand_to_reader(),
             ),
             ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,
