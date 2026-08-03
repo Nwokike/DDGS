@@ -561,6 +561,7 @@ def HomeScreen() -> Control:
             ),
             # Search field — modern SearchBar
             ft.Container(
+                alignment=ft.Alignment.CENTER,
                 content=ft.SearchBar(
                     value=search_query,
                     bar_hint_text=_HINT_MAP.get(active_tab, "Search the web..."),
