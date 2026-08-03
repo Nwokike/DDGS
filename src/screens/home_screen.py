@@ -323,7 +323,7 @@ def HomeScreen() -> Control:
             return
         state.current_query = query
         state.default_tab = active_tab
-        controller.start_search(query, active_tab)
+        _get_page().run_task(controller.start_search, query, active_tab)
 
     def _on_paste(e):
         async def _paste():
@@ -346,7 +346,7 @@ def HomeScreen() -> Control:
     def _on_history_click(query: str, search_type: str):
         set_search_query(query)
         set_active_tab(search_type)
-        controller.start_search(query, search_type)
+        _get_page().run_task(controller.start_search, query, search_type)
 
     # ── Theme toggle ──
 
@@ -372,7 +372,9 @@ def HomeScreen() -> Control:
     # ── Build UI ──
 
     is_dark = _is_dark()
-    prefix_icon = ft.Icons.LINK_ROUNDED if active_tab == "extract" else ft.Icons.SEARCH_ROUNDED
+    prefix_icon = (
+        ft.Icons.LINK_ROUNDED if active_tab == "extract" else ft.Icons.SEARCH_ROUNDED
+    )
 
     backend_options = BACKEND_OPTIONS_MAP.get(active_tab, BACKEND_OPTIONS_TEXT)
     current_backend = state.backend or "auto"
@@ -464,7 +466,10 @@ def HomeScreen() -> Control:
                 "Max Results",
                 ft.Icons.FORMAT_LIST_NUMBERED_ROUNDED,
                 str(state.max_results),
-                [ft.dropdown.Option(str(p["key"]), p["label"]) for p in MAX_RESULTS_PRESETS],
+                [
+                    ft.dropdown.Option(str(p["key"]), p["label"])
+                    for p in MAX_RESULTS_PRESETS
+                ],
                 lambda e: controller.save("max_results", int(e.control.value)),
                 width=100,
             ),
@@ -532,26 +537,34 @@ def HomeScreen() -> Control:
                                 italic=True,
                                 color=ft.Colors.with_opacity(
                                     0.4,
-                                    AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
+                                    AppColors.DARK_TEXT
+                                    if is_dark
+                                    else AppColors.LIGHT_TEXT,
                                 ),
                             ),
                             text_style=ft.TextStyle(
                                 size=tokens.FONT_MD, weight=ft.FontWeight.W_500
                             ),
                             prefix_icon=prefix_icon,
-                            content_padding=ft.Padding(left=18, top=14, right=18, bottom=14),
+                            content_padding=ft.Padding(
+                                left=18, top=14, right=18, bottom=14
+                            ),
                             border_radius=tokens.RADIUS_MD,
                             border_width=1.0,
                             border_color=ft.Colors.with_opacity(
                                 0.12,
-                                AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
+                                AppColors.DARK_TEXT
+                                if is_dark
+                                else AppColors.LIGHT_TEXT,
                             ),
                             focused_border_color=AppColors.PRIMARY,
                             focused_border_width=1.5,
                             border=ft.InputBorder.OUTLINE,
                             filled=True,
                             bgcolor=(
-                                AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE
+                                AppColors.DARK_SURFACE
+                                if is_dark
+                                else AppColors.LIGHT_SURFACE
                             ),
                             cursor_color=AppColors.PRIMARY,
                             on_submit=lambda e: _on_search(),
@@ -594,14 +607,21 @@ def HomeScreen() -> Control:
                                         alignment=ft.MainAxisAlignment.CENTER,
                                         tight=True,
                                     ),
-                                    on_click=lambda e: set_tools_expanded(not tools_expanded),
+                                    on_click=lambda e: set_tools_expanded(
+                                        not tools_expanded
+                                    ),
                                     padding=ft.Padding(12, 6, 12, 6),
                                     border_radius=tokens.RADIUS_PILL,
                                     border=ft.Border.all(
-                                        1, ft.Colors.with_opacity(0.2, AppColors.PRIMARY)
+                                        1,
+                                        ft.Colors.with_opacity(0.2, AppColors.PRIMARY),
                                     ),
-                                    bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY),
-                                    animate=ft.Animation(200, ft.AnimationCurve.EASE_OUT),
+                                    bgcolor=ft.Colors.with_opacity(
+                                        0.06, AppColors.PRIMARY
+                                    ),
+                                    animate=ft.Animation(
+                                        200, ft.AnimationCurve.EASE_OUT
+                                    ),
                                 ),
                             ],
                             alignment=ft.MainAxisAlignment.CENTER,
@@ -665,7 +685,9 @@ def HomeScreen() -> Control:
                     tight=True,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
+                ),
             ),
             # Category grid
             ft.Container(
@@ -690,7 +712,9 @@ def HomeScreen() -> Control:
                     ],
                     spacing=0,
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
+                ),
             ),
             # Privacy banner
             ft.Container(
@@ -731,7 +755,9 @@ def HomeScreen() -> Control:
                 margin=ft.Margin(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
                 border_radius=tokens.RADIUS_LG,
                 bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.15, AppColors.PRIMARY)),
+                border=ft.Border.all(
+                    1, ft.Colors.with_opacity(0.15, AppColors.PRIMARY)
+                ),
             ),
             # Recent queries
             recent_section if recent_section else ft.Container(),
@@ -794,7 +820,9 @@ def HomeScreen() -> Control:
                     ],
                     spacing=0,
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
+                ),
             ),
             # How it works
             ft.Container(
@@ -825,7 +853,9 @@ def HomeScreen() -> Control:
                     ],
                     spacing=tokens.SPACE_MD,
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
+                ),
             ),
             # No account info
             ft.Container(

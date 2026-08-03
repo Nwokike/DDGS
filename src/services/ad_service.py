@@ -54,7 +54,7 @@ class AdService:
 
     def _is_mobile(self) -> bool:
         try:
-            return self.page.platform.is_mobile()
+            return not self.page.web and self.page.platform.is_mobile()
         except (
             ValueError,
             TypeError,
@@ -87,7 +87,9 @@ class AdService:
         if not self._consent_manager:
             return
         try:
-            status = await self._consent_manager.get_privacy_options_requirement_status()
+            status = (
+                await self._consent_manager.get_privacy_options_requirement_status()
+            )
             if status == fta.PrivacyOptionsRequirementStatus.REQUIRED:
                 await self._consent_manager.show_privacy_options_form()
                 self._can_request_ads = await self._consent_manager.can_request_ads()

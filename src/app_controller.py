@@ -92,9 +92,7 @@ class AppController:
             save_async=self.save_setting,
             show_snack=self.show_snack,
         )
-        self.page.render(
-            lambda: ControllerMethodsCtx(methods, lambda: AppShell())
-        )
+        self.page.render(lambda: ControllerMethodsCtx(methods, lambda: AppShell()))
         logger.info(f"[{LOG_TAG}] UI mounted")
 
     # ── Settings persistence ───────────────────────────────────────────

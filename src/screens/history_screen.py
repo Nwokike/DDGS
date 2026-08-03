@@ -40,13 +40,16 @@ def HistoryScreen() -> Control:
 
     history = state.search_history
 
+    from flet import context as flet_context
+
+    def _get_page():
+        return flet_context.page
+
     def _on_research(query: str, search_type: str):
-        controller.start_search(query, search_type)
+        _get_page().run_task(controller.start_search, query, search_type)
 
     def _on_clear():
-        from flet import context as flet_context
-
-        page = flet_context.page
+        page = _get_page()
 
         async def _do_clear():
             page.pop_dialog()

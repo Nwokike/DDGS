@@ -61,7 +61,9 @@ class ControllerMethods:
     go_home: Callable[[], Awaitable[None]] = _noop_async
     navigate_tab: Callable[[int], None] = _noop_tab
     save: Callable[[str, object], None] = _noop_tab  # sync: save(key, value)
-    save_async: Callable[[str, object], Awaitable[None]] = _noop_setting  # async version
+    save_async: Callable[[str, object], Awaitable[None]] = (
+        _noop_setting  # async version
+    )
     show_snack: Callable[[str, str], Awaitable[None]] = _noop_async_str
 
 

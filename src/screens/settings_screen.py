@@ -88,10 +88,14 @@ def _build_logs_dialog():
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
                     ft.Container(
-                        content=ft.Column([log_text_control], scroll=ft.ScrollMode.AUTO),
+                        content=ft.Column(
+                            [log_text_control], scroll=ft.ScrollMode.AUTO
+                        ),
                         padding=12,
                         bgcolor="#0D0D0D",
-                        border=ft.Border.all(1, ft.Colors.with_opacity(0.15, ft.Colors.WHITE)),
+                        border=ft.Border.all(
+                            1, ft.Colors.with_opacity(0.15, ft.Colors.WHITE)
+                        ),
                         border_radius=8,
                         expand=True,
                     ),
@@ -218,13 +222,16 @@ def SettingsScreen() -> Control:
     # ── Sections ──
     # Old section builders use page.run_task() internally, so all callbacks
     # passed to them must be async (coroutine functions).
+    async def _set_safe_search(v):
+        await controller.save_async("safe_search", v)
+
     sections = ft.Column(
         [
             build_theme_section(page, _current_theme(), _change_theme),
             build_search_rules_section(
                 page,
                 controller.save_async,
-                lambda v: controller.save_async("safe_search", v),
+                _set_safe_search,
             ),
             build_banner_ad(page),
             build_backends_section(page, controller.save_async),

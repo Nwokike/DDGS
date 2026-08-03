@@ -53,9 +53,19 @@ def _build_error_box(
     err_str = str(error or "").lower()
     is_offline = any(
         kw in err_str
-        for kw in ("dns", "connect", "network", "offline", "unreachable", "timed out", "timeout")
+        for kw in (
+            "dns",
+            "connect",
+            "network",
+            "offline",
+            "unreachable",
+            "timed out",
+            "timeout",
+        )
     )
-    is_server_err = any(kw in err_str for kw in ("500", "502", "503", "504", "server error"))
+    is_server_err = any(
+        kw in err_str for kw in ("500", "502", "503", "504", "server error")
+    )
 
     if is_offline:
         err_icon = ft.Icons.WIFI_OFF_ROUNDED
@@ -177,7 +187,9 @@ def _build_video_rate_limit_box(query: str, on_retry) -> ft.Container:
                             ),
                             on_click=lambda _: on_retry(query, "text"),
                             style=ft.ButtonStyle(
-                                shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                                shape=ft.RoundedRectangleBorder(
+                                    radius=tokens.RADIUS_MD
+                                ),
                                 bgcolor=AppColors.PRIMARY,
                                 padding=ft.Padding(16, 12, 16, 12),
                             ),
@@ -201,7 +213,9 @@ def _build_video_rate_limit_box(query: str, on_retry) -> ft.Container:
                             ),
                             on_click=lambda _: on_retry(query, "videos"),
                             style=ft.ButtonStyle(
-                                shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                                shape=ft.RoundedRectangleBorder(
+                                    radius=tokens.RADIUS_MD
+                                ),
                                 padding=ft.Padding(16, 12, 16, 12),
                             ),
                         ),
@@ -255,6 +269,11 @@ def ResultsScreen() -> Control:
     state = ft.use_context(AppStateCtx)
     controller = ft.use_context(ControllerMethodsCtx)
 
+    from flet import context as flet_context
+
+    def _get_page():
+        return flet_context.page
+
     progress = state.search_progress
     extract_result = state.extract_result
 
@@ -270,22 +289,24 @@ def ResultsScreen() -> Control:
     is_video_rate_limit = (search_type == "videos") and bool(error)
 
     def _on_retry(q: str, st: str | None = None):
-        controller.start_search(q, st or search_type)
+        _get_page().run_task(controller.start_search, q, st or search_type)
 
     def _on_back():
-        controller.go_home()
+        _get_page().run_task(controller.go_home)
 
     def _on_close():
         if is_running:
             controller.cancel_search()
         else:
-            controller.go_home()
+            _get_page().run_task(controller.go_home)
 
     # ── Loading box ──
     loading_box = _build_loading_box(is_running)
 
     # ── Error box ──
-    error_box = _build_error_box(error, query, is_running, is_video_rate_limit, _on_retry)
+    error_box = _build_error_box(
+        error, query, is_running, is_video_rate_limit, _on_retry
+    )
 
     # ── Results content ──
     if is_video_rate_limit:

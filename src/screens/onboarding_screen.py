@@ -185,9 +185,7 @@ def OnboardingScreen() -> Control:
                         ft.TextButton(
                             "Skip",
                             on_click=_on_skip,
-                            style=ft.ButtonStyle(
-                                color=ft.Colors.ON_SURFACE_VARIANT
-                            ),
+                            style=ft.ButtonStyle(color=ft.Colors.ON_SURFACE_VARIANT),
                         ),
                     ],
                     alignment="end",
@@ -236,9 +234,7 @@ def OnboardingScreen() -> Control:
                             ft.TextButton(
                                 "Terms of Service",
                                 style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                                on_click=lambda e: _launch_url(
-                                    "https://kiri.ng/terms"
-                                ),
+                                on_click=lambda e: _launch_url("https://kiri.ng/terms"),
                             ),
                         ],
                         alignment="center",

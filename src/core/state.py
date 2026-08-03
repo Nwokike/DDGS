@@ -64,8 +64,8 @@ class AppState:
 
     def __init__(self):
         # ── Navigation ──
-        self.selected_tab: int = 0          # 0=Home, 1=History, 2=Settings
-        self.search_active: bool = False     # Results screen visible
+        self.selected_tab: int = 0  # 0=Home, 1=History, 2=Settings
+        self.search_active: bool = False  # Results screen visible
         self.has_accepted_terms: bool = False
 
         # ── Search settings ──
