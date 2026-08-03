@@ -1,3 +1,12 @@
+"""Application state — @ft.observable singleton for reactive component tree.
+
+Following the KTV Player pattern: plain attribute mutations auto-notify
+subscribed components via use_context(AppStateCtx).  SearchProgress and
+SearchResult are plain dataclasses — they are stored *inside* AppState
+and swapped as whole objects (not mutated in-place) so the observable
+notify fires on the parent field assignment.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -48,8 +57,18 @@ class SearchProgress:
     results: list[SearchResult] = field(default_factory=list)
 
 
+@ft.observable
 class AppState:
+    """Global reactive state — every field mutation triggers re-render
+    in components that read it via use_context(AppStateCtx)."""
+
     def __init__(self):
+        # ── Navigation ──
+        self.selected_tab: int = 0          # 0=Home, 1=History, 2=Settings
+        self.search_active: bool = False     # Results screen visible
+        self.has_accepted_terms: bool = False
+
+        # ── Search settings ──
         self.safe_search: str = "moderate"
         self.region: str = "wt-wt"
         self.max_results: int = 20
@@ -57,26 +76,42 @@ class AppState:
         self.backend: str = "auto"
         self.page: int = 1
 
+        # ── Connection ──
         self.proxy: str = ""
         self.verify_ssl: bool = True
         self.threads: int = 0
 
+        # ── Extraction ──
         self.extract_format: str = "text_markdown"
 
+        # ── Advanced ──
         self.api_url: str = ""
         self.spawn_api: bool = False
 
+        # ── UI ──
         self.default_tab: str = "text"
+        self.video_quality: str = "best"
+        self.theme_mode: ft.ThemeMode = ft.ThemeMode.SYSTEM
+
+        # ── Search runtime ──
         self.current_query: str = ""
-        self.search_history: list[dict] = []
         self.search_progress: SearchProgress | None = None
         self.last_results: dict[str, list[SearchResult]] = {}
         self.extract_result: dict | None = None
-        self.theme_mode: ft.ThemeMode = ft.ThemeMode.SYSTEM
 
-        self.video_quality: str = "best"
+        # ── History ──
+        self.search_history: list[dict] = []
 
+        # ── Services (set by AppController) ──
         self.ad_service = None
+
+    def reset(self):
+        """Reset transient search state (for testing)."""
+        self.search_active = False
+        self.current_query = ""
+        self.search_progress = None
+        self.last_results = {}
+        self.extract_result = None
 
 
 state = AppState()

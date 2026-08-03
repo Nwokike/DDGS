@@ -39,3 +39,6 @@ key_alias = "upload"
 dev = [
     "ruff>=0.15.17",
 ]
+
+[tool.ruff]
+lint.extend-ignore = ["BLE001", "S110"]
