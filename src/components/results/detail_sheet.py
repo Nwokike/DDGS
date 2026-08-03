@@ -212,7 +212,9 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             content=ft.Row(
                 [
                     ft.Icon(
-                        ft.Icons.DOWNLOAD_ROUNDED if is_media else ft.Icons.LANGUAGE_ROUNDED,
+                        ft.Icons.DOWNLOAD_ROUNDED
+                        if is_media
+                        else ft.Icons.LANGUAGE_ROUNDED,
                         size=tokens.ICON_SM,
                         color=ft.Colors.WHITE,
                     ),
@@ -244,7 +246,9 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                 ft.OutlinedButton(
                     content=ft.Row(
                         [
-                            ft.Icon(ft.Icons.OPEN_IN_BROWSER_ROUNDED, size=tokens.ICON_SM),
+                            ft.Icon(
+                                ft.Icons.OPEN_IN_BROWSER_ROUNDED, size=tokens.ICON_SM
+                            ),
                             ft.Text("Open", size=tokens.FONT_SM, font_family="Outfit"),
                         ],
                         spacing=4,
@@ -262,7 +266,9 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                     content=ft.Row(
                         [
                             ft.Icon(ft.Icons.CONTENT_COPY_ROUNDED, size=tokens.ICON_SM),
-                            ft.Text("Copy URL", size=tokens.FONT_SM, font_family="Outfit"),
+                            ft.Text(
+                                "Copy URL", size=tokens.FONT_SM, font_family="Outfit"
+                            ),
                         ],
                         spacing=4,
                         tight=True,

@@ -1,102 +1,136 @@
 """ContentReaderScreen — full-screen reader for extracted web content.
 
-Pushed as a ft.View when the user taps "Fetch Page" or clicks a link
-inside extracted content.  Has its own AppBar, back stack for in-reader
-link navigation, and format switching.
+Pushed as a ft.View when the user taps "Open in Reader" from the
+extract card.  Uses imperative state (not hooks) since it's rendered
+outside the component tree.
 """
 
 from __future__ import annotations
 
 import flet as ft
-from flet import Control
 
-from contexts.app_state_ctx import AppStateCtx
 from core import theme, tokens
+from core.state import state
 from core.theme import AppColors
 
 
-@ft.component
-def ContentReaderScreen(url: str, content: str | None = None) -> Control:
-    """Full-screen content reader with back stack for link navigation."""
-    state = ft.use_context(AppStateCtx)
+def build_content_reader(page: ft.Page, url: str, content: str | None = None) -> ft.View:
+    """Build a full-screen content reader View with back stack."""
+    # Imperative state (since this runs outside the component tree)
+    _url_stack: list[str] = []
+    _current_url = url
+    _current_content = content
+    _is_loading = content is None
+    _error = None
+    _format = state.extract_format
 
-    from flet import context as flet_context
+    # UI references
+    content_text = ft.Ref[ft.Markdown]()
+    loading_col = ft.Ref[ft.Container]()
+    error_col = ft.Ref[ft.Container]()
+    url_text = ft.Ref[ft.Text]()
+    format_dropdown = ft.Ref[ft.Dropdown]()
 
-    def _get_page():
-        return flet_context.page
-
-    # State
-    url_stack, set_url_stack = ft.use_state([])
-    current_url, set_current_url = ft.use_state(url)
-    current_content, set_current_content = ft.use_state(content)
-    is_loading, set_is_loading = ft.use_state(content is None)
-    error, set_error = ft.use_state(None)
-    format_val, set_format_val = ft.use_state(state.extract_format)
-
-    # Fetch content
     async def _fetch(target_url: str):
-        set_is_loading(True)
-        set_error(None)
+        nonlocal _current_url, _current_content, _is_loading, _error
+        _is_loading = True
+        _error = None
+        _update_ui()
+
         try:
             from services.search_service import SearchService
 
             svc = SearchService()
-            result, err = await svc.extract_url(target_url, fmt=format_val)
+            result, err = await svc.extract_url(target_url, fmt=_format)
             if err:
-                set_error(err)
-                set_current_content(None)
+                _error = err
+                _current_content = None
             elif result:
-                set_current_content(result.get("content", ""))
-                set_current_url(target_url)
+                _current_content = result.get("content", "")
+                _current_url = target_url
             else:
-                set_current_content("No content extracted.")
+                _current_content = "No content extracted."
         except Exception as ex:
-            set_error(str(ex))
-            set_current_content(None)
+            _error = str(ex)
+            _current_content = None
         finally:
-            set_is_loading(False)
+            _is_loading = False
+            _update_ui()
 
-    # Initial fetch
-    def _on_mount(_):
-        if current_content is None and not is_loading:
-            _get_page().run_task(_fetch, current_url)
+    def _update_ui():
+        """Rebuild the content area based on current state."""
+        if url_text.current:
+            url_text.current.value = _current_url
 
-    ft.use_effect(_on_mount, [current_url])
+        if _is_loading:
+            if loading_col.current:
+                loading_col.current.visible = True
+            if error_col.current:
+                error_col.current.visible = False
+            if content_text.current:
+                content_text.current.visible = False
+        elif _error:
+            if loading_col.current:
+                loading_col.current.visible = False
+            if error_col.current:
+                error_col.current.visible = True
+            if content_text.current:
+                content_text.current.visible = False
+        elif _current_content:
+            if loading_col.current:
+                loading_col.current.visible = False
+            if error_col.current:
+                error_col.current.visible = False
+            if content_text.current:
+                content_text.current.value = str(_current_content)
+                content_text.current.visible = True
 
-    # Link tap inside content
+        try:
+            page.update()
+        except Exception:
+            pass
+
     def _on_link_tap(e):
         import urllib.parse
 
         link = e.data
         if not link or link.startswith(("#", "mailto:")):
             return
-        # Resolve relative URLs
         if not link.startswith("http"):
-            parsed = urllib.parse.urlparse(current_url)
+            parsed = urllib.parse.urlparse(_current_url)
             link = f"{parsed.scheme}://{parsed.netloc}/{link.lstrip('/')}"
-        # Push current to stack, fetch new
-        new_stack = list(url_stack)
-        new_stack.append(current_url)
-        set_url_stack(new_stack)
-        _get_page().run_task(_fetch, link)
+        _url_stack.append(_current_url)
+        page.run_task(_fetch, link)
 
-    # Go back in reader
     def _go_back():
-        if url_stack:
-            new_stack = list(url_stack)
-            prev = new_stack.pop()
-            set_url_stack(new_stack)
-            _get_page().run_task(_fetch, prev)
+        if _url_stack:
+            prev = _url_stack.pop()
+            page.run_task(_fetch, prev)
         else:
-            # Exit reader
-            _get_page().views.pop()
-            _get_page().update()
+            if len(page.views) > 1:
+                page.views.pop()
+                page.update()
 
-    # Format change
     def _on_format_change(e):
-        new_fmt = e.control.value
-        set_format_val(new_fmt)
-        _get_page().run_task(_fetch, current_url)
+        nonlocal _format
+        _format = e.control.value
+        page.run_task(_fetch, _current_url)
+
+    async def _copy_url():
+        try:
+            await page.clipboard.set(_current_url or "")
+            page.snack_bar = ft.SnackBar(ft.Text("URL copied"))
+            page.snack_bar.open = True
+            page.update()
+        except Exception:
+            pass
+
+    async def _open_browser():
+        try:
+            await ft.UrlLauncher().launch_url(_current_url or "")
+        except Exception:
+            import webbrowser
+            webbrowser.open(_current_url or "")
 
     # ── Build UI ──
 
@@ -116,7 +150,8 @@ def ContentReaderScreen(url: str, content: str | None = None) -> Control:
                     font_family="Outfit",
                 ),
                 ft.Text(
-                    current_url or "",
+                    ref=url_text,
+                    value=_current_url or "",
                     size=tokens.FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     max_lines=1,
@@ -127,7 +162,8 @@ def ContentReaderScreen(url: str, content: str | None = None) -> Control:
         ),
         actions=[
             ft.Dropdown(
-                value=format_val,
+                ref=format_dropdown,
+                value=_format,
                 options=[
                     ft.dropdown.Option("text_markdown", "Markdown"),
                     ft.dropdown.Option("text_plain", "Plain"),
@@ -144,13 +180,13 @@ def ContentReaderScreen(url: str, content: str | None = None) -> Control:
                 icon=ft.Icons.CONTENT_COPY_ROUNDED,
                 icon_size=tokens.ICON_SM,
                 tooltip="Copy URL",
-                on_click=lambda _: _copy_url(),
+                on_click=lambda _: page.run_task(_copy_url),
             ),
             ft.IconButton(
                 icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
                 icon_size=tokens.ICON_SM,
                 tooltip="Open in Browser",
-                on_click=lambda _: _get_page().run_task(_open_browser),
+                on_click=lambda _: page.run_task(_open_browser),
             ),
             ft.Container(width=4),
         ],
@@ -158,115 +194,109 @@ def ContentReaderScreen(url: str, content: str | None = None) -> Control:
         elevation=0,
     )
 
-    async def _copy_url():
-        try:
-            await _get_page().clipboard.set(current_url or "")
-            _get_page().snack_bar = ft.SnackBar(ft.Text("URL copied"))
-            _get_page().snack_bar.open = True
-            _get_page().update()
-        except Exception:
-            pass
-
-    async def _open_browser():
-        try:
-            await ft.UrlLauncher().launch_url(current_url or "")
-        except Exception:
-            import webbrowser
-            webbrowser.open(current_url or "")
-
-    # Content body
-    if is_loading:
-        body = ft.Container(
-            content=ft.Column(
-                [
-                    ft.ProgressRing(color=AppColors.PRIMARY, width=32, height=32),
-                    ft.Container(height=8),
-                    ft.Text(
-                        "Extracting content...",
-                        size=tokens.FONT_SM,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                        font_family="Outfit",
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=0,
-            ),
-            alignment=ft.Alignment.CENTER,
-            expand=True,
-        )
-    elif error:
-        body = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Icon(
-                        ft.Icons.ERROR_OUTLINE_ROUNDED,
-                        size=48,
-                        color=AppColors.ERROR,
-                    ),
-                    ft.Container(height=8),
-                    ft.Text(
-                        "Extraction Failed",
-                        size=tokens.FONT_MD,
-                        weight=ft.FontWeight.W_600,
-                        color=AppColors.ERROR,
-                        font_family="Outfit",
-                    ),
-                    ft.Container(height=4),
-                    ft.Text(
-                        error,
-                        size=tokens.FONT_SM,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                        text_align=ft.TextAlign.CENTER,
-                    ),
-                    ft.Container(height=16),
-                    ft.FilledButton(
-                        "Retry",
-                        icon=ft.Icons.REFRESH_ROUNDED,
-                        on_click=lambda _: _get_page().run_task(_fetch, current_url),
-                        style=ft.ButtonStyle(
-                            bgcolor=AppColors.PRIMARY,
-                            color=ft.Colors.WHITE,
-                            shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
-                        ),
-                    ),
-                ],
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=0,
-            ),
-            alignment=ft.Alignment.CENTER,
-            expand=True,
-            padding=32,
-        )
-    elif current_content:
-        body = ft.Container(
-            content=ft.Markdown(
-                value=str(current_content),
-                selectable=True,
-                extension_set="gitHubWeb",
-                on_tap_link=_on_link_tap,
-            ),
-            padding=ft.Padding(
-                tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, tokens.SPACE_LG
-            ),
-            expand=True,
-        )
-    else:
-        body = ft.Container(
-            content=ft.Text(
-                "No content to display.",
-                size=tokens.FONT_SM,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-            ),
-            alignment=ft.Alignment.CENTER,
-            expand=True,
-        )
-
-    return ft.Container(
+    # Loading state
+    loading_indicator = ft.Container(
+        ref=loading_col,
         content=ft.Column(
-            [appbar, body],
+            [
+                ft.ProgressRing(color=AppColors.PRIMARY, width=32, height=32),
+                ft.Container(height=8),
+                ft.Text(
+                    "Extracting content...",
+                    size=tokens.FONT_SM,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    font_family="Outfit",
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=0,
-            expand=True,
         ),
-        gradient=theme.AppStyles.brand_gradient(_get_page()),
+        alignment=ft.Alignment.CENTER,
         expand=True,
+        visible=_is_loading,
+    )
+
+    # Error state
+    error_box = ft.Container(
+        ref=error_col,
+        content=ft.Column(
+            [
+                ft.Icon(
+                    ft.Icons.ERROR_OUTLINE_ROUNDED,
+                    size=48,
+                    color=AppColors.ERROR,
+                ),
+                ft.Container(height=8),
+                ft.Text(
+                    "Extraction Failed",
+                    size=tokens.FONT_MD,
+                    weight=ft.FontWeight.W_600,
+                    color=AppColors.ERROR,
+                    font_family="Outfit",
+                ),
+                ft.Container(height=4),
+                ft.Text(
+                    _error or "",
+                    size=tokens.FONT_SM,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Container(height=16),
+                ft.FilledButton(
+                    "Retry",
+                    icon=ft.Icons.REFRESH_ROUNDED,
+                    on_click=lambda _: page.run_task(_fetch, _current_url),
+                    style=ft.ButtonStyle(
+                        bgcolor=AppColors.PRIMARY,
+                        color=ft.Colors.WHITE,
+                        shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                    ),
+                ),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=0,
+        ),
+        alignment=ft.Alignment.CENTER,
+        expand=True,
+        padding=32,
+        visible=bool(_error),
+    )
+
+    # Content
+    markdown_view = ft.Container(
+        content=ft.Markdown(
+            ref=content_text,
+            value=str(_current_content) if _current_content else "",
+            selectable=True,
+            extension_set="gitHubWeb",
+            on_tap_link=_on_link_tap,
+            visible=bool(_current_content),
+        ),
+        padding=ft.Padding(
+            tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, tokens.SPACE_LG
+        ),
+        expand=True,
+    )
+
+    body = ft.Column(
+        [loading_indicator, error_box, markdown_view],
+        spacing=0,
+        expand=True,
+    )
+
+    return ft.View(
+        route="/reader",
+        controls=[
+            ft.Container(
+                content=ft.Column(
+                    [appbar, body],
+                    spacing=0,
+                    expand=True,
+                ),
+                gradient=theme.AppStyles.brand_gradient(page),
+                expand=True,
+            )
+        ],
+        padding=0,
+        spacing=0,
     )

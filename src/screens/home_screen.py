@@ -38,12 +38,42 @@ BACKEND_OPTIONS_MAP = {
 }
 
 SEARCH_TABS = [
-    {"key": "text", "label": "Web", "icon": ft.Icons.SEARCH_ROUNDED, "color": AppColors.PRIMARY},
-    {"key": "images", "label": "Images", "icon": ft.Icons.IMAGE_ROUNDED, "color": AppColors.PRIMARY_LIGHT},
-    {"key": "videos", "label": "Videos", "icon": ft.Icons.PLAY_CIRCLE_ROUNDED, "color": AppColors.ACCENT},
-    {"key": "news", "label": "News", "icon": ft.Icons.ARTICLE_ROUNDED, "color": AppColors.SUCCESS},
-    {"key": "books", "label": "Books", "icon": ft.Icons.BOOK_ROUNDED, "color": AppColors.WARNING},
-    {"key": "extract", "label": "Extract", "icon": ft.Icons.LANGUAGE_ROUNDED, "color": AppColors.PRIMARY_DARK},
+    {
+        "key": "text",
+        "label": "Web",
+        "icon": ft.Icons.SEARCH_ROUNDED,
+        "color": AppColors.PRIMARY,
+    },
+    {
+        "key": "images",
+        "label": "Images",
+        "icon": ft.Icons.IMAGE_ROUNDED,
+        "color": AppColors.PRIMARY_LIGHT,
+    },
+    {
+        "key": "videos",
+        "label": "Videos",
+        "icon": ft.Icons.PLAY_CIRCLE_ROUNDED,
+        "color": AppColors.ACCENT,
+    },
+    {
+        "key": "news",
+        "label": "News",
+        "icon": ft.Icons.ARTICLE_ROUNDED,
+        "color": AppColors.SUCCESS,
+    },
+    {
+        "key": "books",
+        "label": "Books",
+        "icon": ft.Icons.BOOK_ROUNDED,
+        "color": AppColors.WARNING,
+    },
+    {
+        "key": "extract",
+        "label": "Extract",
+        "icon": ft.Icons.LANGUAGE_ROUNDED,
+        "color": AppColors.PRIMARY_DARK,
+    },
 ]
 
 _HINT_MAP = {
@@ -80,7 +110,11 @@ def _category_chip(
     return ft.Container(
         content=ft.Row(
             [
-                ft.Icon(icon, size=16, color=color if is_active else ft.Colors.ON_SURFACE_VARIANT),
+                ft.Icon(
+                    icon,
+                    size=16,
+                    color=color if is_active else ft.Colors.ON_SURFACE_VARIANT,
+                ),
                 ft.Text(
                     label,
                     size=12,
@@ -98,7 +132,9 @@ def _category_chip(
             1.5 if is_active else 1,
             color if is_active else ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
         ),
-        bgcolor=ft.Colors.with_opacity(0.1, color) if is_active else ft.Colors.TRANSPARENT,
+        bgcolor=ft.Colors.with_opacity(0.1, color)
+        if is_active
+        else ft.Colors.TRANSPARENT,
         on_click=on_click,
         animate=ft.Animation(tokens.ANIMATION_FAST, ft.AnimationCurve.EASE_OUT),
     )
@@ -270,7 +306,9 @@ def HomeScreen() -> Control:
     # ── Build UI ──
 
     is_dark = _is_dark()
-    prefix_icon = ft.Icons.LINK_ROUNDED if active_tab == "extract" else ft.Icons.SEARCH_ROUNDED
+    prefix_icon = (
+        ft.Icons.LINK_ROUNDED if active_tab == "extract" else ft.Icons.SEARCH_ROUNDED
+    )
 
     # Category chips
     chips = []
@@ -337,7 +375,10 @@ def HomeScreen() -> Control:
                 "Max Results",
                 ft.Icons.FORMAT_LIST_NUMBERED_ROUNDED,
                 str(state.max_results),
-                [ft.dropdown.Option(str(p["key"]), p["label"]) for p in MAX_RESULTS_PRESETS],
+                [
+                    ft.dropdown.Option(str(p["key"]), p["label"])
+                    for p in MAX_RESULTS_PRESETS
+                ],
                 lambda e: controller.save("max_results", int(e.control.value)),
                 width=100,
             ),
@@ -407,7 +448,9 @@ def HomeScreen() -> Control:
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
+                ),
             ),
             # Search field
             ft.Container(
@@ -452,7 +495,9 @@ def HomeScreen() -> Control:
                         on_click=_on_paste,
                     ),
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
+                ),
             ),
             # Category chips (horizontal scroll)
             ft.Container(
@@ -462,7 +507,9 @@ def HomeScreen() -> Control:
                     scroll=ft.ScrollMode.AUTO,
                     spacing=tokens.SPACE_SM,
                 ),
-                padding=ft.Padding(tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
+                ),
             ),
             # Tools toggle + search button
             ft.Container(
@@ -497,15 +544,21 @@ def HomeScreen() -> Control:
                                         alignment=ft.MainAxisAlignment.CENTER,
                                         tight=True,
                                     ),
-                                    on_click=lambda e: set_tools_expanded(not tools_expanded),
+                                    on_click=lambda e: set_tools_expanded(
+                                        not tools_expanded
+                                    ),
                                     padding=ft.Padding(12, 6, 12, 6),
                                     border_radius=tokens.RADIUS_PILL,
                                     border=ft.Border.all(
-                                        1, ft.Colors.with_opacity(0.2, AppColors.PRIMARY)
+                                        1,
+                                        ft.Colors.with_opacity(0.2, AppColors.PRIMARY),
                                     ),
-                                    bgcolor=ft.Colors.with_opacity(0.06, AppColors.PRIMARY),
+                                    bgcolor=ft.Colors.with_opacity(
+                                        0.06, AppColors.PRIMARY
+                                    ),
                                     animate=ft.Animation(
-                                        tokens.ANIMATION_FAST, ft.AnimationCurve.EASE_OUT
+                                        tokens.ANIMATION_FAST,
+                                        ft.AnimationCurve.EASE_OUT,
                                     ),
                                 ),
                             ],

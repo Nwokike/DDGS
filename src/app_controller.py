@@ -204,14 +204,9 @@ class AppController:
 
     def open_content_reader(self, url: str, content: str | None = None):
         """Push the full-screen content reader as a new View."""
-        from screens.content_reader_screen import ContentReaderScreen
+        from screens.content_reader_screen import build_content_reader
 
-        reader_view = ft.View(
-            route="/reader",
-            controls=[ContentReaderScreen(url=url, content=content)],
-            padding=0,
-            spacing=0,
-        )
+        reader_view = build_content_reader(self.page, url, content)
         self.page.views.append(reader_view)
         self.page.update()
 
