@@ -1,19 +1,19 @@
+"""HistoryScreen — search history list with re-search and clear-all.
+
+Converted from views/history_view.py to declarative @ft.component.
+"""
+
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import flet as ft
+from flet import Control
 
+from contexts.app_state_ctx import AppStateCtx
+from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
-from core.state import state
-from core.styles import build_banner_ad
 from core.theme import AppColors
-from core.utils import logger
-from services.storage_service import StorageService
 
-LOG_TAG = "HistoryView"
-
-TAB_ICONS = {
+_TAB_ICONS = {
     "text": ft.Icons.SEARCH_ROUNDED,
     "images": ft.Icons.IMAGE_ROUNDED,
     "videos": ft.Icons.PLAY_CIRCLE_ROUNDED,
@@ -22,7 +22,7 @@ TAB_ICONS = {
     "extract": ft.Icons.DOWNLOAD_ROUNDED,
 }
 
-TAB_LABELS = {
+_TAB_LABELS = {
     "text": "Web",
     "images": "Images",
     "videos": "Videos",
@@ -32,21 +32,69 @@ TAB_LABELS = {
 }
 
 
-def build_history_view(
-    page: ft.Page, on_navigate: Callable, on_search: Callable, storage: StorageService
-) -> ft.View:
-    logger.info(f"[{LOG_TAG}] Building history view")
+@ft.component
+def HistoryScreen() -> Control:
+    """Search history with re-search and clear-all."""
+    state = ft.use_context(AppStateCtx)
+    controller = ft.use_context(ControllerMethodsCtx)
+
     history = state.search_history
 
+    from flet import context as flet_context
+
+    def _get_page():
+        return flet_context.page
+
+    def _on_research(query: str, search_type: str):
+        _get_page().run_task(controller.start_search, query, search_type)
+
+    def _on_clear():
+        page = _get_page()
+
+        async def _do_clear():
+            page.pop_dialog()
+            state.search_history.clear()
+            await controller.save_async("history", [])
+
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "Clear All History?",
+                font_family="Outfit",
+                size=tokens.FONT_LG,
+                weight=ft.FontWeight.BOLD,
+            ),
+            content=ft.Text(
+                "This will remove all saved searches. This cannot be undone.",
+                style=ft.TextStyle(height=1.4),
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
+                ft.FilledButton(
+                    "Clear All",
+                    on_click=lambda _: page.run_task(_do_clear),
+                    style=ft.ButtonStyle(
+                        bgcolor=AppColors.ERROR, color=ft.Colors.WHITE
+                    ),
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.show_dialog(dlg)
+
+    def _go_home():
+        controller.navigate_tab(0)
+
+    # ── Build history list ──
     if history:
         items = []
-        for i, entry in enumerate(history):
+        for entry in history:
             q = entry.get("query", "")
             st = entry.get("search_type", "text")
             ts = entry.get("timestamp", "")
             rc = entry.get("results_count", 0)
-            icon = TAB_ICONS.get(st, ft.Icons.SEARCH_ROUNDED)
-            label = TAB_LABELS.get(st, st.capitalize())
+            icon = _TAB_ICONS.get(st, ft.Icons.SEARCH_ROUNDED)
+            label = _TAB_LABELS.get(st, st.capitalize())
 
             items.append(
                 ft.Container(
@@ -83,7 +131,7 @@ def build_history_view(
                             ft.IconButton(
                                 icon=ft.Icons.ARROW_FORWARD_ROUNDED,
                                 icon_size=tokens.ICON_SM,
-                                on_click=lambda _, qq=q, stt=st: on_search(qq, stt),
+                                on_click=lambda _, qq=q, stt=st: _on_research(qq, stt),
                             ),
                         ],
                         spacing=tokens.SPACE_MD,
@@ -96,10 +144,12 @@ def build_history_view(
                         tokens.SPACE_SM,
                     ),
                     border_radius=tokens.BORDER_RADIUS_LG,
-                    bgcolor=theme.adaptive_glass_bg(page),
-                    border=ft.Border.all(1, theme.adaptive_glass_border(page)),
+                    bgcolor=theme.adaptive_glass_bg(flet_context.page),
+                    border=ft.Border.all(
+                        1, theme.adaptive_glass_border(flet_context.page)
+                    ),
                     ink=True,
-                    on_click=lambda _, qq=q, stt=st: on_search(qq, stt),
+                    on_click=lambda _, qq=q, stt=st: _on_research(qq, stt),
                 )
             )
 
@@ -140,47 +190,14 @@ def build_history_view(
             alignment=ft.Alignment.CENTER,
         )
 
-    # ── Clear dialog ──
-    def _show_clear_dialog(e):
-        dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Text(
-                "Clear All History?",
-                font_family="Outfit",
-                size=tokens.FONT_LG,
-                weight=ft.FontWeight.BOLD,
-            ),
-            content=ft.Text(
-                "This will remove all saved searches. This cannot be undone.",
-                style=ft.TextStyle(height=1.4),
-            ),
-            actions=[
-                ft.TextButton("Cancel", on_click=lambda _: page.pop_dialog()),
-                ft.FilledButton(
-                    "Clear All",
-                    on_click=lambda _: page.run_task(_do_clear),
-                    style=ft.ButtonStyle(
-                        bgcolor=AppColors.ERROR, color=ft.Colors.WHITE
-                    ),
-                ),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.show_dialog(dlg)
-
-    async def _do_clear():
-        page.pop_dialog()
-        state.search_history.clear()
-        await storage.set_history([])
-        on_navigate("/history")
-
+    # ── Header ──
     header = ft.Container(
         content=ft.Row(
             [
                 ft.IconButton(
                     icon=ft.Icons.ARROW_BACK_ROUNDED,
                     icon_size=tokens.ICON_MD,
-                    on_click=lambda _: on_navigate("/home"),
+                    on_click=lambda _: _go_home(),
                 ),
                 ft.Text(
                     "History",
@@ -192,7 +209,7 @@ def build_history_view(
                 ft.IconButton(
                     icon=ft.Icons.DELETE_SWEEP_ROUNDED,
                     icon_size=tokens.ICON_MD,
-                    on_click=_show_clear_dialog,
+                    on_click=lambda _: _on_clear(),
                     visible=bool(history),
                     icon_color=AppColors.ERROR,
                 ),
@@ -204,7 +221,7 @@ def build_history_view(
         ),
     )
 
-    content = ft.SafeArea(
+    return ft.Container(
         content=ft.Column(
             [
                 header,
@@ -213,26 +230,10 @@ def build_history_view(
                     padding=ft.Padding(tokens.SPACE_MD, 0, tokens.SPACE_MD, 0),
                     expand=True,
                 ),
-                build_banner_ad(page),
             ],
             spacing=0,
             expand=True,
         ),
-    )
-
-    return ft.View(
-        route="/history",
-        controls=[
-            ft.SafeArea(
-                content=ft.Container(
-                    content=content,
-                    gradient=theme.AppStyles.brand_gradient(page),
-                    expand=True,
-                ),
-                expand=True,
-            )
-        ],
-        padding=0,
-        spacing=0,
-        bgcolor=ft.Colors.SURFACE,
+        gradient=theme.AppStyles.brand_gradient(flet_context.page),
+        expand=True,
     )
