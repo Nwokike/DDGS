@@ -4,11 +4,11 @@ from collections.abc import Callable
 
 import flet as ft
 
-from components.settings.version import _APP_VERSION
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
 from core.utils import in_memory_log_handler, logger
+from views.settings.version import _APP_VERSION
 
 
 def build_logs_dialog(page: ft.Page):
@@ -28,8 +28,7 @@ def build_logs_dialog(page: ft.Page):
 
     async def copy_logs(e=None):
         try:
-            clipboard = ft.Clipboard()
-            await clipboard.set(logs)
+            await page.clipboard.set(logs)
             snack = ft.SnackBar(ft.Text("Activity log copied to clipboard!"))
             snack.open = True
             page.show_dialog(snack)
@@ -189,6 +188,18 @@ def build_about_section(
                             _APP_VERSION,
                             size=FONT_SM,
                             color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Row(
+                    [
+                        ft.Text("Edition", size=FONT_SM, font_family="Outfit"),
+                        ft.Text(
+                            "Google Play Edition (Policy Compliant)",
+                            size=FONT_SM,
+                            color=AppColors.PRIMARY,
+                            weight=ft.FontWeight.W_600,
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
