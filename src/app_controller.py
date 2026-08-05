@@ -277,6 +277,11 @@ class AppController:
 
             await self._refresh(progress)
 
+            # Smart interstitial: show every 3rd search
+            state.search_count += 1
+            if state.search_count % 3 == 0 and state.ad_service:
+                await state.ad_service.show_interstitial()
+
             if progress.error and "primp" in str(progress.error).lower():
                 logger.critical(
                     f"[{LOG_TAG}] PRIMP_CRASH: {search_type} — {progress.error}"
