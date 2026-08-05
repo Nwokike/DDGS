@@ -24,6 +24,7 @@ startup_message = "Initializing DDGS..."
 
 [tool.flet.android]
 bundle_id = "ng.kiri.ddgs"
+extract_packages = ["fake_useragent"]
 
 [tool.flet.android.permission]
 "android.permission.INTERNET" = true

@@ -11,6 +11,7 @@ import flet as ft
 
 from core import theme, tokens
 from core.state import state
+from core.styles import build_banner_ad
 from core.theme import AppColors
 
 
@@ -345,7 +346,7 @@ def build_content_reader(
     )
 
     body = ft.Column(
-        [loading_indicator, error_box, markdown_view],
+        [loading_indicator, error_box, markdown_view, build_banner_ad(page)],
         spacing=0,
         expand=True,
     )

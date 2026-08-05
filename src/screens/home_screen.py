@@ -813,6 +813,13 @@ def HomeScreen() -> Control:
                     tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
                 ),
             ),
+            # Banner ad (after features)
+            ft.Container(
+                content=build_banner_ad(_get_page()),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_SM
+                ),
+            ),
             # How It Works (3 steps)
             ft.Container(
                 content=ft.Column(
@@ -888,8 +895,6 @@ def HomeScreen() -> Control:
                     1, ft.Colors.with_opacity(0.15, AppColors.PRIMARY)
                 ),
             ),
-            # Banner ad
-            ft.Container(height=tokens.SPACE_SM),
             ft.Container(height=80),  # Bottom nav bar spacing
         ],
         scroll=ft.ScrollMode.AUTO,

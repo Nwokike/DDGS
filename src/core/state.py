@@ -102,6 +102,9 @@ class AppState:
         # ── History ──
         self.search_history: list[dict] = []
 
+        # ── Ad tracking ──
+        self.search_count: int = 0
+
         # ── Services (set by AppController) ──
         self.ad_service = None
 

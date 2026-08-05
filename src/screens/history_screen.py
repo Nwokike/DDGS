@@ -11,6 +11,7 @@ from flet import Control
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
+from core.styles import build_banner_ad
 from core.theme import AppColors
 
 _TAB_ICONS = {
@@ -230,6 +231,7 @@ def HistoryScreen() -> Control:
                     padding=ft.Padding(tokens.SPACE_MD, 0, tokens.SPACE_MD, 0),
                     expand=True,
                 ),
+                build_banner_ad(flet_context.page),
             ],
             spacing=0,
             expand=True,

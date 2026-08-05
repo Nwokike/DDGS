@@ -11,6 +11,47 @@ from core.utils import log_ddgs_call, log_error, log_performance, logger
 
 LOG_TAG = "SearchService"
 
+
+# ── Fix fake_useragent 2.x unable to read browsers.jsonl from zipped site-packages ──
+# Flet 0.86+ packages pure-Python deps into sitepackages.zip.  fake_useragent's
+# find_browser_json_path() does Path(str(importlib_traversable)) which produces a
+# useless path inside the zip.  This patch makes load() use importlib.resources
+# directly, which handles zips correctly.
+def _patch_fake_useragent():
+    try:
+        import importlib.resources as _ilr
+        import json as _json
+
+        import fake_useragent.utils as _fau
+
+        _orig_load = _fau.load
+
+        def _zip_safe_load():
+            try:
+                return _orig_load()
+            except Exception:
+                data = (
+                    _ilr.files("fake_useragent.data")
+                    .joinpath("browsers.jsonl")
+                    .read_text()
+                )
+                result = [
+                    _json.loads(line) for line in data.splitlines() if line.strip()
+                ]
+                if not result:
+                    from fake_useragent.errors import FakeUserAgentError
+
+                    raise FakeUserAgentError("browsers.jsonl is empty")
+                return result
+
+        _fau.load = _zip_safe_load
+    except Exception:
+        pass
+
+
+_patch_fake_useragent()
+# ── End fake_useragent patch ──
+
 _DDGS_AVAILABLE = False
 try:
     from ddgs import DDGS
