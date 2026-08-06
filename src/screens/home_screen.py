@@ -746,12 +746,32 @@ def HomeScreen() -> Control:
                     ft.Container(
                         content=ft.Column(
                             [
-                                ft.Text(
-                                    "Recent",
-                                    size=tokens.FONT_SM,
-                                    weight=ft.FontWeight.W_600,
-                                    color=ft.Colors.ON_SURFACE_VARIANT,
-                                    font_family="Outfit",
+                                ft.Row(
+                                    [
+                                        ft.Text(
+                                            "Recent",
+                                            size=tokens.FONT_SM,
+                                            weight=ft.FontWeight.W_600,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                            font_family="Outfit",
+                                        ),
+                                        ft.Container(expand=True),
+                                        ft.Container(
+                                            content=ft.Icon(
+                                                ft.Icons.ARROW_FORWARD_ROUNDED,
+                                                size=tokens.ICON_SM,
+                                                color=ft.Colors.ON_SURFACE_VARIANT,
+                                            ),
+                                            padding=6,
+                                            border_radius=tokens.RADIUS_SM,
+                                            ink=True,
+                                            tooltip="View all history",
+                                            on_click=lambda _: controller.navigate_tab(
+                                                1
+                                            ),
+                                        ),
+                                    ],
+                                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                                 ),
                                 *recent_rows,
                             ],
