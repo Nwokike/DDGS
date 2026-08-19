@@ -7,7 +7,13 @@ import time
 from typing import Any
 
 from core.state import SearchProgress, SearchResult, state
-from core.utils import log_ddgs_call, log_error, log_performance, logger
+from core.utils import (
+    classify_error,
+    log_ddgs_call,
+    log_error,
+    log_performance,
+    logger,
+)
 
 LOG_TAG = "SearchService"
 
@@ -167,6 +173,7 @@ class SearchService:
 
             call_start = time.perf_counter()
             raw = []
+            primary_err: Exception | None = None
             try:
                 raw = await asyncio.to_thread(lambda: list(method(**params)))
                 call_elapsed = time.perf_counter() - call_start
@@ -179,6 +186,10 @@ class SearchService:
                 log_ddgs_call(search_type, query, params, error=e)
                 if search_type not in ("videos", "books"):
                     raise
+                # videos/books fall through to their engine fallback below;
+                # remember the primary error so we can surface a real
+                # offline/server error if the fallback also fails.
+                primary_err = e
 
             parsed = []
             if raw:
@@ -202,21 +213,29 @@ class SearchService:
                 logger.info(
                     f"[{LOG_TAG}] DDGS.videos returned 0 results/rate-limited; attempting YouTube InnerTube fallback"
                 )
-                yt_results = await self._youtube_video_fallback(query)
+                yt_results, yt_err = await self._youtube_video_fallback(query)
                 if yt_results:
                     parsed = yt_results
                     logger.info(
                         f"[{LOG_TAG}] YouTube InnerTube fallback → {len(parsed)} results"
                     )
+                else:
+                    self._surface_fallback_failure(
+                        progress, search_type, primary_err, yt_err
+                    )
             elif search_type == "books":
                 logger.info(
                     f"[{LOG_TAG}] DDGS.books returned 0 results; attempting OpenLibrary fallback"
                 )
-                book_results = await self._openlibrary_book_fallback(query)
+                book_results, ol_err = await self._openlibrary_book_fallback(query)
                 if book_results:
                     parsed = book_results
                     logger.info(
                         f"[{LOG_TAG}] OpenLibrary fallback → {len(parsed)} results"
+                    )
+                else:
+                    self._surface_fallback_failure(
+                        progress, search_type, primary_err, ol_err
                     )
 
             elapsed = time.perf_counter() - start_time
@@ -362,7 +381,33 @@ class SearchService:
                 raw_data={"error": str(e), "raw": raw},
             )
 
-    async def _youtube_video_fallback(self, query: str) -> list[SearchResult]:
+    @staticmethod
+    def _surface_fallback_failure(
+        progress: SearchProgress,
+        search_type: str,
+        primary_err: Exception | None,
+        fallback_err: str | None,
+    ) -> None:
+        """Surface a real network/server/rate-limit error when BOTH the primary
+        DDGS call and its engine fallback produced nothing.
+
+        When both simply returned zero results (no error), this is a genuine
+        "no matches" and ``progress.error`` is left unset.
+        """
+        err_str = str(primary_err) if primary_err is not None else ""
+        if not err_str:
+            err_str = fallback_err or ""
+        if not err_str:
+            return
+        category = classify_error(err_str)
+        if category in ("offline", "server", "rate_limit"):
+            progress.error = err_str
+            if search_type == "videos" and category == "rate_limit":
+                progress.is_rate_limited = True
+
+    async def _youtube_video_fallback(
+        self, query: str
+    ) -> tuple[list[SearchResult], str | None]:
         """Fetch video search results from YouTube InnerTube API when DDGS.videos is rate-limited."""
         try:
             import primp
@@ -385,7 +430,7 @@ class SearchService:
                 )
             )
             if resp.status_code != 200:
-                return []
+                return [], f"HTTP {resp.status_code}"
             data = resp.json()
             contents = (
                 data.get("contents", {})
@@ -438,7 +483,7 @@ class SearchService:
                                 views=views,
                             )
                         )
-            return parsed
+            return parsed, None
         except (
             ValueError,
             TypeError,
@@ -452,9 +497,11 @@ class SearchService:
             TimeoutError,
         ) as ex:
             logger.warning(f"[{LOG_TAG}] YouTube video fallback error: {ex}")
-            return []
+            return [], str(ex)
 
-    async def _openlibrary_book_fallback(self, query: str) -> list[SearchResult]:
+    async def _openlibrary_book_fallback(
+        self, query: str
+    ) -> tuple[list[SearchResult], str | None]:
         """Fetch book search results from OpenLibrary API when DDGS.books returns 0 results or fails."""
         try:
             import primp
@@ -467,7 +514,7 @@ class SearchService:
                 )
             )
             if resp.status_code != 200:
-                return []
+                return [], f"HTTP {resp.status_code}"
             docs = resp.json().get("docs", [])
             results = []
             for doc in docs:
@@ -499,7 +546,7 @@ class SearchService:
                             thumbnail=thumb,
                         )
                     )
-            return results
+            return results, None
         except (
             ValueError,
             TypeError,
@@ -513,4 +560,4 @@ class SearchService:
             TimeoutError,
         ) as ex:
             logger.warning(f"[{LOG_TAG}] OpenLibrary book fallback error: {ex}")
-            return []
+            return [], str(ex)

@@ -54,6 +54,11 @@ class SearchProgress:
     is_running: bool = False
     is_cancelled: bool = False
     error: str | None = None
+    # True only when the engine explicitly rate-limited (e.g. DDGS 429/418 on
+    # video search). Drives the dedicated rate-limit box; other errors
+    # (offline, primp crash, unavailable) must NOT be mislabeled as
+    # rate-limited.
+    is_rate_limited: bool = False
     results: list[SearchResult] = field(default_factory=list)
 
 
@@ -80,6 +85,10 @@ class AppState:
         self.proxy: str = ""
         self.verify_ssl: bool = True
         self.threads: int = 0
+        # Live connectivity, driven by the native ft.Connectivity service
+        # (AppController). True until proven otherwise so a slow probe never
+        # shows a spurious offline banner.
+        self.is_online: bool = True
 
         # ── Extraction ──
         self.extract_format: str = "text_markdown"
@@ -115,6 +124,7 @@ class AppState:
         self.search_progress = None
         self.last_results = {}
         self.extract_result = None
+        self.is_online = True
 
 
 state = AppState()

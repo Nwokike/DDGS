@@ -12,6 +12,7 @@ from core.constants import EXTRACT_FORMATS
 from core.state import state
 from core.styles import build_banner_ad
 from core.theme import AppColors
+from core.utils import classify_error
 from services.search_service import SearchService
 from services.storage_service import StorageService
 
@@ -132,21 +133,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     page.pop_dialog()
 
     if not result:
-        err_str = str(error_msg or "").lower()
-        is_offline = any(
-            kw in err_str
-            for kw in (
-                "dns",
-                "connect",
-                "network",
-                "offline",
-                "unreachable",
-                "timed out",
-                "timeout",
-                "refused",
-            )
-        )
-        if is_offline:
+        if classify_error(error_msg) == "offline":
             snack_tmp = ft.SnackBar(
                 ft.Text(
                     "No internet connection. Please check your network and try again."

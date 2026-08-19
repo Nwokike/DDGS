@@ -51,7 +51,7 @@ def ResultsScreen() -> Control:
     results = progress.results
     query = progress.query
 
-    is_video_rate_limit = (search_type == "videos") and bool(error)
+    is_video_rate_limit = (search_type == "videos") and progress.is_rate_limited
 
     def _on_retry(q: str, st: str | None = None):
         _get_page().run_task(controller.start_search, q, st or search_type)

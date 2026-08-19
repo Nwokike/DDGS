@@ -6,6 +6,7 @@ import flet as ft
 
 from core import tokens
 from core.theme import AppColors
+from core.utils import classify_error
 
 
 def build_loading_box(is_running: bool) -> ft.Container:
@@ -41,31 +42,16 @@ def build_error_box(
     is_video_rate_limit: bool,
     on_restart: Callable,
 ) -> ft.Container:
-    err_str = str(error or "").lower()
-    is_offline = any(
-        kw in err_str
-        for kw in (
-            "dns",
-            "connect",
-            "network",
-            "offline",
-            "unreachable",
-            "timed out",
-            "timeout",
-        )
-    )
-    is_server_err = any(
-        kw in err_str for kw in ("500", "502", "503", "504", "server error")
-    )
+    category = classify_error(error)
 
-    if is_offline:
+    if category == "offline":
         err_icon = ft.Icons.WIFI_OFF_ROUNDED
         err_title = "No Internet Connection"
         err_desc = (
             "Unable to reach search servers. Please check your Wi-Fi or mobile data "
             "connection and try again."
         )
-    elif is_server_err:
+    elif category == "server":
         err_icon = ft.Icons.CLOUD_OFF_ROUNDED
         err_title = "Server Unavailable"
         err_desc = (

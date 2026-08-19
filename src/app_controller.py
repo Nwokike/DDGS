@@ -14,6 +14,7 @@ import flet as ft
 from core.state import SearchProgress, state
 from core.theme import AppTheme
 from core.utils import (
+    ERR_NO_INTERNET,
     log_error,
     log_performance,
     log_search_event,
@@ -35,6 +36,7 @@ class AppController:
         self.storage: StorageService | None = None
         self.search_service: SearchService | None = None
         self.ad_service: AdService | None = None
+        self.connectivity: ft.Connectivity | None = None
         self._current_search_tasks: dict[str, object] = {}
 
     async def init(self):
@@ -65,6 +67,17 @@ class AppController:
             logger.error(f"[{LOG_TAG}] Page error: {e.data}")
 
         self.page.on_error = on_error
+
+        # ── Connectivity service (native OS listener) ──
+        # Drives state.is_online: probed once at startup, then on every OS
+        # change and on app resume.  See _on_connectivity_change,
+        # _init_connectivity, and _on_lifecycle_change.
+        connectivity = ft.Connectivity()
+        self.connectivity = connectivity
+        self.page.services.append(connectivity)
+        connectivity.on_change = self._on_connectivity_change
+        self.page.on_app_lifecycle_state_change = self._on_lifecycle_change
+        self.page.run_task(self._init_connectivity)
 
         # ── Services ──
         self.storage = StorageService(self.page)
@@ -97,6 +110,40 @@ class AppController:
         # Store controller reference on page for access from plain functions
         self.page._ddgs_controller = self
         logger.info(f"[{LOG_TAG}] UI mounted")
+
+    # ── Connectivity ───────────────────────────────────────────────────────
+    async def _init_connectivity(self):
+        """Set state.is_online from an initial connectivity probe at startup."""
+        try:
+            result = await self.connectivity.get_connectivity()
+            state.is_online = ft.ConnectivityType.NONE not in result
+        except Exception:
+            state.is_online = True
+
+    def _on_connectivity_change(self, e):
+        """Flip state.is_online on an OS-level connectivity change and notify."""
+        try:
+            types = getattr(e, "connectivity", None) or [e.data]
+        except Exception:
+            types = [ft.ConnectivityType.NONE]
+        was_online = state.is_online
+        state.is_online = ft.ConnectivityType.NONE not in types
+        if was_online and not state.is_online:
+            logger.warning("Connectivity lost")
+            self.page.run_task(self.show_snack, "You're offline.", "warning")
+        elif not was_online and state.is_online:
+            logger.info("Connectivity restored")
+            self.page.run_task(self.show_snack, "You're back online.", "info")
+
+    async def _on_lifecycle_change(self, e: ft.AppLifecycleStateChangeEvent):
+        """Re-probe connectivity when the app returns to the foreground."""
+        if e.state not in (ft.AppLifecycleState.RESUME, ft.AppLifecycleState.SHOW):
+            return
+        try:
+            result = await self.connectivity.get_connectivity()
+            state.is_online = ft.ConnectivityType.NONE not in result
+        except Exception as exc:
+            logger.warning("Lifecycle connectivity probe failed: %s", exc)
 
     # ── Settings persistence ───────────────────────────────────────────
 
@@ -228,6 +275,29 @@ class AppController:
         if search_type == "extract":
             await self.run_extract(query)
             return
+
+        # Fail fast when offline: re-probe once in case the connection just
+        # came back, then surface the offline card immediately instead of
+        # waiting for the ~15s engine timeout.
+        if not state.is_online:
+            if self.connectivity is not None:
+                try:
+                    result = await self.connectivity.get_connectivity()
+                    state.is_online = ft.ConnectivityType.NONE not in result
+                except Exception:
+                    pass
+            if not state.is_online:
+                progress = SearchProgress(
+                    query=query,
+                    search_type=search_type,
+                    total_results=0,
+                    is_running=False,
+                    error=ERR_NO_INTERNET,
+                )
+                state.current_query = query
+                state.search_active = True
+                await self._refresh(progress)
+                return
 
         # Cancel prior tasks
         self.cancel_search()
