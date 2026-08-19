@@ -4,11 +4,11 @@ from collections.abc import Callable
 
 import flet as ft
 
+from components.settings.version import _APP_VERSION
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
 from core.utils import in_memory_log_handler, logger
-from components.settings.version import _APP_VERSION
 
 
 def build_logs_dialog(page: ft.Page):
