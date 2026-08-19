@@ -25,4 +25,4 @@ if not _APP_VERSION:
         _APP_VERSION = ""
 
 if not _APP_VERSION:
-    _APP_VERSION = "1.2.0"
+    _APP_VERSION = "1.2.1"
