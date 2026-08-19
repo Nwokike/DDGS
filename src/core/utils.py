@@ -262,3 +262,67 @@ def sanitize_url(url: str) -> str | None:
         return None
 
     return url
+
+
+# ── Error classification ─────────────────────────────────────────────────
+# Centralizes the offline/server/rate-limit keyword matching that was
+# previously duplicated (and slightly different) across the results and
+# reader components.  Components call classify_error() instead of matching
+# strings themselves.
+
+# Sentinel set by the fail-fast search path when the device is known to be
+# offline *before* any network request is attempted.  Checked before keyword
+# matching so the offline UI is unambiguous.
+ERR_NO_INTERNET = "ddgs:no_internet"
+
+# Order matters: rate-limit is checked first so a throttled response is not
+# misread as an offline error.
+_RATE_LIMIT_KEYWORDS = (
+    "rate limit",
+    "rate-limit",
+    "ratelimit",
+    "too many requests",
+    "429",
+    "418",
+)
+
+_OFFLINE_KEYWORDS = (
+    "dns",
+    "connect",
+    "network",
+    "offline",
+    "unreachable",
+    "timed out",
+    "timeout",
+    "refused",
+    "no internet",
+)
+
+_SERVER_ERROR_KEYWORDS = (
+    "500",
+    "502",
+    "503",
+    "504",
+    "server error",
+)
+
+
+def classify_error(error: str | None) -> str:
+    """Classify a search/network error string into a UI category.
+
+    Returns one of ``"offline"``, ``"server"``, ``"rate_limit"``, or
+    ``"other"``.  An empty/None error classifies as ``"other"``.
+    """
+    if not error:
+        return "other"
+    err = str(error)
+    if err == ERR_NO_INTERNET:
+        return "offline"
+    err_l = err.lower()
+    if any(kw in err_l for kw in _RATE_LIMIT_KEYWORDS):
+        return "rate_limit"
+    if any(kw in err_l for kw in _OFFLINE_KEYWORDS):
+        return "offline"
+    if any(kw in err_l for kw in _SERVER_ERROR_KEYWORDS):
+        return "server"
+    return "other"

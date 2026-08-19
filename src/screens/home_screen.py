@@ -9,6 +9,7 @@ from __future__ import annotations
 import flet as ft
 from flet import Control
 
+from components.offline_banner import build_offline_banner
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
@@ -513,6 +514,8 @@ def HomeScreen() -> Control:
 
     content = ft.Column(
         controls=[
+            # Persistent offline notice (visible=not state.is_online)
+            build_offline_banner(visible=not state.is_online),
             # Compact header
             ft.Container(
                 content=ft.Row(
