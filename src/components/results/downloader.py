@@ -55,32 +55,14 @@ async def launch_url(url: str, page: ft.Page | None = None):
 
 
 async def _resolve_save_path(page: ft.Page, default_name: str) -> str | None:
-    """Resolve destination file save path across Android/iOS mobile and desktop platforms."""
-    is_mobile = page.platform in (
-        ft.PagePlatform.ANDROID,
-        getattr(ft.PagePlatform, "ANDROID_TV", ft.PagePlatform.ANDROID),
-        ft.PagePlatform.IOS,
-    )
-    if is_mobile:
-        dl_dir = "/storage/emulated/0/Download"
-        if not os.path.exists(dl_dir):
-            dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
-        os.makedirs(dl_dir, exist_ok=True)
-
-        name_part, ext_part = os.path.splitext(default_name)
-        counter = 1
-        unique_name = default_name
-        while os.path.exists(os.path.join(dl_dir, unique_name)):
-            unique_name = f"{name_part} ({counter}){ext_part}"
-            counter += 1
-        return os.path.join(dl_dir, unique_name)
-
+    """Resolve destination file save path with native dialog across all platforms and auto-fallback."""
     file_picker = getattr(page, "file_picker", None)
     if not file_picker:
         file_picker = ft.FilePicker()
         page.services.append(file_picker)
         page.update()
 
+    path: str | None = None
     try:
         path = await file_picker.save_file(
             dialog_title=f"Save {default_name}",
@@ -90,7 +72,18 @@ async def _resolve_save_path(page: ft.Page, default_name: str) -> str | None:
         path = None
 
     if not path:
-        dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+        is_mobile = page.platform in (
+            ft.PagePlatform.ANDROID,
+            getattr(ft.PagePlatform, "ANDROID_TV", ft.PagePlatform.ANDROID),
+            ft.PagePlatform.IOS,
+        )
+        if is_mobile:
+            dl_dir = "/storage/emulated/0/Download"
+            if not os.path.exists(dl_dir):
+                dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+        else:
+            dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+
         os.makedirs(dl_dir, exist_ok=True)
         name_part, ext_part = os.path.splitext(default_name)
         counter = 1
