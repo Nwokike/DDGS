@@ -164,6 +164,18 @@ def build_storage_section(
     )
 
 
+def _open_version_dialog(page: ft.Page):
+    from core.state import state as _st
+    if getattr(_st, 'update_available', False) and getattr(_st, 'update_data', None):
+        from components.update_dialog import show_update_dialog
+        show_update_dialog(page, _st.update_data)
+    else:
+        from components.settings.version import _APP_VERSION as _ver
+        from components.update_dialog import show_update_dialog
+        fallback = {"version": _ver, "type": "update", "title": f"DDGS {_ver}", "release_notes": "• You're up to date on v" + _ver + "!\n• Privacy-first metasearch across 14 engines\n• Full update history on GitHub Releases", "github_url": "https://github.com/Nwokike/DDGS/releases/latest", "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"}
+        show_update_dialog(page, fallback)
+
+
 def build_about_section(
     page: ft.Page, launch_privacy_fn: Callable, launch_terms_fn: Callable
 ) -> ft.Container:
@@ -182,16 +194,21 @@ def build_about_section(
                     alignment=ft.Alignment.CENTER,
                     margin=ft.Margin(0, 0, 0, SPACING_SM),
                 ),
-                ft.Row(
-                    [
-                        ft.Text("Version", size=FONT_SM, font_family="Outfit"),
-                        ft.Text(
-                            _APP_VERSION,
-                            size=FONT_SM,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Text("Version", size=FONT_SM, font_family="Outfit"),
+                            ft.Text(
+                                _APP_VERSION,
+                                size=FONT_SM,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                    ),
+                    ink=True,
+                    tooltip="Tap to view changelog",
+                    on_click=lambda e: _open_version_dialog(page),
                 ),
                 ft.Row(
                     [

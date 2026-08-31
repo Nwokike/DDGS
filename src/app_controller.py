@@ -24,6 +24,7 @@ from core.utils import (
 from services.ad_service import AdService
 from services.search_service import SearchService
 from services.storage_service import StorageService
+from services.update_service import UpdateService
 
 LOG_TAG = "AppController"
 
@@ -37,6 +38,7 @@ class AppController:
         self.search_service: SearchService | None = None
         self.ad_service: AdService | None = None
         self.connectivity: ft.Connectivity | None = None
+        self.update_service: UpdateService | None = None
         self._current_search_tasks: dict[str, object] = {}
 
     async def init(self):
@@ -84,6 +86,7 @@ class AppController:
         self.search_service = SearchService()
 
         self.ad_service = AdService(self.page)
+        self.update_service = UpdateService()
         state.ad_service = self.ad_service
         await self.ad_service.gather_consent()
         await self.ad_service.preload_interstitial()
@@ -109,6 +112,22 @@ class AppController:
         self.page.render(lambda: ControllerMethodsCtx(methods, lambda: AppShell()))
         # Store controller reference on page for access from plain functions
         self.page._ddgs_controller = self
+        self.page.run_task(self.check_for_updates)
+    async def check_for_updates(self):
+        if not self.update_service:
+            return
+        data = await self.update_service.check_for_update()
+        if data:
+            state.update_available = True
+            state.update_data = data
+            try: self.page.update()
+            except: pass
+            if data.get('mandatory'):
+                self.open_update_dialog()
+    def open_update_dialog(self):
+        if state.update_available and state.update_data:
+            from components.update_dialog import show_update_dialog
+            show_update_dialog(self.page, state.update_data)
         logger.info(f"[{LOG_TAG}] UI mounted")
 
     # ── Connectivity ───────────────────────────────────────────────────────

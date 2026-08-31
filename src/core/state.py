@@ -72,6 +72,8 @@ class AppState:
         self.selected_tab: int = 0  # 0=Home, 1=History, 2=Settings
         self.search_active: bool = False  # Results screen visible
         self.has_accepted_terms: bool = False
+        self.update_available: bool = False
+        self.update_data: dict | None = None
 
         # ── Search settings ──
         self.safe_search: str = "moderate"

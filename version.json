@@ -1,0 +1,10 @@
+{
+  "build_number": 4,
+  "version": "1.2.1",
+  "type": "update",
+  "title": "DDGS 1.2.1",
+  "release_notes": "You're up to date on v1.2.1!",
+  "mandatory": false,
+  "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
+  "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"
+}

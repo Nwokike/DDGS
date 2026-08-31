@@ -8,6 +8,7 @@ dependencies = [
     "ddgs>=9.14.4",
     "flet>=0.86.5",
     "flet-ads>=0.86.5",
+    "httpx>=0.28.1",
 ]
 
 [tool.flet]
