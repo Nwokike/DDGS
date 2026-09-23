@@ -5,7 +5,7 @@ from __future__ import annotations
 import flet as ft
 
 from components.results.content_fetcher import _fetch_and_show, _url_history
-from components.results.downloader import _download_media, launch_url
+from components.results.downloader import _download_media
 from core import theme, tokens
 from core.state import SearchResult
 from core.theme import AppColors
@@ -37,24 +37,19 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             pass
 
     def _open_browser(_):
+        # The Open button's client-side action opens the URL; this just
+        # closes the sheet so the browser window is visible underneath.
         try:
             page.pop_dialog()
         except Exception:
             pass
-        page.run_task(launch_url, r.url)
 
     def _copy_url(_):
-        async def _do():
-            try:
-                clipboard = ft.Clipboard()
-                await clipboard.set(r.url)
-                page.snack_bar = ft.SnackBar(ft.Text("URL copied"))
-                page.snack_bar.open = True
-                page.update()
-            except Exception:
-                pass
-
-        page.run_task(_do)
+        # Copying happens client-side via action=ft.CopyToClipboard.
+        snack = ft.SnackBar(ft.Text("URL copied"))
+        snack.open = True
+        page.show_dialog(snack)
+        page.update()
 
     # ── Build preview based on type ──
     preview = None
@@ -255,6 +250,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                         spacing=4,
                         tight=True,
                     ),
+                    action=ft.OpenUrl(r.url),
                     on_click=_open_browser,
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
@@ -274,7 +270,27 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                         spacing=4,
                         tight=True,
                     ),
+                    action=ft.CopyToClipboard(r.url),
                     on_click=_copy_url,
+                    style=ft.ButtonStyle(
+                        shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                        side=ft.BorderSide(1, ft.Colors.OUTLINE),
+                        padding=ft.Padding(12, 8, 12, 8),
+                    ),
+                    expand=True,
+                ),
+                ft.OutlinedButton(
+                    content=ft.Row(
+                        [
+                            ft.Icon(ft.Icons.SHARE_ROUNDED, size=tokens.ICON_SM),
+                            ft.Text(
+                                "Share", size=tokens.FONT_SM, font_family="Outfit"
+                            ),
+                        ],
+                        spacing=4,
+                        tight=True,
+                    ),
+                    action=ft.ShareText(f"{r.title}\n{r.url}", title=r.title),
                     style=ft.ButtonStyle(
                         shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
                         side=ft.BorderSide(1, ft.Colors.OUTLINE),

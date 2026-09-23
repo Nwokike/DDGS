@@ -13,14 +13,12 @@ from components.results.detail_sheet import _show_result_sheet
 from components.results.downloader import (
     _save_bytes_content,
     _save_text_content,
-    launch_url,
 )
 from core import theme, tokens
 from core.constants import EXTRACT_FORMATS
 from core.state import SearchResult, state
 from core.styles import build_banner_ad
 from core.theme import AppColors
-from services.storage_service import StorageService
 
 
 def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
@@ -114,18 +112,15 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
 
     async def _change_format(new_fmt: str):
         state.extract_format = new_fmt
+        # Persist through the controller; never let a persistence failure
+        # block the re-fetch below (page._ddgs_controller exposes
+        # save_setting, not save_async).
+        ctrl = getattr(page, "_ddgs_controller", None)
         try:
-            storage_svc = StorageService()
-            await storage_svc.set_extract_format(new_fmt)
-        except (
-            ValueError,
-            TypeError,
-            OSError,
-            RuntimeError,
-            ConnectionError,
-            ImportError,
-        ) as _ex:
-            __import__("logging").getLogger("app").debug(f"Ignored: {_ex}")
+            if ctrl and ctrl.storage:
+                await ctrl.save_setting("extract_format", new_fmt)
+        except Exception:
+            pass
         await _fetch_and_show(page, url)
 
     format_row = ft.Row(
@@ -203,7 +198,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                             icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
                             icon_size=tokens.ICON_SM,
                             tooltip="Open in browser",
-                            on_click=lambda e: page.run_task(launch_url, url),
+                            action=ft.OpenUrl(url),
                         ),
                         ft.IconButton(
                             icon=ft.Icons.SAVE_ALT_ROUNDED,

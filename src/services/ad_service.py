@@ -36,6 +36,10 @@ class AdService:
     def __init__(self, page: ft.Page):
         self.page = page
         self.interstitial = None
+        self._interstitial_loaded = False
+        self._interstitial_shown = False
+        self._pending_interstitial = False
+        self._active_rewarded_ad = None
         self._on_close: Callable | None = None
         self._can_request_ads: bool = True
         self._consent_manager = None
@@ -73,8 +77,8 @@ class AdService:
             self._can_request_ads = True
             return
         try:
+            # flet-ads 1.0 auto-registers services on construction.
             self._consent_manager = fta.ConsentManager()
-            self.page.services.append(self._consent_manager)
             await self._consent_manager.request_consent_info_update()
             await self._consent_manager.load_and_show_consent_form_if_required()
             self._can_request_ads = await self._consent_manager.can_request_ads()
@@ -126,15 +130,17 @@ class AdService:
             return ft.Container(width=0, height=0)
 
     async def preload_interstitial(self, on_close: Callable | None = None):
-        """Pre-load an interstitial ad for later display."""
+        """Create and load a fresh interstitial (single-use in flet-ads 1.0)."""
         self._on_close = on_close
         if not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
             return
         try:
+            self._interstitial_loaded = False
+            self._interstitial_shown = False
             self.interstitial = fta.InterstitialAd(
                 unit_id=self.interstitial_id,
-                on_load=lambda e: None,
-                on_error=lambda e: None,
+                on_load=self._handle_loaded,
+                on_error=self._handle_error,
                 on_close=self._handle_close,
             )
         except (
@@ -147,7 +153,37 @@ class AdService:
         ):
             self.interstitial = None
 
+    def _handle_loaded(self, e):
+        self._interstitial_loaded = True
+        if self._pending_interstitial:
+            self._pending_interstitial = False
+            self.page.run_task(self._show_loaded)
+
+    def _handle_error(self, e):
+        logger.error("InterstitialAd error: %s", getattr(e, "data", e))
+        self.interstitial = None
+        self._interstitial_loaded = False
+
+    async def _show_loaded(self):
+        if self.interstitial is None or self._interstitial_shown:
+            return
+        try:
+            await self.interstitial.show()
+            self._interstitial_shown = True
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+        ) as exc:
+            logger.warning("Interstitial show-on-load failed: %s", exc)
+            self.interstitial = None
+            self._interstitial_loaded = False
+
     async def _handle_close(self, e):
+        self._interstitial_shown = False
         if self._on_close:
             if asyncio.iscoroutinefunction(self._on_close):
                 await self._on_close()
@@ -156,10 +192,23 @@ class AdService:
         await self.preload_interstitial(on_close=self._on_close)
 
     async def show_interstitial(self) -> bool:
-        """Show a preloaded interstitial. Returns True if shown."""
-        if self.interstitial:
+        """Show the preloaded interstitial; load a fresh one if none is ready.
+
+        InterstitialAd is single-use in flet-ads 1.0, so shown or failed
+        instances are replaced. Returns True when an ad is shown or queued to
+        show as soon as it finishes loading.
+        """
+        if not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
+            return False
+        ad = self.interstitial
+        if (
+            ad is not None
+            and self._interstitial_loaded
+            and not self._interstitial_shown
+        ):
             try:
-                await self.interstitial.show()
+                await ad.show()
+                self._interstitial_shown = True
                 return True
             except (
                 ValueError,
@@ -169,8 +218,13 @@ class AdService:
                 ConnectionError,
                 ImportError,
             ):
-                return False
-        return False
+                self.interstitial = None
+                self._interstitial_loaded = False
+        # No usable ad: load a fresh one; it shows automatically once loaded.
+        self._pending_interstitial = True
+        if self.interstitial is None:
+            await self.preload_interstitial(self._on_close)
+        return True
 
     async def show_rewarded_interstitial(self, on_close: Callable) -> bool:
         """Show a rewarded interstitial ad, triggering on_close when closed."""

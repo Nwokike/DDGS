@@ -14,18 +14,22 @@ STORAGE_VERIFY_SSL = "verify_ssl"
 STORAGE_THREADS = "threads"
 STORAGE_PAGE = "page"
 STORAGE_EXTRACT_FORMAT = "extract_format"
-STORAGE_API_URL = "api_url"
-STORAGE_SPAWN_API = "spawn_api"
 STORAGE_VIDEO_QUALITY = "video_quality"
+STORAGE_IMAGE_SIZE = "image_size"
+STORAGE_IMAGE_COLOR = "image_color"
+STORAGE_IMAGE_TYPE = "image_type"
+STORAGE_IMAGE_LAYOUT = "image_layout"
+STORAGE_IMAGE_LICENSE = "image_license"
+STORAGE_SEARCH_RESOLUTION = "search_resolution"
+STORAGE_SEARCH_DURATION = "search_duration"
+STORAGE_SEARCH_LICENSE = "search_license"
 
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
     {"key": "duckduckgo", "label": "DuckDuckGo"},
     {"key": "google", "label": "Google"},
     {"key": "brave", "label": "Brave"},
-    {"key": "bing", "label": "Bing"},
     {"key": "yahoo", "label": "Yahoo"},
-    {"key": "yandex", "label": "Yandex"},
     {"key": "startpage", "label": "Startpage"},
     {"key": "mojeek", "label": "Mojeek"},
     {"key": "wikipedia", "label": "Wikipedia"},
@@ -61,6 +65,77 @@ TIMELIMIT_OPTIONS = [
     {"key": "w", "label": "Past week"},
     {"key": "m", "label": "Past month"},
     {"key": "y", "label": "Past year"},
+]
+
+# ddgs 9.16 image/video search filters. Values mirror ddgs/cli.py choices;
+# "" means "don't send the param" (engine default = no filtering).
+IMAGE_SIZE_OPTIONS = [
+    {"key": "", "label": "Any size"},
+    {"key": "Small", "label": "Small"},
+    {"key": "Medium", "label": "Medium"},
+    {"key": "Large", "label": "Large"},
+    {"key": "Wallpaper", "label": "Wallpaper"},
+]
+
+IMAGE_COLOR_OPTIONS = [
+    {"key": "", "label": "Any color"},
+    {"key": "Monochrome", "label": "Monochrome"},
+    {"key": "Red", "label": "Red"},
+    {"key": "Orange", "label": "Orange"},
+    {"key": "Yellow", "label": "Yellow"},
+    {"key": "Green", "label": "Green"},
+    {"key": "Blue", "label": "Blue"},
+    {"key": "Purple", "label": "Purple"},
+    {"key": "Pink", "label": "Pink"},
+    {"key": "Brown", "label": "Brown"},
+    {"key": "Black", "label": "Black"},
+    {"key": "Gray", "label": "Gray"},
+    {"key": "Teal", "label": "Teal"},
+    {"key": "White", "label": "White"},
+]
+
+IMAGE_TYPE_OPTIONS = [
+    {"key": "", "label": "Any type"},
+    {"key": "photo", "label": "Photo"},
+    {"key": "clipart", "label": "Clipart"},
+    {"key": "gif", "label": "GIF"},
+    {"key": "transparent", "label": "Transparent"},
+    {"key": "line", "label": "Line drawing"},
+]
+
+IMAGE_LAYOUT_OPTIONS = [
+    {"key": "", "label": "Any layout"},
+    {"key": "Square", "label": "Square"},
+    {"key": "Tall", "label": "Tall"},
+    {"key": "Wide", "label": "Wide"},
+]
+
+IMAGE_LICENSE_OPTIONS = [
+    {"key": "", "label": "Any license"},
+    {"key": "Public", "label": "Public"},
+    {"key": "Share", "label": "Share"},
+    {"key": "ShareCommercially", "label": "Share commercially"},
+    {"key": "Modify", "label": "Modify"},
+    {"key": "ModifyCommercially", "label": "Modify commercially"},
+]
+
+VIDEO_RESOLUTION_OPTIONS = [
+    {"key": "", "label": "Any resolution"},
+    {"key": "high", "label": "High"},
+    {"key": "standart", "label": "Standard"},
+]
+
+VIDEO_DURATION_OPTIONS = [
+    {"key": "", "label": "Any duration"},
+    {"key": "short", "label": "Short (<4 min)"},
+    {"key": "medium", "label": "Medium (4-20 min)"},
+    {"key": "long", "label": "Long (>20 min)"},
+]
+
+VIDEO_LICENSE_OPTIONS = [
+    {"key": "", "label": "Any license"},
+    {"key": "creativeCommon", "label": "Creative Commons"},
+    {"key": "youtube", "label": "YouTube license"},
 ]
 
 EXTRACT_FORMATS = [

@@ -17,58 +17,38 @@ from core.utils import (
 
 LOG_TAG = "SearchService"
 
-
-# ── Fix fake_useragent 2.x unable to read browsers.jsonl from zipped site-packages ──
-# Flet 0.86+ packages pure-Python deps into sitepackages.zip.  fake_useragent's
-# find_browser_json_path() does Path(str(importlib_traversable)) which produces a
-# useless path inside the zip.  This patch makes load() use importlib.resources
-# directly, which handles zips correctly.
-def _patch_fake_useragent():
-    try:
-        import importlib.resources as _ilr
-        import json as _json
-
-        import fake_useragent.utils as _fau
-
-        _orig_load = _fau.load
-
-        def _zip_safe_load():
-            try:
-                return _orig_load()
-            except Exception:
-                data = (
-                    _ilr.files("fake_useragent.data")
-                    .joinpath("browsers.jsonl")
-                    .read_text()
-                )
-                result = [
-                    _json.loads(line) for line in data.splitlines() if line.strip()
-                ]
-                if not result:
-                    from fake_useragent.errors import FakeUserAgentError
-
-                    raise FakeUserAgentError("browsers.jsonl is empty")
-                return result
-
-        _fau.load = _zip_safe_load
-    except Exception:
-        pass
-
-
-_patch_fake_useragent()
-# ── End fake_useragent patch ──
-
 _DDGS_AVAILABLE = False
 try:
     from ddgs import DDGS
-    from ddgs.exceptions import DDGSException
+    from ddgs.ddgs import DDGS as _DDGSClass
+    from ddgs.exceptions import DDGSException, RatelimitException
 
     _DDGS_AVAILABLE = True
 except ImportError as e:
     DDGS = None
+    _DDGSClass = None
     DDGSException = Exception  # fallback
+    RatelimitException = Exception  # fallback
     logger.error(f"[{LOG_TAG}] DDGS import failed: {e}")
     logger.error(f"[{LOG_TAG}] This is critical - primp may have crashed on import")
+
+
+def _primp_client_kwargs(timeout: float) -> dict[str, Any]:
+    """Shared primp 2.0 settings: current browser profile + user proxy/SSL prefs.
+
+    Matches how ddgs itself configures primp (see ddgs/http_client.py) so the
+    app's direct fallback requests get the same anti-bot treatment.
+    """
+    kwargs: dict[str, Any] = {
+        "impersonate": "chrome_153",
+        "impersonate_os": "random",
+        "timeout": timeout,
+    }
+    if state.proxy:
+        kwargs["proxy"] = state.proxy
+    if state.verify_ssl is False:
+        kwargs["verify"] = False
+    return kwargs
 
 
 class SearchService:
@@ -97,15 +77,13 @@ class SearchService:
                 kwargs["proxy"] = state.proxy
             if state.verify_ssl is False:
                 kwargs["verify"] = False
-            if state.api_url:
-                kwargs["api_url"] = state.api_url
-            if state.spawn_api:
-                kwargs["spawn_api"] = True
             kwargs["timeout"] = 15
 
             self._ddgs = DDGS(**kwargs)
-            if state.threads > 0:
-                DDGS.threads = state.threads
+            if state.threads > 0 and _DDGSClass is not None:
+                # ddgs 9.16 root-imports a lazy proxy whose __setattr__ lands
+                # on the proxy, not the class the search code reads.
+                _DDGSClass.threads = state.threads
 
             elapsed = time.perf_counter() - start
             logger.info(
@@ -165,6 +143,26 @@ class SearchService:
 
             if state.page and state.page > 1:
                 params["page"] = state.page
+
+            # ddgs 9.16 per-category filters ("" = param omitted)
+            if search_type == "images":
+                for field_name, param_name in (
+                    ("image_size", "size"),
+                    ("image_color", "color"),
+                    ("image_type", "type_image"),
+                    ("image_layout", "layout"),
+                    ("image_license", "license_image"),
+                ):
+                    if value := getattr(state, field_name):
+                        params[param_name] = value
+            elif search_type == "videos":
+                for field_name, param_name in (
+                    ("search_resolution", "resolution"),
+                    ("search_duration", "duration"),
+                    ("search_license", "license_videos"),
+                ):
+                    if value := getattr(state, field_name):
+                        params[param_name] = value
 
             params["max_results"] = state.max_results or 20
 
@@ -400,6 +398,8 @@ class SearchService:
         if not err_str:
             return
         category = classify_error(err_str)
+        if isinstance(primary_err, RatelimitException):
+            category = "rate_limit"
         if category in ("offline", "server", "rate_limit"):
             progress.error = err_str
             if search_type == "videos" and category == "rate_limit":
@@ -412,7 +412,6 @@ class SearchService:
         try:
             import primp
 
-            client = primp.Client(timeout=10)
             body = {
                 "context": {
                     "client": {
@@ -424,11 +423,10 @@ class SearchService:
                 },
                 "query": query,
             }
-            resp = await asyncio.to_thread(
-                lambda: client.post(
+            async with primp.AsyncClient(**_primp_client_kwargs(10)) as client:
+                resp = await client.post(
                     "https://www.youtube.com/youtubei/v1/search", json=body
                 )
-            )
             if resp.status_code != 200:
                 return [], f"HTTP {resp.status_code}"
             data = resp.json()
@@ -506,13 +504,11 @@ class SearchService:
         try:
             import primp
 
-            client = primp.Client(timeout=10)
-            resp = await asyncio.to_thread(
-                lambda: client.get(
+            async with primp.AsyncClient(**_primp_client_kwargs(10)) as client:
+                resp = await client.get(
                     "https://openlibrary.org/search.json",
                     params={"q": query, "limit": "20"},
                 )
-            )
             if resp.status_code != 200:
                 return [], f"HTTP {resp.status_code}"
             docs = resp.json().get("docs", [])

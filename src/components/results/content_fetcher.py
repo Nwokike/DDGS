@@ -14,7 +14,6 @@ from core.styles import build_banner_ad
 from core.theme import AppColors
 from core.utils import classify_error
 from services.search_service import SearchService
-from services.storage_service import StorageService
 
 _search_service = SearchService()
 _url_history: list[str] = []
@@ -243,7 +242,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
                 icon_size=tokens.ICON_MD,
                 tooltip="Open in browser",
-                on_click=lambda _: page.run_task(launch_url, url),
+                action=ft.OpenUrl(url),
             ),
             ft.IconButton(
                 icon=ft.Icons.SAVE_ALT_ROUNDED,
@@ -269,18 +268,15 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
 
     async def _change_preview_format(new_fmt: str):
         state.extract_format = new_fmt
+        # Persist through the controller; never let a persistence failure
+        # block the pop-and-refetch below (page._ddgs_controller exposes
+        # save_setting, not save_async).
+        ctrl = getattr(page, "_ddgs_controller", None)
         try:
-            storage_svc = StorageService()
-            await storage_svc.set_extract_format(new_fmt)
-        except (
-            ValueError,
-            TypeError,
-            OSError,
-            RuntimeError,
-            ConnectionError,
-            ImportError,
-        ) as _ex:
-            __import__("logging").getLogger("app").debug(f"Ignored: {_ex}")
+            if ctrl and ctrl.storage:
+                await ctrl.save_setting("extract_format", new_fmt)
+        except Exception:
+            pass
         page.pop_dialog()
         await _fetch_and_show(page, url, pop_current=False)
 

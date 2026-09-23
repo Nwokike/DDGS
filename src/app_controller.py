@@ -24,6 +24,7 @@ from core.utils import (
 from services.ad_service import AdService
 from services.search_service import SearchService
 from services.storage_service import StorageService
+from services.update_service import UpdateService
 
 LOG_TAG = "AppController"
 
@@ -37,13 +38,13 @@ class AppController:
         self.search_service: SearchService | None = None
         self.ad_service: AdService | None = None
         self.connectivity: ft.Connectivity | None = None
+        self.update_service: UpdateService | None = None
         self._current_search_tasks: dict[str, object] = {}
 
     async def init(self):
         """Initialize page, services, load persisted state, mount UI."""
         # ── Page setup ──
         self.page.title = "DDGS"
-        self.page.favicon = "icon.png"
         self.page.fonts = {
             "Outfit": "https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap"
         }
@@ -84,6 +85,7 @@ class AppController:
         self.search_service = SearchService()
 
         self.ad_service = AdService(self.page)
+        self.update_service = UpdateService()
         state.ad_service = self.ad_service
         await self.ad_service.gather_consent()
         await self.ad_service.preload_interstitial()
@@ -109,6 +111,24 @@ class AppController:
         self.page.render(lambda: ControllerMethodsCtx(methods, lambda: AppShell()))
         # Store controller reference on page for access from plain functions
         self.page._ddgs_controller = self
+        self.page.run_task(self.check_for_updates)
+    async def check_for_updates(self):
+        if not self.update_service:
+            return
+        data = await self.update_service.check_for_update()
+        if data:
+            state.update_available = True
+            state.update_data = data
+            try:
+                self.page.update()
+            except Exception:
+                pass
+            if data.get('mandatory'):
+                self.open_update_dialog()
+    def open_update_dialog(self):
+        if state.update_available and state.update_data:
+            from components.update_dialog import show_update_dialog
+            show_update_dialog(self.page, state.update_data)
         logger.info(f"[{LOG_TAG}] UI mounted")
 
     # ── Connectivity ───────────────────────────────────────────────────────
@@ -136,7 +156,18 @@ class AppController:
             self.page.run_task(self.show_snack, "You're back online.", "info")
 
     async def _on_lifecycle_change(self, e: ft.AppLifecycleStateChangeEvent):
-        """Re-probe connectivity when the app returns to the foreground."""
+        """Flush storage when backgrounded; re-probe connectivity when foregrounded."""
+        if e.state in (
+            ft.AppLifecycleState.HIDE,
+            ft.AppLifecycleState.PAUSE,
+            ft.AppLifecycleState.DETACH,
+        ):
+            if self.storage:
+                try:
+                    await self.storage.flush()
+                except Exception as exc:
+                    logger.warning("Lifecycle storage flush failed: %s", exc)
+            return
         if e.state not in (ft.AppLifecycleState.RESUME, ft.AppLifecycleState.SHOW):
             return
         try:
@@ -151,6 +182,7 @@ class AppController:
         """Load all persisted settings into the observable state."""
         storage = self.storage
         try:
+            await storage.initialize()
             t = await storage.get_theme()
             self.page.theme_mode = {
                 "dark": ft.ThemeMode.DARK,
@@ -165,12 +197,18 @@ class AppController:
             state.timelimit = await storage.get_timelimit()
             state.backend = await storage.get_backend()
             state.page = await storage.get_page()
+            state.image_size = await storage.get_image_size()
+            state.image_color = await storage.get_image_color()
+            state.image_type = await storage.get_image_type()
+            state.image_layout = await storage.get_image_layout()
+            state.image_license = await storage.get_image_license()
+            state.search_resolution = await storage.get_search_resolution()
+            state.search_duration = await storage.get_search_duration()
+            state.search_license = await storage.get_search_license()
             state.proxy = await storage.get_proxy()
             state.verify_ssl = await storage.get_verify_ssl()
             state.threads = await storage.get_threads()
             state.extract_format = await storage.get_extract_format()
-            state.api_url = await storage.get_api_url()
-            state.spawn_api = await storage.get_spawn_api()
             state.default_tab = await storage.get_default_tab()
             state.video_quality = await storage.get_video_quality()
             state.search_history = await storage.get_history() or []
@@ -209,12 +247,21 @@ class AppController:
             "max_results": (self.storage.set_max_results, "max_results"),
             "timelimit": (self.storage.set_timelimit, "timelimit"),
             "backend": (self.storage.set_backend, "backend"),
+            "image_size": (self.storage.set_image_size, "image_size"),
+            "image_color": (self.storage.set_image_color, "image_color"),
+            "image_type": (self.storage.set_image_type, "image_type"),
+            "image_layout": (self.storage.set_image_layout, "image_layout"),
+            "image_license": (self.storage.set_image_license, "image_license"),
+            "search_resolution": (
+                self.storage.set_search_resolution,
+                "search_resolution",
+            ),
+            "search_duration": (self.storage.set_search_duration, "search_duration"),
+            "search_license": (self.storage.set_search_license, "search_license"),
             "proxy": (self.storage.set_proxy, "proxy"),
             "verify_ssl": (self.storage.set_verify_ssl, "verify_ssl"),
             "threads": (self.storage.set_threads, "threads"),
             "extract_format": (self.storage.set_extract_format, "extract_format"),
-            "api_url": (self.storage.set_api_url, "api_url"),
-            "spawn_api": (self.storage.set_spawn_api, "spawn_api"),
             "default_tab": (self.storage.set_default_tab, "default_tab"),
             "video_quality": (self.storage.set_video_quality, "video_quality"),
             "onboarding_done": (self.storage.set_onboarding_done, "has_accepted_terms"),
@@ -332,6 +379,7 @@ class AppController:
                     }
                 )
                 state.search_history = await self.storage.get_history()
+                await self.storage.flush()
             except (
                 ValueError,
                 TypeError,
@@ -403,6 +451,7 @@ class AppController:
                 }
             )
             state.search_history = await self.storage.get_history()
+            await self.storage.flush()
         except (
             ValueError,
             TypeError,
@@ -441,9 +490,7 @@ class AppController:
             "warning": AppColors.WARNING,
         }.get(level, AppColors.PRIMARY)
 
-        self.page.snack_bar = ft.SnackBar(
-            ft.Text(message),
-            bgcolor=bg,
-        )
-        self.page.snack_bar.open = True
+        snack = ft.SnackBar(ft.Text(message), bgcolor=bg)
+        snack.open = True
+        self.page.show_dialog(snack)
         self.page.update()

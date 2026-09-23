@@ -8,6 +8,7 @@ import urllib.parse
 
 import primp
 
+from core.state import state
 from services.youtube.cipher_solver import _ALGO_CACHE, parse_decipher_algo
 from services.youtube.format_parser import (
     VideoStream,
@@ -40,12 +41,24 @@ async def resolve_youtube(
     js_url = None
     player_response = None
 
+    # No explicit User-Agent: the impersonation profile below supplies one
+    # that matches its TLS fingerprint (a stale UA + fresh fingerprint pairs
+    # badly with YouTube).
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept-Language": "en-US,en;q=0.9",
     }
 
-    async with primp.AsyncClient(timeout=10, follow_redirects=True) as client:
+    client_kwargs: dict = {
+        "timeout": 10,
+        "follow_redirects": True,
+        "impersonate": "chrome_153",
+        "impersonate_os": "random",
+    }
+    if state.proxy:
+        client_kwargs["proxy"] = state.proxy
+    if state.verify_ssl is False:
+        client_kwargs["verify"] = False
+    async with primp.AsyncClient(**client_kwargs) as client:
         try:
             watch_url = f"https://www.youtube.com/watch?v={video_id}"
             r = await client.get(watch_url, headers=headers, follow_redirects=True)

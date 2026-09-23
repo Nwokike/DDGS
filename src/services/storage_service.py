@@ -13,18 +13,24 @@ from typing import Any
 import flet as ft
 
 from core.constants import (
-    STORAGE_API_URL,
     STORAGE_BACKEND,
     STORAGE_DEFAULT_TAB,
     STORAGE_EXTRACT_FORMAT,
     STORAGE_HISTORY,
+    STORAGE_IMAGE_COLOR,
+    STORAGE_IMAGE_LAYOUT,
+    STORAGE_IMAGE_LICENSE,
+    STORAGE_IMAGE_SIZE,
+    STORAGE_IMAGE_TYPE,
     STORAGE_MAX_RESULTS,
     STORAGE_ONBOARDING_DONE,
     STORAGE_PAGE,
     STORAGE_PROXY,
     STORAGE_REGION,
     STORAGE_SAFE_SEARCH,
-    STORAGE_SPAWN_API,
+    STORAGE_SEARCH_DURATION,
+    STORAGE_SEARCH_LICENSE,
+    STORAGE_SEARCH_RESOLUTION,
     STORAGE_THEME,
     STORAGE_THREADS,
     STORAGE_TIMELIMIT,
@@ -57,8 +63,6 @@ DEFAULTS: dict[str, Any] = {
     STORAGE_VERIFY_SSL: True,
     STORAGE_THREADS: 0,
     STORAGE_EXTRACT_FORMAT: "text_markdown",
-    STORAGE_API_URL: "",
-    STORAGE_SPAWN_API: False,
     STORAGE_VIDEO_QUALITY: "best",
     STORAGE_ONBOARDING_DONE: False,
     STORAGE_DEFAULT_TAB: "text",
@@ -75,28 +79,14 @@ class StorageService:
         self._dirty = False
         self._last_write: float = 0.0
         self._pending_write_task = None
-        self._is_web = bool(getattr(page, "session_id", None))
+        self._is_web = bool(getattr(page, "web", False))
+        self._prefs: ft.SharedPreferences | None = None
 
         if self._is_web:
-            self._load_web()
+            # Web: async SharedPreferences service; cache loads in initialize().
+            self._prefs = ft.SharedPreferences()
         else:
             self._load()
-
-    def _load_web(self) -> None:
-        try:
-            cs = self._page.client_storage
-            raw = cs.get("ddgs_storage")
-            loaded = json.loads(raw) if raw else {}
-            self._cache.update(loaded)
-        except (
-            ValueError,
-            TypeError,
-            OSError,
-            RuntimeError,
-            ConnectionError,
-            ImportError,
-        ) as e:
-            logger.warning("StorageService._load_web failed: %s", e)
 
     def _load(self) -> None:
         try:
@@ -117,8 +107,7 @@ class StorageService:
 
     def _save_now(self) -> None:
         if self._is_web:
-            self._save_now_web()
-            return
+            return  # web persists via async SharedPreferences in flush()
         try:
             _STORAGE_DIR.mkdir(parents=True, exist_ok=True)
             _STORAGE_FILE.write_text(
@@ -137,10 +126,9 @@ class StorageService:
         ) as e:
             logger.warning("StorageService._save_now failed: %s", e)
 
-    def _save_now_web(self) -> None:
+    async def _save_web(self) -> None:
         try:
-            cs = self._page.client_storage
-            cs.set("ddgs_storage", json.dumps(self._cache))
+            await self._prefs.set("ddgs_storage", json.dumps(self._cache))
             self._dirty = False
             self._last_write = time.monotonic()
         except (
@@ -150,8 +138,14 @@ class StorageService:
             RuntimeError,
             ConnectionError,
             ImportError,
+            AttributeError,
         ) as e:
-            logger.warning("StorageService._save_now_web failed: %s", e)
+            logger.warning("StorageService._save_web failed: %s", e)
+
+    def flush_now(self) -> None:
+        """Synchronously persist dirty state — called from on_close before teardown."""
+        if self._dirty and not self._is_web:
+            self._save_now()
 
     def _schedule_write(self) -> None:
         if self._pending_write_task:
@@ -172,8 +166,23 @@ class StorageService:
             self._pending_write_task = None
 
     async def initialize(self):
-        # Kept for backward compatibility
-        pass
+        """Load persisted state. Web reads the async SharedPreferences service."""
+        if not (self._is_web and self._prefs):
+            return
+        try:
+            raw = await self._prefs.get("ddgs_storage")
+            loaded = json.loads(raw) if raw else {}
+            self._cache.update(loaded)
+        except (
+            ValueError,
+            TypeError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            AttributeError,
+        ) as e:
+            logger.warning("StorageService.initialize failed: %s", e)
 
     async def get(self, key: str, default: Any = None) -> Any:
         async with self._lock:
@@ -195,7 +204,11 @@ class StorageService:
 
     async def flush(self) -> None:
         async with self._lock:
-            if self._dirty:
+            if not self._dirty:
+                return
+            if self._is_web:
+                await self._save_web()
+            else:
                 self._save_now()
 
     @property
@@ -259,6 +272,54 @@ class StorageService:
     async def set_timelimit(self, v: str) -> bool:
         return await self.set(STORAGE_TIMELIMIT, v)
 
+    async def get_image_size(self) -> str:
+        return str(await self.get(STORAGE_IMAGE_SIZE, ""))
+
+    async def set_image_size(self, v: str) -> bool:
+        return await self.set(STORAGE_IMAGE_SIZE, v)
+
+    async def get_image_color(self) -> str:
+        return str(await self.get(STORAGE_IMAGE_COLOR, ""))
+
+    async def set_image_color(self, v: str) -> bool:
+        return await self.set(STORAGE_IMAGE_COLOR, v)
+
+    async def get_image_type(self) -> str:
+        return str(await self.get(STORAGE_IMAGE_TYPE, ""))
+
+    async def set_image_type(self, v: str) -> bool:
+        return await self.set(STORAGE_IMAGE_TYPE, v)
+
+    async def get_image_layout(self) -> str:
+        return str(await self.get(STORAGE_IMAGE_LAYOUT, ""))
+
+    async def set_image_layout(self, v: str) -> bool:
+        return await self.set(STORAGE_IMAGE_LAYOUT, v)
+
+    async def get_image_license(self) -> str:
+        return str(await self.get(STORAGE_IMAGE_LICENSE, ""))
+
+    async def set_image_license(self, v: str) -> bool:
+        return await self.set(STORAGE_IMAGE_LICENSE, v)
+
+    async def get_search_resolution(self) -> str:
+        return str(await self.get(STORAGE_SEARCH_RESOLUTION, ""))
+
+    async def set_search_resolution(self, v: str) -> bool:
+        return await self.set(STORAGE_SEARCH_RESOLUTION, v)
+
+    async def get_search_duration(self) -> str:
+        return str(await self.get(STORAGE_SEARCH_DURATION, ""))
+
+    async def set_search_duration(self, v: str) -> bool:
+        return await self.set(STORAGE_SEARCH_DURATION, v)
+
+    async def get_search_license(self) -> str:
+        return str(await self.get(STORAGE_SEARCH_LICENSE, ""))
+
+    async def set_search_license(self, v: str) -> bool:
+        return await self.set(STORAGE_SEARCH_LICENSE, v)
+
     async def get_backend(self) -> str:
         return str(await self.get(STORAGE_BACKEND, "auto"))
 
@@ -294,18 +355,6 @@ class StorageService:
 
     async def set_extract_format(self, v: str) -> bool:
         return await self.set(STORAGE_EXTRACT_FORMAT, v)
-
-    async def get_api_url(self) -> str:
-        return str(await self.get(STORAGE_API_URL, ""))
-
-    async def set_api_url(self, v: str) -> bool:
-        return await self.set(STORAGE_API_URL, v)
-
-    async def get_spawn_api(self) -> bool:
-        return bool(await self.get(STORAGE_SPAWN_API, False))
-
-    async def set_spawn_api(self, v: bool) -> bool:
-        return await self.set(STORAGE_SPAWN_API, v)
 
     async def get_onboarding_done(self) -> bool:
         return bool(await self.get(STORAGE_ONBOARDING_DONE, False))

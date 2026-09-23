@@ -9,11 +9,11 @@ on:
       build_version:
         description: "Build version"
         required: true
-        default: "1.2.1"
+        default: "1.3.0"
       build_number:
         description: "Build number"
         required: true
-        default: "4"
+        default: "5"
 
 permissions:
   contents: write
@@ -22,8 +22,8 @@ env:
   PYTHONUTF8: "1"
   FLET_CLI_NO_RICH_OUTPUT: "1"
   UV_PYTHON: "3.12"
-  BUILD_VERSION: ${{ inputs.build_version || '1.2.1' }}
-  BUILD_NUMBER: ${{ inputs.build_number || '4' }}
+  BUILD_VERSION: ${{ inputs.build_version || '1.3.0' }}
+  BUILD_NUMBER: ${{ inputs.build_number || '5' }}
 
 jobs:
   # ─── 0. Create Release Tag & Placeholder ───────────────
@@ -57,9 +57,13 @@ jobs:
           prerelease: ${{ steps.tag_info.outputs.IS_PRERELEASE }}
           make_latest: true
           body: |
-            Automated Google Play Store build generated from commit `${{ github.sha }}`.
+            **Search everything. Download anything.** — Google Play edition
 
-            *Privacy-first metasearch across 14 engines (Google Play Store Edition).*
+            Private search across 10 engines — scrape any page as Markdown, HTML or text, download images, no account, no tracking.
+
+            - **YouTube video downloads are disabled in this edition to comply with Google Play policy** — the GitHub build is the full version (feature comparison in the README)
+            - Non-YouTube video downloads, image downloads, and every search & scraping feature are included
+            - Google Play handles updates for this edition
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
