@@ -36,7 +36,7 @@ def build_backends_section(page: ft.Page, set_fn: Callable) -> ft.Container:
                         set_fn, "backend", e.control.value
                     ),
                     filled=True,
-                    border_radius=BORDER_RADIUS_MD,
+                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
                 ),
             ],
             spacing=10,
@@ -67,7 +67,7 @@ def build_extraction_section(page: ft.Page, set_fn: Callable) -> ft.Container:
                         set_fn, "extract_format", e.control.value
                     ),
                     filled=True,
-                    border_radius=BORDER_RADIUS_MD,
+                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
                 ),
             ],
             spacing=10,
@@ -98,7 +98,7 @@ def build_downloads_section(page: ft.Page, set_fn: Callable) -> ft.Container:
                         set_fn, "video_quality", e.control.value
                     ),
                     filled=True,
-                    border_radius=BORDER_RADIUS_MD,
+                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
                 ),
                 ft.Text(
                     "Preferred quality when downloading videos. "
@@ -129,7 +129,7 @@ def build_connection_section(page: ft.Page, set_fn: Callable) -> ft.Container:
                     value=state.proxy,
                     hint_text="e.g. socks5://127.0.0.1:9050",
                     on_change=lambda e: page.run_task(set_fn, "proxy", e.control.value),
-                    border_radius=BORDER_RADIUS_MD,
+                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
                     filled=True,
                 ),
                 ft.Row(

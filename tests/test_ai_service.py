@@ -27,7 +27,7 @@ def test_auto_model_wins():
 
 def test_chat_models_before_response_and_by_latency():
     data = [
-        _m("muse-spark", etype="/response", latency=10),   # fastest but wrong endpoint
+        _m("muse-spark", etype="/response", latency=10),  # fastest but wrong endpoint
         _m("jev", etype="/systemone", latency=20),
         _m("slow-chat", latency=900),
         _m("fast-chat", latency=150),

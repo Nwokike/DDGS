@@ -15,6 +15,7 @@ from flet import Control
 
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
+from core.theme import AppColors
 
 logger = logging.getLogger("AppShell")
 
@@ -108,42 +109,85 @@ def AppShell() -> Control:
 
             screen = HomeScreen(key=ft.ValueKey("home"))
 
-    # ── Ask-AI FAB (AI mode ON, hidden while chat is open) ─────────────
-    content = ft.SafeArea(content=screen, expand=True)
-    if (
-        not state.has_accepted_terms
-        or state.chat_open
-        or not state.ai_mode_enabled
-    ):
-        return content
+    # ── Ask-AI FAB — CollabShell pattern: flet renders the page-level FAB
+    # (themed, correctly elevated, no hand-rolled Stack) and a proper
+    # ft.Badge object carries the credit count. ────────────────────────────
+    def _sync_fab():
+        from flet import context as flet_context
 
-    from flet import context as flet_context
-
-    from components.wallet import show_wallet_dialog
-    from core.theme import AppColors
-
-    def _on_fab(e):
         page = flet_context.page
-        ctrl = getattr(page, "_ddgs_controller", None) if page else None
-        if not ctrl:
+        if not page or not page.views:
             return
-        if state.credits_remaining <= 0:
-            show_wallet_dialog(page)
-        else:
-            ctrl.open_chat()
+        visible = (
+            state.has_accepted_terms and state.ai_mode_enabled and not state.chat_open
+        )
+        try:
+            if not visible:
+                if page.views[0].floating_action_button is not None:
+                    page.views[0].floating_action_button = None
+                    page.update()
+                return
+            credits = state.credits_remaining
+            ctrl = getattr(page, "_ddgs_controller", None)
 
-    credits = state.credits_remaining
-    # flet 1.0 has no ft.Positioned: Stack children position themselves via
-    # LayoutControl right/bottom, and the FAB carries a native credit badge.
-    fab = ft.FloatingActionButton(
-        icon=ft.Icons.AUTO_AWESOME_ROUNDED,
-        bgcolor=AppColors.PRIMARY
-        if credits > 0
-        else ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE),
-        badge=str(credits),
-        tooltip="Ask AI" if credits > 0 else "Out of AI credits — tap for options",
-        on_click=_on_fab,
-        right=16,
-        bottom=96,
+            def _open(e=None):
+                if state.credits_remaining <= 0:
+                    from components.wallet import show_wallet_dialog
+
+                    show_wallet_dialog(page)
+                elif ctrl:
+                    ctrl.open_chat()
+
+            badge_color = (
+                AppColors.SUCCESS
+                if credits > 20
+                else AppColors.WARNING
+                if credits >= 5
+                else AppColors.ERROR
+            )
+            page.views[0].floating_action_button = ft.FloatingActionButton(
+                icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                bgcolor=AppColors.PRIMARY
+                if credits > 0
+                else ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE),
+                badge=ft.Badge(
+                    label=str(credits),
+                    bgcolor=badge_color,
+                    text_color=ft.Colors.WHITE,
+                ),
+                tooltip="Ask AI"
+                if credits > 0
+                else "Out of AI credits — tap for options",
+                on_click=_open,
+            )
+            page.update()
+        except Exception:
+            logger.exception("FAB sync failed")
+
+    def _clear_fab():
+        from flet import context as flet_context
+
+        page = flet_context.page
+        try:
+            if (
+                page
+                and page.views
+                and page.views[0].floating_action_button is not None
+            ):
+                page.views[0].floating_action_button = None
+                page.update()
+        except Exception:
+            pass
+
+    ft.use_effect(
+        _sync_fab,
+        [
+            state.has_accepted_terms,
+            state.ai_mode_enabled,
+            state.chat_open,
+            state.credits_remaining,
+        ],
+        cleanup=_clear_fab,
     )
-    return ft.Stack([content, fab], expand=True)
+
+    return ft.SafeArea(content=screen, expand=True)

@@ -25,14 +25,17 @@ def build_banner_ad(page: ft.Page, unit_id: str | None = None) -> ft.Control:
         from services.ad_service import AdService
 
         if not unit_id:
-            ad_service = AdService(page)
+            ad_service = getattr(state, "ad_service", None) or AdService(page)
             unit_id = ad_service.banner_id
+
+        def _on_ad_error(e):
+            logger.warning("Banner ad error: %s", getattr(e, "data", e))
 
         ad = fta.BannerAd(
             unit_id=unit_id,
             width=320,
             height=50,
-            on_error=lambda e: None,
+            on_error=_on_ad_error,
         )
     except (
         ValueError,

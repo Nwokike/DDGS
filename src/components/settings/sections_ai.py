@@ -62,9 +62,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
     controls: list[ft.Control] = [
         ft.Row(
             [
-                ft.Icon(
-                    ft.Icons.AUTO_AWESOME_ROUNDED, size=22, color=AppColors.ACCENT
-                ),
+                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=22, color=AppColors.ACCENT),
                 ft.Text(
                     f"{state.credits_remaining} / {cap} AI credits today",
                     size=FONT_MD,
@@ -144,9 +142,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                     [
                         ft.FilledButton(
                             "$3.99 / month",
-                            on_click=lambda e: page.run_task(
-                                _buy, "premium_monthly"
-                            ),
+                            on_click=lambda e: page.run_task(_buy, "premium_monthly"),
                             style=ft.ButtonStyle(
                                 bgcolor=AppColors.PRIMARY,
                                 shape=ft.RoundedRectangleBorder(
@@ -157,9 +153,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                         ),
                         ft.OutlinedButton(
                             "$24.99 / year",
-                            on_click=lambda e: page.run_task(
-                                _buy, "premium_yearly"
-                            ),
+                            on_click=lambda e: page.run_task(_buy, "premium_yearly"),
                             style=ft.ButtonStyle(
                                 shape=ft.RoundedRectangleBorder(
                                     radius=BORDER_RADIUS_MD
@@ -181,9 +175,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                         ft.Container(expand=True),
                         ft.TextButton(
                             "Lifetime $49.99",
-                            on_click=lambda e: page.run_task(
-                                _buy, "premium_lifetime"
-                            ),
+                            on_click=lambda e: page.run_task(_buy, "premium_lifetime"),
                         ),
                     ],
                 ),
