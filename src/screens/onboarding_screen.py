@@ -23,28 +23,29 @@ _SLIDES = [
         "color": AppColors.PRIMARY,
         "title": "100% Privacy-First",
         "body": (
-            "Your searches and queries are completely anonymous. "
-            "Metasearch securely across 14 engines with built-in "
-            "privacy protection."
+            "No accounts, no tracking, no filter bubbles. "
+            "Search 10 engines at once and get clean, "
+            "unbiased results."
         ),
     },
     {
         "icon": ft.Icons.DOWNLOAD_ROUNDED,
         "color": AppColors.PRIMARY_LIGHT,
-        "title": "URL Content Extraction",
+        "title": "Scrape Any Page",
         "body": (
-            "Extract structured text, markdown, HTML, or raw bytes "
-            "from any web URL safely. Ideal for reading, archiving, "
-            "and research."
+            "Turn any link into text, Markdown, HTML or raw source. "
+            "Read it clean, save it to your device, or feed it to "
+            "your tools and AI agents."
         ),
     },
     {
         "icon": ft.Icons.ROCKET_LAUNCH_ROUNDED,
         "color": AppColors.ACCENT,
-        "title": "Granular Controls",
+        "title": "Downloads & Filters",
         "body": (
-            "Configure search regions, safe search modes, thread counts, "
-            "and proxies. Tailor the engine parameters exactly to your needs."
+            "Download videos in the quality you want, filter images "
+            "and videos by size or duration, and choose your own "
+            "search sources."
         ),
     },
 ]
@@ -104,16 +105,6 @@ def _build_dots(active: int) -> list[ft.Control]:
     return dots
 
 
-async def _launch_url(url: str):
-    """Launch a URL with fallback to webbrowser."""
-    try:
-        await ft.UrlLauncher().launch_url(url)
-    except Exception:
-        import webbrowser
-
-        webbrowser.open(url)
-
-
 @ft.component
 def OnboardingScreen() -> Control:
     """Swipeable onboarding with 3 slides, privacy/terms agreement."""
@@ -138,13 +129,14 @@ def OnboardingScreen() -> Control:
         page = flet_context.page
         if is_last:
             if not agreed:
-                page.snack_bar = ft.SnackBar(
+                snack = ft.SnackBar(
                     ft.Text(
                         "Please accept the Privacy Policy & Terms of Service to continue."
                     ),
                     bgcolor=AppColors.ERROR,
                 )
-                page.snack_bar.open = True
+                snack.open = True
+                page.show_dialog(snack)
                 page.update()
                 return
             page.run_task(_finish)
@@ -206,9 +198,7 @@ def OnboardingScreen() -> Control:
                             ft.TextButton(
                                 "Privacy Policy",
                                 style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                                on_click=lambda e: _launch_url(
-                                    "https://kiri.ng/privacy"
-                                ),
+                                action=ft.OpenUrl("https://kiri.ng/privacy"),
                             ),
                             ft.Text(
                                 " & ",
@@ -218,7 +208,7 @@ def OnboardingScreen() -> Control:
                             ft.TextButton(
                                 "Terms of Service",
                                 style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                                on_click=lambda e: _launch_url("https://kiri.ng/terms"),
+                                action=ft.OpenUrl("https://kiri.ng/terms"),
                             ),
                         ],
                         alignment="center",

@@ -82,6 +82,15 @@ class AppState:
         self.timelimit: str = ""
         self.backend: str = "auto"
         self.page: int = 1
+        # Per-category filters ("" = no filter; ddgs 9.16 pass-through params)
+        self.image_size: str = ""
+        self.image_color: str = ""
+        self.image_type: str = ""
+        self.image_layout: str = ""
+        self.image_license: str = ""
+        self.search_resolution: str = ""
+        self.search_duration: str = ""
+        self.search_license: str = ""
 
         # ── Connection ──
         self.proxy: str = ""
@@ -94,10 +103,6 @@ class AppState:
 
         # ── Extraction ──
         self.extract_format: str = "text_markdown"
-
-        # ── Advanced ──
-        self.api_url: str = ""
-        self.spawn_api: bool = False
 
         # ── UI ──
         self.default_tab: str = "text"

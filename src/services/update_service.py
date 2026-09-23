@@ -32,7 +32,11 @@ class UpdateService:
         self.config_url = config_url
     async def check_for_update(self) -> dict | None:
         try:
-            async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=4.0,
+                follow_redirects=True,
+                headers={"User-Agent": f"DDGS/{_APP_VERSION}"},
+            ) as client:
                 resp = await client.get(self.config_url)
                 if resp.status_code != 200:
                     return None

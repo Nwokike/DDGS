@@ -20,10 +20,18 @@ from core.constants import (
     BACKEND_OPTIONS_TEXT,
     BACKEND_OPTIONS_VIDEOS,
     EXTRACT_FORMATS,
+    IMAGE_COLOR_OPTIONS,
+    IMAGE_LAYOUT_OPTIONS,
+    IMAGE_LICENSE_OPTIONS,
+    IMAGE_SIZE_OPTIONS,
+    IMAGE_TYPE_OPTIONS,
     MAX_RESULTS_PRESETS,
     REGIONS,
     SAFE_SEARCH_OPTIONS,
     TIMELIMIT_OPTIONS,
+    VIDEO_DURATION_OPTIONS,
+    VIDEO_LICENSE_OPTIONS,
+    VIDEO_RESOLUTION_OPTIONS,
 )
 from core.styles import build_banner_ad
 from core.theme import AppColors
@@ -499,7 +507,7 @@ def HomeScreen() -> Control:
                 width=130,
             ),
             _make_compact_dropdown(
-                "Backend",
+                "Source",
                 ft.Icons.TRAVEL_EXPLORE_ROUNDED,
                 current_backend
                 if any(b["key"] == current_backend for b in backend_options)
@@ -509,6 +517,100 @@ def HomeScreen() -> Control:
                 width=160,
             ),
         ]
+        if active_tab == "images":
+            tools_controls += [
+                _make_compact_dropdown(
+                    "Size",
+                    ft.Icons.CROP_ROUNDED,
+                    state.image_size,
+                    [
+                        ft.dropdown.Option(o["key"], o["label"])
+                        for o in IMAGE_SIZE_OPTIONS
+                    ],
+                    lambda e: controller.save("image_size", e.control.value),
+                    width=130,
+                ),
+                _make_compact_dropdown(
+                    "Color",
+                    ft.Icons.PALETTE_ROUNDED,
+                    state.image_color,
+                    [
+                        ft.dropdown.Option(o["key"], o["label"])
+                        for o in IMAGE_COLOR_OPTIONS
+                    ],
+                    lambda e: controller.save("image_color", e.control.value),
+                    width=140,
+                ),
+                _make_compact_dropdown(
+                    "Type",
+                    ft.Icons.PHOTO_ROUNDED,
+                    state.image_type,
+                    [
+                        ft.dropdown.Option(o["key"], o["label"])
+                        for o in IMAGE_TYPE_OPTIONS
+                    ],
+                    lambda e: controller.save("image_type", e.control.value),
+                    width=130,
+                ),
+                _make_compact_dropdown(
+                    "Layout",
+                    ft.Icons.ASPECT_RATIO_ROUNDED,
+                    state.image_layout,
+                    [
+                        ft.dropdown.Option(o["key"], o["label"])
+                        for o in IMAGE_LAYOUT_OPTIONS
+                    ],
+                    lambda e: controller.save("image_layout", e.control.value),
+                    width=130,
+                ),
+                _make_compact_dropdown(
+                    "License",
+                    ft.Icons.POLICY_ROUNDED,
+                    state.image_license,
+                    [
+                        ft.dropdown.Option(o["key"], o["label"])
+                        for o in IMAGE_LICENSE_OPTIONS
+                    ],
+                    lambda e: controller.save("image_license", e.control.value),
+                    width=160,
+                ),
+            ]
+        elif active_tab == "videos":
+            tools_controls += [
+                _make_compact_dropdown(
+                    "Resolution",
+                    ft.Icons.HIGH_QUALITY_ROUNDED,
+                    state.search_resolution,
+                    [
+                        ft.dropdown.Option(o["key"], o["label"])
+                        for o in VIDEO_RESOLUTION_OPTIONS
+                    ],
+                    lambda e: controller.save("search_resolution", e.control.value),
+                    width=150,
+                ),
+                _make_compact_dropdown(
+                    "Duration",
+                    ft.Icons.SCHEDULE_ROUNDED,
+                    state.search_duration,
+                    [
+                        ft.dropdown.Option(o["key"], o["label"])
+                        for o in VIDEO_DURATION_OPTIONS
+                    ],
+                    lambda e: controller.save("search_duration", e.control.value),
+                    width=150,
+                ),
+                _make_compact_dropdown(
+                    "License",
+                    ft.Icons.POLICY_ROUNDED,
+                    state.search_license,
+                    [
+                        ft.dropdown.Option(o["key"], o["label"])
+                        for o in VIDEO_LICENSE_OPTIONS
+                    ],
+                    lambda e: controller.save("search_license", e.control.value),
+                    width=150,
+                ),
+            ]
 
     # ── Assemble ──
 
@@ -817,7 +919,7 @@ def HomeScreen() -> Control:
                         _feature_card(
                             ft.Icons.LANGUAGE_ROUNDED,
                             "Instant Page Fetch",
-                            "Paste any URL and extract full text instantly — articles, docs, recipes. Save as markdown or plain text.",
+                            "Paste any URL and get clean content instantly — as text, Markdown or HTML. Read it, save it, or feed it to your tools.",
                             AppColors.PRIMARY_DARK,
                             page=_get_page(),
                         ),
@@ -825,7 +927,7 @@ def HomeScreen() -> Control:
                         _feature_card(
                             ft.Icons.IMAGE_ROUNDED,
                             "Image & Video Discovery",
-                            "Find media from across the web. Download directly to your device.",
+                            "Find videos and images across the web. Download them in the quality you want, straight to your device.",
                             AppColors.PRIMARY_LIGHT,
                             page=_get_page(),
                         ),

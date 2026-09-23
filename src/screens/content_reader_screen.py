@@ -39,6 +39,8 @@ def build_content_reader(
     error_col = ft.Ref[ft.Container]()
     url_text = ft.Ref[ft.Text]()
     format_dropdown = ft.Ref[ft.Dropdown]()
+    copy_btn = ft.Ref[ft.IconButton]()
+    open_btn = ft.Ref[ft.IconButton]()
 
     async def _fetch(target_url: str):
         nonlocal _current_url, _current_content, _is_loading, _error
@@ -70,6 +72,11 @@ def build_content_reader(
         """Rebuild the content area based on current state."""
         if url_text.current:
             url_text.current.value = _current_url
+        # Client actions must carry the URL that is current right now.
+        if copy_btn.current:
+            copy_btn.current.action = ft.CopyToClipboard(_current_url or "")
+        if open_btn.current:
+            open_btn.current.action = ft.OpenUrl(_current_url or "")
 
         if _is_loading:
             if loading_col.current:
@@ -153,8 +160,9 @@ def build_content_reader(
                     page, str(_current_content), "extracted_page.md"
                 )
         except Exception as ex:
-            page.snack_bar = ft.SnackBar(ft.Text(f"Save failed: {ex}"))
-            page.snack_bar.open = True
+            snack = ft.SnackBar(ft.Text(f"Save failed: {ex}"))
+            snack.open = True
+            page.show_dialog(snack)
             page.update()
 
     def _on_format_change(e):
@@ -162,23 +170,11 @@ def build_content_reader(
         _format = e.control.value
         page.run_task(_fetch, _current_url)
 
-    async def _copy_url():
-        try:
-            clipboard = ft.Clipboard()
-            await clipboard.set(_current_url or "")
-            page.snack_bar = ft.SnackBar(ft.Text("URL copied"))
-            page.snack_bar.open = True
-            page.update()
-        except Exception:
-            pass
-
-    async def _open_browser():
-        try:
-            await ft.UrlLauncher().launch_url(_current_url or "")
-        except Exception:
-            import webbrowser
-
-            webbrowser.open(_current_url or "")
+    def _copy_feedback(_=None):
+        snack = ft.SnackBar(ft.Text("URL copied"))
+        snack.open = True
+        page.show_dialog(snack)
+        page.update()
 
     # ── Build UI ──
 
@@ -239,16 +235,19 @@ def build_content_reader(
                 on_click=lambda _: page.run_task(_fetch, _current_url),
             ),
             ft.IconButton(
+                ref=copy_btn,
                 icon=ft.Icons.CONTENT_COPY_ROUNDED,
                 icon_size=tokens.ICON_SM,
                 tooltip="Copy URL",
-                on_click=lambda _: page.run_task(_copy_url),
+                action=ft.CopyToClipboard(url or ""),
+                on_click=_copy_feedback,
             ),
             ft.IconButton(
+                ref=open_btn,
                 icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
                 icon_size=tokens.ICON_SM,
                 tooltip="Open in Browser",
-                on_click=lambda _: page.run_task(_open_browser),
+                action=ft.OpenUrl(url or ""),
             ),
             ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,

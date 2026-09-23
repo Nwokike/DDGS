@@ -16,12 +16,12 @@ from core.tokens import BORDER_RADIUS_MD, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
 
 def build_backends_section(page: ft.Page, set_fn: Callable) -> ft.Container:
     return AppStyles.section_card(
-        "Search Backends",
+        "Search Sources",
         ft.Icons.TRAVEL_EXPLORE_ROUNDED,
         ft.Column(
             [
                 ft.Text(
-                    "Fallback Search Backend",
+                    "Preferred Search Source",
                     size=FONT_MD,
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",
@@ -52,7 +52,7 @@ def build_extraction_section(page: ft.Page, set_fn: Callable) -> ft.Container:
         ft.Column(
             [
                 ft.Text(
-                    "URL Extraction Format",
+                    "Save Pages As",
                     size=FONT_MD,
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",

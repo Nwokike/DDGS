@@ -18,7 +18,7 @@ import primp
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_IMPERSONATE = "chrome_146"
+DEFAULT_IMPERSONATE = "chrome_153"
 _CHUNK = 1 << 16  # 64 KiB
 
 

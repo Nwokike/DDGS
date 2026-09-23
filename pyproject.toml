@@ -1,13 +1,13 @@
 [project]
 name = "ddgs-app"
-version = "1.2.1"
-description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 14 engines."
+version = "1.3.0"
+description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 10 engines."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "ddgs>=9.14.4",
-    "flet>=0.86.5",
-    "flet-ads>=0.86.5",
+    "ddgs>=9.16.0",
+    "flet>=1.0.1",
+    "flet-ads>=1.0.1",
     "httpx>=0.28.1",
 ]
 
@@ -15,7 +15,7 @@ dependencies = [
 org = "ng.kiri"
 product = "DDGS"
 company = "Kiri Research Labs"
-build_number = 4
+build_number = 5
 
 [tool.flet.app]
 path = "src"
@@ -25,7 +25,6 @@ startup_message = "Initializing DDGS..."
 
 [tool.flet.android]
 bundle_id = "ng.kiri.ddgs"
-extract_packages = ["fake_useragent"]
 
 [tool.flet.android.permission]
 "android.permission.INTERNET" = true
@@ -39,7 +38,7 @@ key_store = "../../../../kiri_keystore.jks"
 key_alias = "upload"
 [dependency-groups]
 dev = [
-    "ruff>=0.15.17",
+    "ruff>=0.16.8",
 ]
 
 [tool.ruff]

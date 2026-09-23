@@ -8,7 +8,7 @@ from components.settings.version import _APP_VERSION
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
-from core.utils import in_memory_log_handler, logger
+from core.utils import in_memory_log_handler
 
 
 def build_logs_dialog(page: ft.Page):
@@ -27,21 +27,10 @@ def build_logs_dialog(page: ft.Page):
     )
 
     async def copy_logs(e=None):
-        try:
-            clipboard = ft.Clipboard()
-            await clipboard.set(logs)
-            snack = ft.SnackBar(ft.Text("Activity log copied to clipboard!"))
-            snack.open = True
-            page.show_dialog(snack)
-            page.update()
-        except (
-            ValueError,
-            TypeError,
-            AttributeError,
-            OSError,
-            RuntimeError,
-        ) as ex:
-            logger.error(f"Copy logs failed: {ex}")
+        snack = ft.SnackBar(ft.Text("Activity log copied to clipboard!"))
+        snack.open = True
+        page.show_dialog(snack)
+        page.update()
 
     return ft.AlertDialog(
         title=ft.Row(
@@ -91,6 +80,7 @@ def build_logs_dialog(page: ft.Page):
             ft.IconButton(
                 icon=ft.Icons.COPY_ROUNDED,
                 tooltip="Copy to Clipboard",
+                action=ft.CopyToClipboard(logs),
                 on_click=lambda e: page.run_task(copy_logs),
             ),
             ft.TextButton("Close", on_click=lambda e: page.pop_dialog()),
@@ -172,12 +162,12 @@ def _open_version_dialog(page: ft.Page):
     else:
         from components.settings.version import _APP_VERSION as _ver
         from components.update_dialog import show_update_dialog
-        fallback = {"version": _ver, "type": "update", "title": f"DDGS {_ver}", "release_notes": "• You're up to date on v" + _ver + "!\n• Privacy-first metasearch across 14 engines\n• Full update history on GitHub Releases", "github_url": "https://github.com/Nwokike/DDGS/releases/latest", "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"}
+        fallback = {"version": _ver, "type": "update", "title": f"DDGS {_ver}", "release_notes": "• You're up to date on v" + _ver + "!\n• Search 10 engines privately · download videos & images · scrape any page as Markdown, HTML or text\n• Full update history on GitHub Releases", "github_url": "https://github.com/Nwokike/DDGS/releases/latest", "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"}
         show_update_dialog(page, fallback)
 
 
 def build_about_section(
-    page: ft.Page, launch_privacy_fn: Callable, launch_terms_fn: Callable
+    page: ft.Page, privacy_url: str, terms_url: str
 ) -> ft.Container:
     return AppStyles.section_card(
         "About Info",
@@ -231,13 +221,13 @@ def build_about_section(
                             "Privacy Policy",
                             icon=ft.Icons.PRIVACY_TIP_ROUNDED,
                             style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                            on_click=lambda e: page.run_task(launch_privacy_fn),
+                            action=ft.OpenUrl(privacy_url),
                         ),
                         ft.TextButton(
                             "Terms of Service",
                             icon=ft.Icons.GAVEL_ROUNDED,
                             style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                            on_click=lambda e: page.run_task(launch_terms_fn),
+                            action=ft.OpenUrl(terms_url),
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_EVENLY,

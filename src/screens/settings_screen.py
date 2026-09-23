@@ -21,16 +21,6 @@ from core.tokens import (
 )
 
 
-async def _launch_url(url: str):
-    """Launch a URL with fallback to webbrowser."""
-    try:
-        await ft.UrlLauncher().launch_url(url)
-    except Exception:
-        import webbrowser
-
-        webbrowser.open(url)
-
-
 @ft.component
 def SettingsScreen() -> Control:
     """All app settings: theme, search rules, backends, connection, about."""
@@ -154,8 +144,8 @@ def SettingsScreen() -> Control:
             build_storage_section(page, _show_clear_dialog),
             build_about_section(
                 page,
-                lambda e: _launch_url("https://kiri.ng/privacy"),
-                lambda e: _launch_url("https://kiri.ng/terms"),
+                "https://kiri.ng/privacy",
+                "https://kiri.ng/terms",
             ),
             ft.Container(
                 content=ft.Text(
