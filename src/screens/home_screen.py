@@ -10,7 +10,7 @@ import flet as ft
 from flet import Control
 
 from components.offline_banner import build_offline_banner
-from components.wallet import build_credit_pill
+from components.wallet import CreditPill
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
@@ -643,7 +643,7 @@ def HomeScreen() -> Control:
                         ),
                         ft.Row(
                             [
-                                build_credit_pill(_get_page()),
+                                CreditPill(),
                                 ft.Row(
                                     [
                                         ft.Text(

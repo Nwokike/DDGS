@@ -7,6 +7,7 @@ import time
 
 import flet as ft
 
+from contexts.app_state_ctx import AppStateCtx
 from core import tokens
 from core.constants import (
     AD_TOPUP_COOLDOWN_SEC,
@@ -27,9 +28,9 @@ def _credit_color(credits: int) -> str:
     return AppColors.ERROR
 
 
-def build_credit_pill(page: ft.Page) -> ft.Container:
+def build_credit_pill(page: ft.Page, credits: int) -> ft.Container:
     """Compact color-coded credit chip for the home header."""
-    color = _credit_color(state.credits_remaining)
+    color = _credit_color(credits)
     return ft.Container(
         content=ft.Row(
             [
@@ -37,7 +38,7 @@ def build_credit_pill(page: ft.Page) -> ft.Container:
                     ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM, color=color
                 ),
                 ft.Text(
-                    str(state.credits_remaining),
+                    str(credits),
                     size=tokens.FONT_SM,
                     weight=ft.FontWeight.W_600,
                     color=color,
@@ -230,3 +231,10 @@ def _credits():
     from core.state import state as _st
 
     return _st.credit_service
+
+
+@ft.component
+def CreditPill() -> Control:
+    """Header credit pill as a component so it re-renders on every change."""
+    app_state = ft.use_context(AppStateCtx)
+    return build_credit_pill(ft.context.page, app_state.credits_remaining)

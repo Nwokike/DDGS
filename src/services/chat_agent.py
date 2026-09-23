@@ -199,6 +199,7 @@ async def run_turn(
     history: list[dict],
     emit: Callable[[str, dict], None],
     cancel: asyncio.Event,
+    on_thought: Callable[[str], None] | None = None,
 ) -> None:
     """One full agent turn: reserve → tool loop → final answer → commit."""
     credits = getattr(state, "credit_service", None)
@@ -240,7 +241,9 @@ async def run_turn(
             if cancel.is_set():
                 raise ChatCancelled()
             iters += 1
-            result = await ai_service.stream_llm(messages, on_token, tools=tools)
+            result = await ai_service.stream_llm(
+                messages, on_token, tools=tools, on_thought=on_thought
+            )
             served_by = result.get("served_by") or served_by
             finish = result.get("finish_reason") or ""
             tool_calls = result.get("tool_calls") or []
