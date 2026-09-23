@@ -297,9 +297,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                     content=ft.Row(
                         [
                             ft.Icon(ft.Icons.SHARE_ROUNDED, size=tokens.ICON_SM),
-                            ft.Text(
-                                "Share", size=tokens.FONT_SM, font_family="Outfit"
-                            ),
+                            ft.Text("Share", size=tokens.FONT_SM, font_family="Outfit"),
                         ],
                         spacing=4,
                         tight=True,
@@ -323,9 +321,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             ft.OutlinedButton(
                 content=ft.Row(
                     [
-                        ft.Icon(
-                            ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM
-                        ),
+                        ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM),
                         ft.Text(
                             "Summarize with AI",
                             size=tokens.FONT_SM,

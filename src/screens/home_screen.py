@@ -10,6 +10,7 @@ import flet as ft
 from flet import Control
 
 from components.offline_banner import build_offline_banner
+from components.wallet import build_credit_pill
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
@@ -331,7 +332,7 @@ def _make_compact_dropdown(label, icon, value, options, on_change, width=140):
                 filled=True,
                 text_size=tokens.FONT_XS,
                 content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
-                border_radius=tokens.RADIUS_MD,
+                border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_MD),
                 width=width,
                 height=36,
             ),
@@ -642,6 +643,7 @@ def HomeScreen() -> Control:
                         ),
                         ft.Row(
                             [
+                                build_credit_pill(_get_page()),
                                 ft.Row(
                                     [
                                         ft.Text(

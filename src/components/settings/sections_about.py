@@ -156,13 +156,25 @@ def build_storage_section(
 
 def _open_version_dialog(page: ft.Page):
     from core.state import state as _st
-    if getattr(_st, 'update_available', False) and getattr(_st, 'update_data', None):
+
+    if getattr(_st, "update_available", False) and getattr(_st, "update_data", None):
         from components.update_dialog import show_update_dialog
+
         show_update_dialog(page, _st.update_data)
     else:
         from components.settings.version import _APP_VERSION as _ver
         from components.update_dialog import show_update_dialog
-        fallback = {"version": _ver, "type": "update", "title": f"DDGS {_ver}", "release_notes": "• You're up to date on v" + _ver + "!\n• Search 10 engines privately · download videos & images · scrape any page as Markdown, HTML or text\n• Full update history on GitHub Releases", "github_url": "https://github.com/Nwokike/DDGS/releases/latest", "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"}
+
+        fallback = {
+            "version": _ver,
+            "type": "update",
+            "title": f"DDGS {_ver}",
+            "release_notes": "• You're up to date on v"
+            + _ver
+            + "!\n• Search 10 engines privately · download videos & images · scrape any page as Markdown, HTML or text\n• Full update history on GitHub Releases",
+            "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
+            "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs",
+        }
         show_update_dialog(page, fallback)
 
 

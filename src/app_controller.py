@@ -105,11 +105,11 @@ class AppController:
                 self.page.run_task(self.verify_purchases)
             except Exception as exc:
                 logger.warning("billing unavailable: %s", exc)
+        # ── Load persisted settings FIRST — the premium/ad-free flag must
+        # be known before consent + preload decide whether to request ads ──
+        await self._load_settings()
         await self.ad_service.gather_consent()
         await self.ad_service.preload_interstitial()
-
-        # ── Load persisted settings ──
-        await self._load_settings()
 
         # ── Mount declarative UI ──
         from app_shell import AppShell
@@ -130,6 +130,7 @@ class AppController:
         # Store controller reference on page for access from plain functions
         self.page._ddgs_controller = self
         self.page.run_task(self.check_for_updates)
+
     async def check_for_updates(self):
         if not self.update_service:
             return
@@ -141,11 +142,13 @@ class AppController:
                 self.page.update()
             except Exception:
                 pass
-            if data.get('mandatory'):
+            if data.get("mandatory"):
                 self.open_update_dialog()
+
     def open_update_dialog(self):
         if state.update_available and state.update_data:
             from components.update_dialog import show_update_dialog
+
             show_update_dialog(self.page, state.update_data)
         logger.info(f"[{LOG_TAG}] UI mounted")
 
@@ -420,13 +423,10 @@ class AppController:
 
             await self._refresh(progress)
 
-            # Smart interstitial: show every 3rd search (skipped for premium)
+            # Interstitial on every search (Sherlock-parity frequency);
+            # the 90s minimum gap is enforced centrally in AdService.
             state.search_count += 1
-            if (
-                not state.is_premium
-                and state.search_count % 3 == 0
-                and state.ad_service
-            ):
+            if not state.is_premium and state.ad_service:
                 await state.ad_service.show_interstitial()
 
             if progress.error and "primp" in str(progress.error).lower():

@@ -28,7 +28,9 @@ def test_fab_markup_constructs():
 def test_stack_has_no_positioned():
     # flet 1.0.1 exposes no Positioned — layout props live on the controls.
     assert not hasattr(ft, "Positioned")
-    stack = ft.Stack([ft.Container(width=10, height=10, right=4, bottom=4)], expand=True)
+    stack = ft.Stack(
+        [ft.Container(width=10, height=10, right=4, bottom=4)], expand=True
+    )
     assert len(stack.controls) == 1
 
 
@@ -36,5 +38,7 @@ def test_chat_stream_controls_construct():
     # Shapes used while streaming: markdown + throttle-replaced values.
     md = ft.Markdown("**stream** [1](https://example.com)", selectable=True)
     assert "example.com" in md.value
-    field = ft.TextField(hint_text="Ask AI anything…", expand=True, min_lines=1, max_lines=4)
+    field = ft.TextField(
+        hint_text="Ask AI anything…", expand=True, min_lines=1, max_lines=4
+    )
     assert field.max_lines == 4

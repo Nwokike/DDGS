@@ -17,6 +17,7 @@ from components.results.downloader import launch_url
 from components.wallet import show_wallet_dialog
 from core import tokens
 from core.state import SearchResult, state
+from core.styles import build_banner_ad
 from core.theme import AppColors
 
 _KIND_ICONS = {
@@ -68,7 +69,7 @@ class ChatSession:
             min_lines=1,
             max_lines=4,
             content_padding=ft.Padding(12, 8, 12, 8),
-            border_radius=tokens.RADIUS_LG,
+            border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_LG),
         )
         if self.ctx.get("url"):
             self.field.value = ""
@@ -169,7 +170,12 @@ class ChatSession:
             controls=[
                 ft.Container(
                     content=ft.Column(
-                        [appbar, ft.Container(self._list, expand=True), composer],
+                        [
+                            appbar,
+                            ft.Container(self._list, expand=True),
+                            build_banner_ad(page),
+                            composer,
+                        ],
                         spacing=0,
                         expand=True,
                     ),
@@ -340,7 +346,9 @@ class ChatSession:
             controls.append(self._welcome())
         for turn in self.turns:
             controls.append(
-                self._render_user(turn) if turn.get("role") == "user" else self._render_assistant(turn)
+                self._render_user(turn)
+                if turn.get("role") == "user"
+                else self._render_assistant(turn)
             )
         self._list.controls = controls
         if force:
@@ -386,7 +394,9 @@ class ChatSession:
                     ),
                     padding=ft.Padding(10, 6, 10, 6),
                     border_radius=tokens.RADIUS_PILL,
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)),
+                    border=ft.Border.all(
+                        1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)
+                    ),
                     ink=True,
                     on_click=lambda e: self.send(
                         f"Describe this page for me: {self.ctx.get('url')}"
@@ -399,7 +409,9 @@ class ChatSession:
                     content=ft.Text(s, size=tokens.FONT_XS, color=AppColors.PRIMARY),
                     padding=ft.Padding(10, 6, 10, 6),
                     border_radius=tokens.RADIUS_PILL,
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)),
+                    border=ft.Border.all(
+                        1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)
+                    ),
                     ink=True,
                     on_click=lambda e, q=s: self.send(q),
                 )
@@ -458,7 +470,14 @@ class ChatSession:
                 label = f"{label.rstrip('…')} — {step['error']}"
             kids.append(
                 ft.Row(
-                    [icon, ft.Text(label, size=tokens.FONT_XS, color=ft.Colors.ON_SURFACE_VARIANT)],
+                    [
+                        icon,
+                        ft.Text(
+                            label,
+                            size=tokens.FONT_XS,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
                     spacing=6,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 )
@@ -473,7 +492,9 @@ class ChatSession:
                     turn["text"],
                     selectable=True,
                     extension_set="gitHubWeb",
-                    on_tap_link=lambda e: e.data and self.page.run_task(launch_url, e.data),
+                    on_tap_link=lambda e: (
+                        e.data and self.page.run_task(launch_url, e.data)
+                    ),
                 )
             )
 
@@ -548,7 +569,9 @@ class ChatSession:
                     ),
                     padding=ft.Padding(8, 4, 8, 4),
                     border_radius=tokens.RADIUS_PILL,
-                    border=ft.Border.all(1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)),
+                    border=ft.Border.all(
+                        1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)
+                    ),
                     ink=True,
                     tooltip=f"Search: {q}",
                     on_click=lambda e, qq=q: self.send(qq),
@@ -629,6 +652,7 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
     """Push the chat view (idempotent). Called by AppController.open_chat."""
     if state.chat_open:
         return
+    ctx = ctx or {}
     session = ChatSession(page, ctx)
     page._chat_session = session
     state.chat_open = True

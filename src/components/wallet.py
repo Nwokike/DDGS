@@ -27,6 +27,33 @@ def _credit_color(credits: int) -> str:
     return AppColors.ERROR
 
 
+def build_credit_pill(page: ft.Page) -> ft.Container:
+    """Compact color-coded credit chip for the home header."""
+    color = _credit_color(state.credits_remaining)
+    return ft.Container(
+        content=ft.Row(
+            [
+                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM, color=color),
+                ft.Text(
+                    str(state.credits_remaining),
+                    size=tokens.FONT_SM,
+                    weight=ft.FontWeight.W_600,
+                    color=color,
+                ),
+            ],
+            spacing=4,
+            tight=True,
+        ),
+        padding=ft.Padding(8, 4, 10, 4),
+        border_radius=tokens.RADIUS_PILL,
+        bgcolor=ft.Colors.with_opacity(0.12, color),
+        border=ft.Border.all(1, ft.Colors.with_opacity(0.25, color)),
+        ink=True,
+        tooltip="AI credits — tap for details",
+        on_click=lambda e: show_wallet_dialog(page),
+    )
+
+
 def show_wallet_dialog(page: ft.Page) -> None:
     """Balance, cost table, ad top-up (30s cooldown) and the free-manual note."""
     if not hasattr(state, "ad_cooldown_end"):
@@ -47,9 +74,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
         color=ft.Colors.ON_SURFACE_VARIANT,
         text_align=ft.TextAlign.CENTER,
     )
-    cooldown_label = ft.Text(
-        "", size=tokens.FONT_XS, text_align=ft.TextAlign.CENTER
-    )
+    cooldown_label = ft.Text("", size=tokens.FONT_XS, text_align=ft.TextAlign.CENTER)
 
     topup_label = (
         f"Watch Ad (+{AD_TOPUP_CREDITS} Credits)"
@@ -189,7 +214,9 @@ def show_wallet_dialog(page: ft.Page) -> None:
 
     dlg = ft.AlertDialog(
         title=ft.Text("AI Credits", font_family="Outfit"),
-        content=ft.Container(content=content, width=320, padding=ft.Padding(4, 8, 4, 4)),
+        content=ft.Container(
+            content=content, width=320, padding=ft.Padding(4, 8, 4, 4)
+        ),
         actions=[ft.TextButton("Close", on_click=_close)],
     )
     page.show_dialog(dlg)

@@ -36,10 +36,10 @@ from core.state import state
 
 logger = logging.getLogger(__name__)
 
-# ── Gateway (registered in the Kiri Cloudflare Worker, siblings:
-#    mobile-v1 / spaninsight-mobile-v1) ─────────────────────────────────────
+# ── Gateway — Akili's exact Worker secret/header (verified 200 on
+#    api.kiri.ng/chat; no new secret to register) ─────────────────────────
 GATEWAY_URL = "https://api.kiri.ng"
-GATEWAY_SECRET = "ddgs-mobile-v1"
+GATEWAY_SECRET = "mobile-v1"
 USER_AGENT = "DDGSApp/2.0.0"
 
 # ── Embedded/attached router ──────────────────────────────────────────────
@@ -96,7 +96,10 @@ async def _probe_existing_router() -> int | None:
                 resp = await client.get(
                     f"http://{ROUTER_HOST}:{port}/health", timeout=0.5
                 )
-                if resp.status_code == 200 and resp.json().get("adapter") == "kiri-router":
+                if (
+                    resp.status_code == 200
+                    and resp.json().get("adapter") == "kiri-router"
+                ):
                     return port
             except Exception:
                 pass  # closed port or not a router — keep scanning
@@ -203,9 +206,12 @@ def rank_models(data: list[dict]) -> list[str]:
     others_active = [m for m in usable if active(m) and m not in chat_active]
     chat_active.sort(key=latency)
     others_active.sort(key=latency)
-    ordered: list[dict] = autos + chat_active + others_active + [
-        m for m in usable if m not in autos + chat_active + others_active
-    ]
+    ordered: list[dict] = (
+        autos
+        + chat_active
+        + others_active
+        + [m for m in usable if m not in autos + chat_active + others_active]
+    )
     seen: set[str] = set()
     out: list[str] = []
     for m in ordered:
@@ -302,7 +308,9 @@ async def _consume_sse(
                 if tc.get("id"):
                     piece["id"] = tc["id"]
                 if fn.get("name"):
-                    piece["name"] = (piece["name"] + fn["name"]) if False else fn["name"]
+                    piece["name"] = (
+                        (piece["name"] + fn["name"]) if False else fn["name"]
+                    )
                 if fn.get("arguments"):
                     piece["args"] += fn["arguments"]
             # some providers stream whole tool_calls only under message
@@ -394,7 +402,9 @@ async def _stream_router(
                     on_token(token)
 
                 if "text/event-stream" in ctype:
-                    finish, tool_calls = await _consume_sse(resp, _counting, bool(tools))
+                    finish, tool_calls = await _consume_sse(
+                        resp, _counting, bool(tools)
+                    )
                 else:
                     await resp.aread()
                     got_first = True
@@ -406,7 +416,12 @@ async def _stream_router(
         except _RouterModelError as exc:
             last_error = exc
             continue
-        except (httpx.TimeoutException, httpx.RequestError, ValueError, KeyError) as exc:
+        except (
+            httpx.TimeoutException,
+            httpx.RequestError,
+            ValueError,
+            KeyError,
+        ) as exc:
             _mark_router_failed()
             if got_first:
                 raise AIMidStream(str(exc)) from exc
@@ -435,7 +450,7 @@ async def _stream_gateway(
     if tools:
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
-    headers = {"X-App-Secret": GATEWAY_SECRET, "User-Agent": USER_AGENT}
+    headers = {"Authorization": f"Bearer {GATEWAY_SECRET}", "User-Agent": USER_AGENT}
     got_first = False
     attempts = 2  # SpanInsight-style: narrow retry (connect/502/503/504)
     last_exc: Exception | None = None
@@ -462,7 +477,9 @@ async def _stream_gateway(
                     on_token(token)
 
                 if "text/event-stream" in ctype:
-                    finish, tool_calls = await _consume_sse(resp, _counting, bool(tools))
+                    finish, tool_calls = await _consume_sse(
+                        resp, _counting, bool(tools)
+                    )
                 else:
                     await resp.aread()
                     got_first = True
@@ -470,7 +487,12 @@ async def _stream_gateway(
             return {"finish_reason": finish, "tool_calls": tool_calls}
         except AIUnavailable:
             raise
-        except (httpx.TimeoutException, httpx.RequestError, ValueError, KeyError) as exc:
+        except (
+            httpx.TimeoutException,
+            httpx.RequestError,
+            ValueError,
+            KeyError,
+        ) as exc:
             last_exc = exc
             if got_first:
                 raise AIMidStream(str(exc)) from exc

@@ -113,7 +113,7 @@ def build_search_rules_section(
                         set_fn, "region", e.control.value
                     ),
                     filled=True,
-                    border_radius=BORDER_RADIUS_MD,
+                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
                 ),
                 ft.Divider(
                     height=1,
@@ -171,7 +171,7 @@ def build_search_rules_section(
                         set_fn, "timelimit", e.control.value
                     ),
                     filled=True,
-                    border_radius=BORDER_RADIUS_MD,
+                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
                 ),
             ],
             spacing=12,

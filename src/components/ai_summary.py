@@ -142,10 +142,14 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
             body.value = buffer["text"] + "\n\n⚠ Connection lost mid-summary."
             body.color = AppColors.WARNING
         except ai_service.AIUnavailable:
-            body.value = "AI unavailable right now — the full page text above is untouched."
+            body.value = (
+                "AI unavailable right now — the full page text above is untouched."
+            )
             body.color = ft.Colors.ON_SURFACE_VARIANT
         except Exception:
-            body.value = "AI unavailable right now — the full page text above is untouched."
+            body.value = (
+                "AI unavailable right now — the full page text above is untouched."
+            )
             body.color = ft.Colors.ON_SURFACE_VARIANT
         try:
             page.update()

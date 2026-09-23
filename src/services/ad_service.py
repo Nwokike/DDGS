@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 
 import flet as ft
@@ -26,6 +27,8 @@ except ImportError:
 
 class AdService:
     """Manages AdMob banner and interstitial ads."""
+
+    MIN_INTERSTITIAL_GAP = 90.0  # seconds between interstitials (all call sites)
 
     USE_TEST_IDS = False  # Production AdMob IDs active
 
@@ -79,8 +82,12 @@ class AdService:
             self._can_request_ads = True
             return
         try:
-            # flet-ads 1.0 auto-registers services on construction.
+            # Sherlock's production pattern: flet-ads auto-registers on
+            # construction, but a service whose refcount drops can be
+            # unregistered — keep it in page.services explicitly.
             self._consent_manager = fta.ConsentManager()
+            if self._consent_manager not in self.page.services:
+                self.page.services.append(self._consent_manager)
             await self._consent_manager.request_consent_info_update()
             await self._consent_manager.load_and_show_consent_form_if_required()
             self._can_request_ads = await self._consent_manager.can_request_ads()
@@ -106,7 +113,12 @@ class AdService:
 
     def get_banner_ad(self) -> ft.Control:
         """Return a banner ad control, or empty container on desktop."""
-        if state.is_premium or not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
+        if (
+            state.is_premium
+            or not _HAS_ADS
+            or not self._is_mobile()
+            or not self._can_request_ads
+        ):
             return ft.Container(width=0, height=0)
         try:
             ad = fta.BannerAd(
@@ -134,7 +146,12 @@ class AdService:
     async def preload_interstitial(self, on_close: Callable | None = None):
         """Create and load a fresh interstitial (single-use in flet-ads 1.0)."""
         self._on_close = on_close
-        if state.is_premium or not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
+        if (
+            state.is_premium
+            or not _HAS_ADS
+            or not self._is_mobile()
+            or not self._can_request_ads
+        ):
             return
         try:
             self._interstitial_loaded = False
@@ -145,6 +162,8 @@ class AdService:
                 on_error=self._handle_error,
                 on_close=self._handle_close,
             )
+            if self.interstitial not in self.page.services:
+                self.page.services.append(self.interstitial)
         except (
             ValueError,
             TypeError,
@@ -200,8 +219,17 @@ class AdService:
         instances are replaced. Returns True when an ad is shown or queued to
         show as soon as it finishes loading.
         """
-        if state.is_premium or not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
+        if (
+            state.is_premium
+            or not _HAS_ADS
+            or not self._is_mobile()
+            or not self._can_request_ads
+        ):
             return False
+        now = time.time()
+        if now - state.last_interstitial_ts < self.MIN_INTERSTITIAL_GAP:
+            return False
+        state.last_interstitial_ts = now
         ad = self.interstitial
         if (
             ad is not None
@@ -257,6 +285,8 @@ class AdService:
                     "Rewarded Interstitial error: %s", e.data
                 ),
             )
+            if self._active_rewarded_ad not in self.page.services:
+                self.page.services.append(self._active_rewarded_ad)
             return True
         except (
             ValueError,
