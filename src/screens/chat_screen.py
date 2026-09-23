@@ -637,15 +637,36 @@ class ChatSession:
         kind = block.get("kind", "web")
         rows: list[ft.Control] = []
         for r in results[:5]:
+            thumb = (r.thumbnail or r.image_url or "") if r else ""
             rows.append(
                 ft.GestureDetector(
                     on_tap=lambda e, u=r.url: self._open_in_app(u),
                     content=ft.Row(
                         [
-                            ft.Icon(
-                                _KIND_ICONS.get(kind, ft.Icons.LANGUAGE_ROUNDED),
-                                size=14,
-                                color=AppColors.PRIMARY,
+                            (
+                                ft.Container(
+                                    content=ft.Image(
+                                        src=thumb,
+                                        width=34,
+                                        height=34,
+                                        fit=ft.BoxFit.COVER,
+                                        border_radius=ft.BorderRadius(6, 6, 6, 6),
+                                        error_content=ft.Icon(
+                                            _KIND_ICONS.get(
+                                                kind, ft.Icons.LANGUAGE_ROUNDED
+                                            ),
+                                            size=14,
+                                            color=AppColors.PRIMARY,
+                                        ),
+                                    ),
+                                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                                )
+                                if thumb
+                                else ft.Icon(
+                                    _KIND_ICONS.get(kind, ft.Icons.LANGUAGE_ROUNDED),
+                                    size=14,
+                                    color=AppColors.PRIMARY,
+                                )
                             ),
                             ft.Text(
                                 r.title or r.url,
