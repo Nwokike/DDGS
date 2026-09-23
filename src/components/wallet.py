@@ -234,7 +234,7 @@ def _credits():
 
 
 @ft.component
-def CreditPill() -> Control:
+def CreditPill() -> ft.Container:
     """Header credit pill as a component so it re-renders on every change."""
     app_state = ft.use_context(AppStateCtx)
     return build_credit_pill(ft.context.page, app_state.credits_remaining)
