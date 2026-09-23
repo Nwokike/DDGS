@@ -9,11 +9,11 @@ on:
       build_version:
         description: "Build version"
         required: true
-        default: "1.2.1"
+        default: "1.3.0"
       build_number:
         description: "Build number"
         required: true
-        default: "4"
+        default: "5"
 
 permissions:
   contents: write
@@ -22,8 +22,8 @@ env:
   PYTHONUTF8: "1"
   FLET_CLI_NO_RICH_OUTPUT: "1"
   UV_PYTHON: "3.12"
-  BUILD_VERSION: ${{ inputs.build_version || '1.2.1' }}
-  BUILD_NUMBER: ${{ inputs.build_number || '4' }}
+  BUILD_VERSION: ${{ inputs.build_version || '1.3.0' }}
+  BUILD_NUMBER: ${{ inputs.build_number || '5' }}
 
 jobs:
   # ─── 0. Create Release Tag & Placeholder ───────────────
@@ -57,9 +57,16 @@ jobs:
           prerelease: ${{ steps.tag_info.outputs.IS_PRERELEASE }}
           make_latest: true
           body: |
-            Automated multi-platform build generated from commit `${{ github.sha }}`.
+            **Search everything. Download anything.**
 
-            *Privacy-first metasearch across 14 engines.*
+            Private search across 10 engines — download videos & images, scrape any page as Markdown, HTML or text, no account, no tracking.
+
+            - YouTube video downloads with quality picker (best/1080p/720p/480p/360p)
+            - Image downloads with save dialog, progress and cancel
+            - Any URL → Markdown / HTML / rich text / plain text / raw source, saved to file
+            - Share, copy or open every result in one tap
+
+            *The Play Store edition blocks YouTube downloads for Play policy — this GitHub build is the full version. Feature comparison in the README.*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -205,7 +212,7 @@ jobs:
           Version=1.0
           Name=DDGS
           GenericName=Privacy-First Metasearch Engine
-          Comment=Dux Distributed Global Search — Metasearch across 14 engines with full privacy protection
+          Comment=Search everything. Download anything. — Private search across 10 engines with downloads and page scraping
           Exec=/usr/bin/ddgs
           Icon=ddgs
           Terminal=false
@@ -224,14 +231,15 @@ jobs:
             <metadata_license>MIT</metadata_license>
             <project_license>MIT</project_license>
             <name>DDGS</name>
-            <summary>Privacy-first metasearch engine across 14 search providers</summary>
+            <summary>Search everything. Download anything. — private search across 10 providers</summary>
             <description>
-              <p>DDGS (Dux Distributed Global Search) provides privacy-first metasearch functionality:</p>
+              <p>DDGS (Dux Distributed Global Search) — private multi-source search, downloads, and page scraping:</p>
               <ul>
-                <li>Simultaneous query aggregation across 14 search providers</li>
+                <li>Simultaneous query aggregation across 10 search providers</li>
                 <li>Web, image, video, news, and book search modes</li>
-                <li>Full webpage extraction as Markdown, plain text, or rich HTML</li>
-                <li>Zero server-side tracking, local-only storage and history</li>
+                <li>Video and image downloads with quality selection</li>
+                <li>Scrape any URL as Markdown, HTML, plain text, or raw source and save it</li>
+                <li>No account, local-only storage and history</li>
               </ul>
             </description>
             <launchable type="desktop-id">ddgs.desktop</launchable>
@@ -243,7 +251,7 @@ jobs:
           # Build rich .deb using fpm
           fpm -s dir -t deb -n ddgs -v ${{ env.BUILD_VERSION }} --iteration ${{ env.BUILD_NUMBER }} \
               --architecture amd64 \
-              --description "Privacy-first metasearch across 14 search engines." \
+              --description "Search everything. Download anything. — private search across 10 engines with downloads and page scraping." \
               --maintainer "Kiri Research Labs <support@kiri.ng>" \
               --url "https://kiri.ng" \
               --category "utils" \
@@ -253,7 +261,7 @@ jobs:
           # Build rich .rpm using fpm
           fpm -s dir -t rpm -n ddgs -v ${{ env.BUILD_VERSION }} --iteration ${{ env.BUILD_NUMBER }} \
               --architecture x86_64 \
-              --description "Privacy-first metasearch across 14 search engines." \
+              --description "Search everything. Download anything. — private search across 10 engines with downloads and page scraping." \
               --maintainer "Kiri Research Labs <support@kiri.ng>" \
               --url "https://kiri.ng" \
               --category "Utility" \
