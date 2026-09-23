@@ -11,8 +11,8 @@ import time
 
 import flet as ft
 
-from core.constants import PREMIUM_DAILY_CREDITS
-from core.state import SearchProgress, state
+from core.constants import COST_CHAT, PREMIUM_DAILY_CREDITS
+from core.state import AiOverview, SearchProgress, state
 from core.theme import AppTheme
 from core.utils import (
     ERR_NO_INTERNET,
@@ -379,6 +379,7 @@ class AppController:
 
         state.current_query = query
         state.search_active = True
+        state.ai_overview = None
         log_search_event("search_start", query=query, search_type=search_type)
 
         async def _run_search():
@@ -433,6 +434,15 @@ class AppController:
                 logger.critical(
                     f"[{LOG_TAG}] PRIMP_CRASH: {search_type} — {progress.error}"
                 )
+
+            # Google-style AI overview over the results (1 credit, router-first)
+            if (
+                state.ai_mode_enabled
+                and search_type in ("text", "news")
+                and progress.results
+                and not progress.error
+            ):
+                self.page.run_task(self.run_ai_overview, query, progress.results)
 
         # Show loading state immediately
         loading = SearchProgress(
@@ -508,6 +518,53 @@ class AppController:
         state.search_progress = progress
 
     # ── AI chat (Ask-AI FAB) ──────────────────────────────────────────────
+
+    async def run_ai_overview(self, query: str, results) -> None:
+        """Passive Google-style summary above normal text/news results."""
+        from dataclasses import replace
+
+        from services import ai_service
+
+        sources = [
+            {"title": r.title, "url": r.url, "snippet": r.snippet} for r in results[:8]
+        ]
+        overview = AiOverview(
+            query=query,
+            sources=[{"title": s["title"], "url": s["url"]} for s in sources],
+            is_running=True,
+        )
+        state.ai_overview = overview
+        buffer = {"text": "", "last": 0.0}
+
+        def on_token(token: str) -> None:
+            buffer["text"] += token
+            now = time.monotonic()
+            if now - buffer["last"] >= 0.2:
+                buffer["last"] = now
+                state.ai_overview = replace(overview, text=buffer["text"])
+
+        messages = ai_service.build_overview_messages(query, sources)
+        try:
+            await ai_service.stream_chat(messages, COST_CHAT, on_token)
+            clean, related = ai_service.parse_related(buffer["text"])
+            state.ai_overview = replace(
+                overview,
+                text=ai_service.link_citations(clean, [s["url"] for s in sources]),
+                related=related,
+                is_running=False,
+                is_done=True,
+            )
+        except ai_service.NotEnoughCredits:
+            state.ai_overview = replace(overview, is_running=False, error="credits")
+        except ai_service.AIMidStream:
+            state.ai_overview = replace(
+                overview, text=buffer["text"], is_running=False, error="midstream"
+            )
+        except ai_service.AIUnavailable:
+            state.ai_overview = replace(overview, is_running=False, error="unavailable")
+        except Exception as exc:
+            log_error(f"[{LOG_TAG}] AI overview", exc, query=query)
+            state.ai_overview = replace(overview, is_running=False, error="unavailable")
 
     def open_chat(self, ctx: dict | None = None) -> None:
         """Open the full-screen agentic chat (FAB entry)."""

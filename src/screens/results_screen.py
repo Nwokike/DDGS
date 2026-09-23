@@ -149,6 +149,8 @@ def ResultsScreen() -> Control:
                 expand=True,
             )
         else:
+            from components.ai_overview import build_ai_overview
+
             cards = []
             for idx, r in enumerate(results):
                 if idx > 0 and idx % 4 == 0:
@@ -156,6 +158,7 @@ def ResultsScreen() -> Control:
                 cards.append(builder(r, idx, page))
             results_content = ft.Column(
                 [
+                    build_ai_overview(page),
                     ft.Row(
                         [
                             ft.Icon(

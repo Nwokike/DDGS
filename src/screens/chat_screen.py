@@ -423,6 +423,7 @@ class ChatSession:
         )
 
     def _render_user(self, turn: dict) -> ft.Container:
+        bubble_width = min(300, (getattr(self.page, "width", None) or 400) * 0.72)
         return ft.Row(
             [
                 ft.Container(
@@ -435,7 +436,7 @@ class ChatSession:
                     padding=ft.Padding(12, 8, 12, 8),
                     border_radius=ft.BorderRadius(16, 16, 4, 16),
                     bgcolor=AppColors.PRIMARY,
-                    constraints=ft.BoxConstraints(maximize=280),
+                    width=bubble_width,
                 )
             ],
             alignment=ft.MainAxisAlignment.END,
@@ -661,5 +662,9 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         page.update()
     except Exception:
         pass
-    if ctx.get("url") and ctx.get("auto"):
+    if not ctx.get("auto"):
+        return
+    if ctx.get("url"):
         session.send(f"Describe this page for me: {ctx['url']}")
+    elif ctx.get("question"):
+        session.send(ctx["question"])

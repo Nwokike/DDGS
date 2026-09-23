@@ -110,7 +110,7 @@ detection, in-app updates).
 
 ### ✨ AI mode (new in 2.0)
 
-Flip the compact **AI switch** in the home header and the **Ask AI** button
+Flip the compact **AI switch** in the home header and you get **both**: a Google-style **AI overview** card above every text/news search (cited, streamed, 1 credit) and an **Ask AI** button
 (FAB) appears — tap it for a **chat with an agentic assistant** that searches
 DDGS **itself**: all five search categories plus page fetching, run as tools
 mid-conversation. You watch it work — "Searching the web for…" status rows,
