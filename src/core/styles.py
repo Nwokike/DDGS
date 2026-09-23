@@ -11,7 +11,12 @@ logger = logging.getLogger(__name__)
 
 def build_banner_ad(page: ft.Page, unit_id: str | None = None) -> ft.Control:
     """Build a glass-container-wrapped banner ad (mobile only)."""
-    if page.platform not in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS):
+    from core.state import state
+
+    if state.is_premium or page.platform not in (
+        ft.PagePlatform.ANDROID,
+        ft.PagePlatform.IOS,
+    ):
         return ft.Container(width=0, height=0)
 
     try:

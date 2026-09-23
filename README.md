@@ -30,6 +30,7 @@
 | Video downloads with quality picker (best / 1080p / 720p / 480p / 360p) | ✅ (non-YouTube sources) | ✅ |
 | **YouTube video downloads** | ❌ disabled to comply with Play policy | ✅ **full** |
 | Desktop builds (Windows / Linux) + in-app updates from GitHub | — (Android only) | ✅ |
+| DDGS Premium — ad-free + 200 AI credits/day (Android) | ✅ in-app purchase | ✅ same Play purchase works in the GitHub APK |
 
 > **The Play Store edition** exists for users who can't install apps from
 > elsewhere and carries the restrictions Google Play requires. **Most users who
@@ -106,6 +107,26 @@ history and logs never leave your device.
 
 Runs on **Android, Windows and Linux** (light/dark/system theme, offline
 detection, in-app updates).
+
+### ✨ AI mode (new in 2.0)
+
+Flip **AI answers** on the home screen and every text/news search gets an
+**answer card above the results** — a streamed synthesis of your top sources
+with tappable **citations**, a numbered source strip, **related-search pills**
+and **follow-up questions** in the same thread. Open any page and tap
+**✨ Summarize** in the reader, preview or result sheet for a five-bullet
+briefing.
+
+- **Credits, not subscriptions for AI:** 50 free credits daily (resets 00:00
+  UTC), 1 per answer/summary/follow-up, 5 per Deep synthesis — watch a short ad
+  for +2. **Manual search, scraping and downloads never use credits.**
+- **Router-first, privately:** requests go to your embedded **Kiri router**
+  first (free, keyless, runs inside the app so queries exit from *your* IP),
+  failing over to the Kiri gateway only when needed. Disclosure under every
+  answer: query + short snippets only — no history, no identity, no training.
+- **DDGS Premium (Android, in-app):** **$3.99/mo · $24.99/yr · $49.99
+  lifetime** — ad-free everywhere, **200 AI credits/day**, Deep synthesis
+  unlocked. Billed through Google Play; *Restore purchases* included.
 
 ---
 

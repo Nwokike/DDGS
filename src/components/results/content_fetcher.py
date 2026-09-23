@@ -195,6 +195,13 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
             file_name = f"{clean_name}{ext}"
             await _save_text_content(page, str(content), file_name)
 
+    def _summarize_preview(_=None):
+        from components.ai_summary import show_ai_summary
+
+        if is_bytes:
+            return
+        show_ai_summary(page, url, str(content))
+
     def _expand_to_reader():
         """Close this preview and open the full-screen content reader."""
         _url_history.clear()
@@ -249,6 +256,12 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 icon_size=tokens.ICON_MD,
                 tooltip="Save content to file",
                 on_click=lambda _: page.run_task(save_extract),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                icon_size=tokens.ICON_MD,
+                tooltip="Summarize with AI",
+                on_click=_summarize_preview,
             ),
             ft.IconButton(
                 icon=ft.Icons.FULLSCREEN_ROUNDED,

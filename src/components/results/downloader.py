@@ -274,7 +274,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
             )
         page.pop_dialog()
         page.update()
-        if getattr(state, "ad_service", None):
+        if getattr(state, "ad_service", None) and not state.is_premium:
             try:
                 await state.ad_service.show_interstitial()
             except (

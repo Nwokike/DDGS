@@ -62,6 +62,23 @@ class SearchProgress:
     results: list[SearchResult] = field(default_factory=list)
 
 
+@dataclass
+class AiAnswer:
+    """Current AI answer slot — swap the whole object, never mutate in place
+    (the observable notify fires only on AppState field assignment)."""
+
+    query: str = ""
+    text: str = ""
+    related: list[str] = field(default_factory=list)
+    sources: list[dict] = field(default_factory=list)  # {title, url, snippet}
+    mode: str = "standard"  # standard | deep
+    served_by: str = ""  # router | gateway
+    followup: str = ""  # last follow-up question, for the card header
+    is_running: bool = False
+    is_done: bool = False
+    error: str | None = None  # credits | unavailable | midstream | other
+
+
 @ft.observable
 class AppState:
     """Global reactive state — every field mutation triggers re-render
@@ -121,8 +138,17 @@ class AppState:
         # ── Ad tracking ──
         self.search_count: int = 0
 
+        # ── AI mode (DDGS 2.0) ──
+        self.ai_mode_enabled: bool = True
+        self.credits_remaining: int = 50  # corrected by CreditService.initialize()
+        self.is_premium: bool = False
+        self.ad_cooldown_end: float = 0.0
+        self.current_ai_answer: AiAnswer | None = None
+        self.ai_thread: list[dict] = []  # messages sans system prompt
+
         # ── Services (set by AppController) ──
         self.ad_service = None
+        self.credit_service = None
 
     def reset(self):
         """Reset transient search state (for testing)."""

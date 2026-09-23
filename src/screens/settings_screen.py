@@ -92,6 +92,7 @@ def SettingsScreen() -> Control:
         build_extraction_section,
         build_performance_section,
     )
+    from components.settings.sections_ai import build_ai_section
     from components.settings.sections_general import (
         build_search_rules_section,
         build_theme_section,
@@ -129,6 +130,7 @@ def SettingsScreen() -> Control:
     sections = ft.Column(
         [
             build_theme_section(page, _current_theme(), _change_theme),
+            build_ai_section(page, controller.save_async),
             build_search_rules_section(
                 page,
                 controller.save_async,

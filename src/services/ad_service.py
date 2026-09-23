@@ -12,6 +12,8 @@ from collections.abc import Callable
 
 import flet as ft
 
+from core.state import state
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -73,7 +75,7 @@ class AdService:
 
     async def gather_consent(self):
         """Run UMP consent flow. Only shows UI in regulated regions (EEA/UK)."""
-        if not _HAS_ADS or not self._is_mobile():
+        if state.is_premium or not _HAS_ADS or not self._is_mobile():
             self._can_request_ads = True
             return
         try:
@@ -104,7 +106,7 @@ class AdService:
 
     def get_banner_ad(self) -> ft.Control:
         """Return a banner ad control, or empty container on desktop."""
-        if not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
+        if state.is_premium or not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
             return ft.Container(width=0, height=0)
         try:
             ad = fta.BannerAd(
@@ -132,7 +134,7 @@ class AdService:
     async def preload_interstitial(self, on_close: Callable | None = None):
         """Create and load a fresh interstitial (single-use in flet-ads 1.0)."""
         self._on_close = on_close
-        if not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
+        if state.is_premium or not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
             return
         try:
             self._interstitial_loaded = False
@@ -198,7 +200,7 @@ class AdService:
         instances are replaced. Returns True when an ad is shown or queued to
         show as soon as it finishes loading.
         """
-        if not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
+        if state.is_premium or not _HAS_ADS or not self._is_mobile() or not self._can_request_ads:
             return False
         ad = self.interstitial
         if (
@@ -228,7 +230,7 @@ class AdService:
 
     async def show_rewarded_interstitial(self, on_close: Callable) -> bool:
         """Show a rewarded interstitial ad, triggering on_close when closed."""
-        if not _HAS_ADS or not self._is_mobile():
+        if state.is_premium or not _HAS_ADS or not self._is_mobile():
             if asyncio.iscoroutinefunction(on_close):
                 await on_close()
             else:

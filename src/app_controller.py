@@ -11,7 +11,13 @@ import time
 
 import flet as ft
 
-from core.state import SearchProgress, state
+from core.constants import (
+    COST_AI_ANSWER,
+    COST_DEEP_ANSWER,
+    COST_FOLLOWUP,
+    PREMIUM_DAILY_CREDITS,
+)
+from core.state import AiAnswer, SearchProgress, state
 from core.theme import AppTheme
 from core.utils import (
     ERR_NO_INTERNET,
@@ -22,6 +28,7 @@ from core.utils import (
     sanitize_url,
 )
 from services.ad_service import AdService
+from services.credit_service import init_credit_service
 from services.search_service import SearchService
 from services.storage_service import StorageService
 from services.update_service import UpdateService
@@ -82,11 +89,27 @@ class AppController:
 
         # ── Services ──
         self.storage = StorageService(self.page)
+        state.credit_service = init_credit_service(self.storage)
         self.search_service = SearchService()
 
         self.ad_service = AdService(self.page)
         self.update_service = UpdateService()
         state.ad_service = self.ad_service
+
+        # ── Billing (Android only; flet-billing wraps Play Billing) ──
+        self.billing = None
+        if self.page.platform == ft.PagePlatform.ANDROID:
+            try:
+                from flet_billing import Billing
+
+                # Construction auto-registers the service (flet 1.0.1).
+                self.billing = Billing(
+                    on_purchase_updated=self._on_purchase_updated,
+                    on_error=lambda e: logger.error("billing error: %s", e.message),
+                )
+                self.page.run_task(self.verify_purchases)
+            except Exception as exc:
+                logger.warning("billing unavailable: %s", exc)
         await self.ad_service.gather_consent()
         await self.ad_service.preload_interstitial()
 
@@ -183,6 +206,8 @@ class AppController:
         storage = self.storage
         try:
             await storage.initialize()
+            if state.credit_service:
+                state.credits_remaining = await state.credit_service.initialize()
             t = await storage.get_theme()
             self.page.theme_mode = {
                 "dark": ft.ThemeMode.DARK,
@@ -213,6 +238,8 @@ class AppController:
             state.video_quality = await storage.get_video_quality()
             state.search_history = await storage.get_history() or []
             state.has_accepted_terms = await storage.get_onboarding_done()
+            state.ai_mode_enabled = await storage.get_ai_mode()
+            state.is_premium = await storage.get_is_premium()
 
             logger.info(f"[{LOG_TAG}] Settings loaded")
         except (
@@ -265,6 +292,9 @@ class AppController:
             "default_tab": (self.storage.set_default_tab, "default_tab"),
             "video_quality": (self.storage.set_video_quality, "video_quality"),
             "onboarding_done": (self.storage.set_onboarding_done, "has_accepted_terms"),
+            "ai_mode": (self.storage.set_ai_mode, "ai_mode_enabled"),
+            # Was never registered before 2.0 — Clear History was a silent no-op.
+            "history": (self.storage.set_history, "search_history"),
         }
 
         if key == "theme":
@@ -351,6 +381,8 @@ class AppController:
 
         state.current_query = query
         state.search_active = True
+        state.current_ai_answer = None
+        state.ai_thread = []
         log_search_event("search_start", query=query, search_type=search_type)
 
         async def _run_search():
@@ -395,9 +427,26 @@ class AppController:
 
             await self._refresh(progress)
 
-            # Smart interstitial: show every 3rd search
+            # AI answer over these results (router-first, credit-metered)
+            if (
+                state.ai_mode_enabled
+                and search_type in ("text", "news")
+                and progress.results
+                and not progress.error
+            ):
+                sources = [
+                    {"title": r.title, "url": r.url, "snippet": r.snippet}
+                    for r in progress.results
+                ]
+                await self.run_ai_answer(query, sources)
+
+            # Smart interstitial: show every 3rd search (skipped for premium)
             state.search_count += 1
-            if state.search_count % 3 == 0 and state.ad_service:
+            if (
+                not state.is_premium
+                and state.search_count % 3 == 0
+                and state.ad_service
+            ):
                 await state.ad_service.show_interstitial()
 
             if progress.error and "primp" in str(progress.error).lower():
@@ -467,7 +516,7 @@ class AppController:
 
         await self._refresh(progress)
 
-        if state.ad_service:
+        if not state.is_premium and state.ad_service:
             await state.ad_service.show_interstitial()
 
     async def _refresh(self, progress: SearchProgress):
@@ -477,6 +526,224 @@ class AppController:
         and re-renders automatically via use_context(AppStateCtx).
         """
         state.search_progress = progress
+
+    # ── AI mode (DDGS 2.0) ────────────────────────────────────────────────
+
+    async def run_ai_answer(
+        self, query: str, sources: list[dict], mode: str = "standard"
+    ) -> None:
+        """Stream an AI answer over the given sources (router-first, credit-metered)."""
+        from dataclasses import replace
+
+        from services import ai_service
+
+        sources = sources[:8]
+        if not sources:
+            return
+        if mode == "deep" and not state.is_premium:
+            await self.show_snack(
+                "Deep answers are a Premium feature — see Settings → AI & Premium.",
+                "warning",
+            )
+            return
+
+        answer = AiAnswer(query=query, sources=sources, mode=mode, is_running=True)
+        state.current_ai_answer = answer
+        state.ai_thread = []
+        cost = COST_DEEP_ANSWER if mode == "deep" else COST_AI_ANSWER
+
+        if mode == "deep":
+            pages: list[str] = []
+            for src in sources[:3]:
+                res, _err = await self.search_service.extract_url(
+                    src["url"], fmt="text_plain"
+                )
+                pages.append(
+                    str((res or {}).get("content") or src.get("snippet") or "")[:3000]
+                )
+            messages = ai_service.build_deep_messages(query, sources, pages)
+        else:
+            messages = ai_service.build_answer_messages(query, sources, mode=mode)
+
+        buffer = {"text": "", "last": 0.0}
+
+        def on_token(token: str) -> None:
+            buffer["text"] += token
+            now = time.monotonic()
+            if now - buffer["last"] >= 0.2:
+                buffer["last"] = now
+                state.current_ai_answer = replace(answer, text=buffer["text"])
+
+        try:
+            meta = await ai_service.stream_chat(messages, cost, on_token)
+            clean, related = ai_service.parse_related(buffer["text"])
+            state.current_ai_answer = replace(
+                answer,
+                text=ai_service.link_citations(clean, [s["url"] for s in sources]),
+                related=related,
+                served_by=meta.get("served_by", ""),
+                is_running=False,
+                is_done=True,
+            )
+            state.ai_thread = messages[1:] + [{"role": "assistant", "content": clean}]
+            await self._persist_ai_answer(query, clean)
+        except ai_service.NotEnoughCredits:
+            state.current_ai_answer = replace(answer, is_running=False, error="credits")
+        except ai_service.AIMidStream:
+            state.current_ai_answer = replace(
+                answer, text=buffer["text"], is_running=False, error="midstream"
+            )
+            clean, _ = ai_service.parse_related(buffer["text"])
+            await self._persist_ai_answer(query, clean)
+        except ai_service.AIUnavailable:
+            state.current_ai_answer = replace(
+                answer, is_running=False, error="unavailable"
+            )
+        except Exception as exc:
+            log_error(f"[{LOG_TAG}] AI answer", exc, query=query)
+            state.current_ai_answer = replace(
+                answer, is_running=False, error="unavailable"
+            )
+
+    async def ask_followup(self, question: str) -> None:
+        """Continue the current AI thread with a follow-up question."""
+        from dataclasses import replace
+
+        from services import ai_service
+
+        answer = state.current_ai_answer
+        question = (question or "").strip()
+        if not answer or not answer.is_done or not question or not answer.sources:
+            return
+
+        thread = state.ai_thread + [{"role": "user", "content": question}]
+        running = replace(
+            answer, followup=question, is_running=True, is_done=False, error=None
+        )
+        state.current_ai_answer = running
+        buffer = {"text": "", "last": 0.0}
+
+        def on_token(token: str) -> None:
+            buffer["text"] += token
+            now = time.monotonic()
+            if now - buffer["last"] >= 0.2:
+                buffer["last"] = now
+                state.current_ai_answer = replace(running, text=buffer["text"])
+
+        messages = ai_service.build_answer_messages(
+            question, answer.sources, mode=answer.mode, thread=thread[:-1]
+        )
+        try:
+            meta = await ai_service.stream_chat(messages, COST_FOLLOWUP, on_token)
+            clean, related = ai_service.parse_related(buffer["text"])
+            state.current_ai_answer = replace(
+                running,
+                text=ai_service.link_citations(
+                    clean, [s["url"] for s in answer.sources]
+                ),
+                related=related or answer.related,
+                served_by=meta.get("served_by", ""),
+                is_running=False,
+                is_done=True,
+            )
+            state.ai_thread = messages[1:] + [{"role": "assistant", "content": clean}]
+        except ai_service.NotEnoughCredits:
+            state.current_ai_answer = replace(
+                running, is_running=False, error="credits"
+            )
+        except ai_service.AIMidStream:
+            state.current_ai_answer = replace(
+                running, text=buffer["text"], is_running=False, error="midstream"
+            )
+        except ai_service.AIUnavailable:
+            state.current_ai_answer = replace(
+                running, is_running=False, error="unavailable"
+            )
+        except Exception as exc:
+            log_error(f"[{LOG_TAG}] AI followup", exc)
+            state.current_ai_answer = replace(
+                running, is_running=False, error="unavailable"
+            )
+
+    async def _persist_ai_answer(self, query: str, answer_text: str) -> None:
+        """Attach the AI answer to the matching history entry (best effort)."""
+        if not answer_text:
+            return
+        try:
+            history = await self.storage.get_history()
+            for entry in history:
+                if entry.get("query") == query:
+                    entry["ai_answer"] = answer_text[:4000]
+                    break
+            await self.storage.set_history(history)
+        except Exception as exc:
+            logger.debug("AI answer persistence skipped: %s", exc)
+
+    # ── Premium (flet-billing, mobile-only) ───────────────────────────────
+
+    async def activate_premium(self, product_id: str) -> None:
+        """Grant the premium entitlement (server verification lands with the
+        gateway endpoint; interim re-check is verify_purchases each launch)."""
+        if not str(product_id).startswith("premium"):
+            return
+        first_time = not state.is_premium
+        state.is_premium = True
+        if self.storage:
+            await self.storage.set_is_premium(True)
+        if state.credit_service and state.credits_remaining < PREMIUM_DAILY_CREDITS:
+            await state.credit_service.add_credits(
+                PREMIUM_DAILY_CREDITS - state.credits_remaining
+            )
+        if first_time:
+            await self.show_snack(
+                "Premium active — ads off, 200 AI credits/day.", "success"
+            )
+
+    async def verify_purchases(self) -> None:
+        """Re-check owned products on launch — never trust the local flag alone."""
+        billing = getattr(self, "billing", None)
+        if billing is None:
+            return
+        try:
+            result = await billing.query_past_purchases()
+            owned = [p.product_id for p in (getattr(result, "purchases", None) or [])]
+            for pid in owned:
+                if str(pid).startswith("premium"):
+                    await self.activate_premium(pid)
+                    break
+        except Exception as exc:
+            logger.debug("purchase re-check skipped: %s", exc)
+
+    async def _on_purchase_updated(self, e) -> None:
+        """flet-billing event: verify → deliver → acknowledge (3-day rule)."""
+        try:
+            from flet_billing import PurchaseStatus
+        except ImportError:
+            return
+        for p in e.purchases:
+            if p.status in (PurchaseStatus.PURCHASED, PurchaseStatus.RESTORED):
+                await self.activate_premium(p.product_id)
+                if (
+                    getattr(p, "pending_complete_purchase", False)
+                    and p.purchase_id
+                    and self.billing is not None
+                ):
+                    try:
+                        await self.billing.complete_purchase(p.purchase_id)
+                    except Exception as exc:
+                        logger.warning("complete_purchase failed: %s", exc)
+            elif p.status == PurchaseStatus.ERROR:
+                logger.error("purchase error: %s", getattr(p, "error", None))
+            elif p.status == PurchaseStatus.CANCELED:
+                logger.info("purchase canceled: %s", p.product_id)
+
+    def on_app_close(self, e=None) -> None:
+        """Synchronous exit hook: flush storage + stop the embedded router."""
+        from services import ai_service
+
+        if self.storage:
+            self.storage.flush_now()
+        ai_service.shutdown()
 
     # ── SnackBar ───────────────────────────────────────────────────────
 
