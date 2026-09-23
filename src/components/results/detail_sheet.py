@@ -51,6 +51,20 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         page.show_dialog(snack)
         page.update()
 
+    def _summarize(_):
+        async def _run():
+            from components.ai_summary import show_ai_summary
+            from services.search_service import SearchService
+
+            svc = SearchService()
+            res, _err = await svc.extract_url(r.url, fmt="text_plain")
+            text = str((res or {}).get("content") or "")
+            if not text.strip():
+                text = f"{r.title}\n\n{r.snippet}"
+            show_ai_summary(page, r.title, text)
+
+        page.run_task(_run)
+
     # ── Build preview based on type ──
     preview = None
     if search_type == "images" and (r.thumbnail or r.image_url):
@@ -302,6 +316,34 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             spacing=tokens.SPACE_SM,
         )
     )
+
+    # AI summarize (non-media results only)
+    if not is_media:
+        controls.append(
+            ft.OutlinedButton(
+                content=ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM
+                        ),
+                        ft.Text(
+                            "Summarize with AI",
+                            size=tokens.FONT_SM,
+                            font_family="Outfit",
+                        ),
+                    ],
+                    spacing=4,
+                    tight=True,
+                ),
+                on_click=_summarize,
+                style=ft.ButtonStyle(
+                    shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                    side=ft.BorderSide(1, ft.Colors.OUTLINE),
+                    padding=ft.Padding(12, 8, 12, 8),
+                ),
+                expand=True,
+            )
+        )
 
     sheet_content = ft.Container(
         content=ft.Column(

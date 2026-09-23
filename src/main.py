@@ -18,8 +18,9 @@ async def main(page: ft.Page):
     # Wire lifecycle hooks
     page.on_view_pop = lambda e: controller.go_home()
     page.on_disconnect = lambda e: page.run_task(controller.storage.flush)
-    # Flet 1.0 exits without running atexit/buffered writes — flush synchronously.
-    page.on_close = lambda e: controller.storage and controller.storage.flush_now()
+    # Flet 1.0 exits without running atexit/buffered writes — flush synchronously
+    # and stop the embedded Kiri router here.
+    page.on_close = controller.on_app_close
 
 
 if __name__ == "__main__":

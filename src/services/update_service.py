@@ -17,7 +17,7 @@ try:
     _APP_BUILD = int(_pdata["tool"]["flet"]["build_number"])
     _APP_REPO = "DDGS"
 except Exception:
-    _APP_VERSION = "1.2.1"; _APP_BUILD = 4; _APP_REPO = "DDGS"
+    _APP_VERSION = "2.0.0"; _APP_BUILD = 6; _APP_REPO = "DDGS"
 UPDATE_CONFIG_URL = f"https://raw.githubusercontent.com/Nwokike/{_APP_REPO}/main/version.json"
 GITHUB_RELEASES_URL = f"https://github.com/Nwokike/{_APP_REPO}/releases/latest"
 PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"

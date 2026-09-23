@@ -13,6 +13,7 @@ from typing import Any
 import flet as ft
 
 from core.constants import (
+    STORAGE_AI_MODE,
     STORAGE_BACKEND,
     STORAGE_DEFAULT_TAB,
     STORAGE_EXTRACT_FORMAT,
@@ -22,6 +23,7 @@ from core.constants import (
     STORAGE_IMAGE_LICENSE,
     STORAGE_IMAGE_SIZE,
     STORAGE_IMAGE_TYPE,
+    STORAGE_IS_PREMIUM,
     STORAGE_MAX_RESULTS,
     STORAGE_ONBOARDING_DONE,
     STORAGE_PAGE,
@@ -66,6 +68,8 @@ DEFAULTS: dict[str, Any] = {
     STORAGE_VIDEO_QUALITY: "best",
     STORAGE_ONBOARDING_DONE: False,
     STORAGE_DEFAULT_TAB: "text",
+    STORAGE_AI_MODE: True,
+    STORAGE_IS_PREMIUM: False,
 }
 
 
@@ -367,3 +371,15 @@ class StorageService:
 
     async def set_default_tab(self, v: str) -> bool:
         return await self.set(STORAGE_DEFAULT_TAB, v)
+
+    async def get_ai_mode(self) -> bool:
+        return bool(await self.get(STORAGE_AI_MODE, True))
+
+    async def set_ai_mode(self, v: bool) -> bool:
+        return await self.set(STORAGE_AI_MODE, v)
+
+    async def get_is_premium(self) -> bool:
+        return bool(await self.get(STORAGE_IS_PREMIUM, False))
+
+    async def set_is_premium(self, v: bool) -> bool:
+        return await self.set(STORAGE_IS_PREMIUM, v)

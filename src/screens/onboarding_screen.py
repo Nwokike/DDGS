@@ -48,6 +48,17 @@ _SLIDES = [
             "search sources."
         ),
     },
+    {
+        "icon": ft.Icons.AUTO_AWESOME_ROUNDED,
+        "color": AppColors.ACCENT,
+        "title": "AI, Done Privately",
+        "body": (
+            "Optional AI mode answers from your search results. "
+            "Queries go through your in-app Kiri router first — no "
+            "history, no identity, no training. Manual search always "
+            "stays free."
+        ),
+    },
 ]
 
 

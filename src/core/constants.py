@@ -138,6 +138,21 @@ VIDEO_LICENSE_OPTIONS = [
     {"key": "youtube", "label": "YouTube license"},
 ]
 
+# ── AI mode (DDGS 2.0) ───────────────────────────────────────────────────
+DAILY_FREE_CREDITS = 50
+PREMIUM_DAILY_CREDITS = 200
+COST_AI_ANSWER = 1
+COST_SUMMARIZE = 1
+COST_FOLLOWUP = 1
+COST_DEEP_ANSWER = 5
+AD_TOPUP_CREDITS = 2
+AD_TOPUP_COOLDOWN_SEC = 30.0
+
+STORAGE_AI_MODE = "ai_mode_enabled"
+STORAGE_IS_PREMIUM = "is_premium"
+STORAGE_CREDITS = "ddgs_credits"
+STORAGE_LAST_RESET = "ddgs_last_reset"
+
 EXTRACT_FORMATS = [
     {"key": "text_markdown", "label": "Markdown"},
     {"key": "text_plain", "label": "Plain Text"},

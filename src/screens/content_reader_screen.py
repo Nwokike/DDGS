@@ -176,6 +176,17 @@ def build_content_reader(
         page.show_dialog(snack)
         page.update()
 
+    def _on_summarize(e=None):
+        from components.ai_summary import show_ai_summary
+
+        if _is_loading or not _current_content:
+            snack = ft.SnackBar(ft.Text("Page not loaded yet."))
+            snack.open = True
+            page.show_dialog(snack)
+            page.update()
+            return
+        show_ai_summary(page, _current_url or "Page", str(_current_content))
+
     # ── Build UI ──
 
     appbar = ft.AppBar(
@@ -233,6 +244,12 @@ def build_content_reader(
                 icon_size=tokens.ICON_SM,
                 tooltip="Refresh content",
                 on_click=lambda _: page.run_task(_fetch, _current_url),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                icon_size=tokens.ICON_SM,
+                tooltip="Summarize with AI",
+                on_click=_on_summarize,
             ),
             ft.IconButton(
                 ref=copy_btn,
