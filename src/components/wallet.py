@@ -33,7 +33,9 @@ def build_credit_pill(page: ft.Page) -> ft.Container:
     return ft.Container(
         content=ft.Row(
             [
-                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM, color=color),
+                ft.Icon(
+                    ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM, color=color
+                ),
                 ft.Text(
                     str(state.credits_remaining),
                     size=tokens.FONT_SM,
@@ -195,7 +197,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
             ),
             ft.Container(height=6),
             _cost_line("Chat message (any tools it runs)", str(COST_CHAT)),
-            _cost_line("Page summary", str(COST_SUMMARIZE)),
+            _cost_line("Search overview / page summary", str(COST_SUMMARIZE)),
             ft.Container(height=4),
             ft.Text(
                 "Manual search, scraping and downloads never use credits.",

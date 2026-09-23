@@ -560,6 +560,24 @@ async def stream_chat(
 # ── Prompt builders + response parsing ────────────────────────────────────
 
 
+def build_overview_messages(query: str, sources: list[dict]) -> list[dict]:
+    """Passive answer-over-snippets prompt for the search-results overview."""
+    numbered = "\n".join(
+        f"[{i + 1}] {s.get('title', '')} — {s.get('url', '')}\n    {s.get('snippet', '')}"
+        for i, s in enumerate(sources[:8])
+    )
+    system = (
+        "You are DDGS AI. Answer the question ONLY from the numbered sources. "
+        "Cite claims with [n] matching the source numbers. 2-5 direct sentences. "
+        "End with a final line exactly in this form:\n"
+        "RELATED: query one | query two | query three"
+    )
+    return [
+        {"role": "system", "content": system},
+        {"role": "user", "content": f"Sources:\n{numbered}\n\nQuestion: {query}"},
+    ]
+
+
 def build_summary_messages(title: str, content: str) -> list[dict]:
     """Page summarization prompt (content already extracted locally)."""
     system = (

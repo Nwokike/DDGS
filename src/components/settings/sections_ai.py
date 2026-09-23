@@ -82,6 +82,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         ft.Row(
             [
                 ft.Text("Chat message — 1", size=FONT_XS),
+                ft.Text("AI overview — 1", size=FONT_XS),
                 ft.Text("Page summary — 1", size=FONT_XS),
                 ft.Text(
                     "Tools inside a message are free",

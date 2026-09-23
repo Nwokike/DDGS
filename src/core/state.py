@@ -62,6 +62,22 @@ class SearchProgress:
     results: list[SearchResult] = field(default_factory=list)
 
 
+@dataclass
+class AiOverview:
+    """Google-style AI overview for the current text/news result set.
+
+    Whole-object swaps only (observable notify fires on AppState assignment).
+    """
+
+    query: str = ""
+    text: str = ""
+    related: list[str] = field(default_factory=list)
+    sources: list[dict] = field(default_factory=list)  # {title, url}
+    is_running: bool = False
+    is_done: bool = False
+    error: str | None = None  # credits | unavailable | midstream
+
+
 @ft.observable
 class AppState:
     """Global reactive state — every field mutation triggers re-render
@@ -128,6 +144,7 @@ class AppState:
         self.is_premium: bool = False
         self.ad_cooldown_end: float = 0.0
         self.chat_open: bool = False
+        self.ai_overview: AiOverview | None = None
 
         # ── Services (set by AppController) ──
         self.ad_service = None

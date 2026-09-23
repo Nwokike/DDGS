@@ -169,11 +169,7 @@ def AppShell() -> Control:
 
         page = flet_context.page
         try:
-            if (
-                page
-                and page.views
-                and page.views[0].floating_action_button is not None
-            ):
+            if page and page.views and page.views[0].floating_action_button is not None:
                 page.views[0].floating_action_button = None
                 page.update()
         except Exception:

@@ -146,7 +146,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                 filled=True,
                 text_size=tokens.FONT_XS,
                 content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
-                border_radius=tokens.RADIUS_MD,
+                border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_MD),
                 width=150,
                 height=36,
             ),
