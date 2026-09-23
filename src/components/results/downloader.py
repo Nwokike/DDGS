@@ -159,11 +159,16 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
                     "Downloading from YouTube is disabled in the Google Play Store version "
                     "of DDGS to comply with Google Play Developer Policies and YouTube's Terms of Service. "
                     "Open the video in YouTube instead.\n\n"
-                    "Other video sources (Vimeo, Dailymotion, etc.) can still be downloaded normally.",
+                    "Other video sources (Vimeo, Dailymotion, etc.) can still be downloaded normally.\n\n"
+                    "The full edition is available on Windows, Linux, and on GitHub.",
                     size=tokens.FONT_SM,
                     style=ft.TextStyle(height=1.4),
                 ),
                 actions=[
+                    ft.TextButton(
+                        "Full Edition on GitHub",
+                        action=ft.OpenUrl("https://github.com/Nwokike/DDGS"),
+                    ),
                     ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
                     ft.FilledButton(
                         "Open in YouTube",

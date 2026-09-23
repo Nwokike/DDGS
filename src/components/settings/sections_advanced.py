@@ -102,7 +102,8 @@ def build_downloads_section(page: ft.Page, set_fn: Callable) -> ft.Container:
                 ),
                 ft.Text(
                     "Preferred quality when downloading videos. "
-                    "YouTube is resolved to a direct file; other sources are fetched as-is.",
+                    "YouTube is resolved to a direct file; other sources are fetched as-is. "
+                    "(YouTube downloads are disabled in this Play Store edition — see About.)",
                     size=FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),

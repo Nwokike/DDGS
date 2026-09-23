@@ -203,11 +203,17 @@ def build_about_section(
                 ft.Row(
                     [
                         ft.Text("Edition", size=FONT_SM, font_family="Outfit"),
-                        ft.Text(
-                            "Google Play Edition (Policy Compliant)",
-                            size=FONT_SM,
-                            color=AppColors.PRIMARY,
-                            weight=ft.FontWeight.W_600,
+                        ft.TextButton(
+                            content=ft.Text(
+                                "Google Play Edition · Full edition on GitHub",
+                                size=FONT_SM,
+                                weight=ft.FontWeight.W_600,
+                                color=AppColors.PRIMARY,
+                            ),
+                            action=ft.OpenUrl("https://github.com/Nwokike/DDGS"),
+                            style=ft.ButtonStyle(
+                                padding=ft.Padding(0, 0, 0, 0)
+                            ),
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
