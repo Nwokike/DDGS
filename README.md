@@ -110,23 +110,27 @@ detection, in-app updates).
 
 ### ✨ AI mode (new in 2.0)
 
-Flip **AI answers** on the home screen and every text/news search gets an
-**answer card above the results** — a streamed synthesis of your top sources
-with tappable **citations**, a numbered source strip, **related-search pills**
-and **follow-up questions** in the same thread. Open any page and tap
-**✨ Summarize** in the reader, preview or result sheet for a five-bullet
-briefing.
+Flip the compact **AI switch** in the home header and the **Ask AI** button
+(FAB) appears — tap it for a **chat with an agentic assistant** that searches
+DDGS **itself**: all five search categories plus page fetching, run as tools
+mid-conversation. You watch it work — "Searching the web for…" status rows,
+live **result blocks** it found (tappable), then a streamed answer with
+tappable citations, related-search pills, and a stop button whenever you want
+out.
 
-- **Credits, not subscriptions for AI:** 50 free credits daily (resets 00:00
-  UTC), 1 per answer/summary/follow-up, 5 per Deep synthesis — watch a short ad
-  for +2. **Manual search, scraping and downloads never use credits.**
-- **Router-first, privately:** requests go to your embedded **Kiri router**
+- **Credits:** **1 credit per chat message** no matter how many
+  searches/fetches that message runs — 50 free daily (resets 00:00 UTC), +2
+  per rewarded ad. **Manual search, scraping and downloads never use
+  credits.**
+- **Describe this page:** open ✨ Summarize on any page, then tap **Ask AI
+  about this page** — the chat opens preloaded to describe it.
+- **Router-first, privately:** chat goes to your embedded **Kiri router**
   first (free, keyless, runs inside the app so queries exit from *your* IP),
-  failing over to the Kiri gateway only when needed. Disclosure under every
-  answer: query + short snippets only — no history, no identity, no training.
+  failing over to the Kiri gateway only when needed. Disclosure on every
+  chat: query + short snippets only — no history, no identity, no training.
 - **DDGS Premium (Android, in-app):** **$3.99/mo · $24.99/yr · $49.99
-  lifetime** — ad-free everywhere, **200 AI credits/day**, Deep synthesis
-  unlocked. Billed through Google Play; *Restore purchases* included.
+  lifetime** — ad-free everywhere and **200 AI credits/day**. Billed through
+  Google Play; *Restore purchases* included.
 
 ---
 
