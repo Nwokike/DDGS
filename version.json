@@ -1,9 +1,9 @@
 {
-  "build_number": 5,
-  "version": "1.3.0",
+  "build_number": 4,
+  "version": "1.2.1",
   "type": "update",
-  "title": "DDGS 1.3.0",
-  "release_notes": "• Search 10 engines privately — no account, no tracking\n• Download videos in your chosen quality; save images to your device\n• Scrape any page as Markdown, HTML, rich text or plain text and save it\n• New: share any result in one tap · New: image & video search filters\n• Faster page fetching, snappier UI, settings never lost on exit\n• Under the hood: Flet 1.0, ddgs 9.16, primp 2.0",
+  "title": "DDGS 1.2.1",
+  "release_notes": "You're up to date on v1.2.1!",
   "mandatory": false,
   "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
   "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"
