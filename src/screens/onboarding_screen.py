@@ -53,10 +53,10 @@ _SLIDES = [
         "color": AppColors.ACCENT,
         "title": "AI, Done Privately",
         "body": (
-            "Optional AI mode answers from your search results. "
+            "Turn on AI mode and an Ask AI button appears — chat with "
+            "an assistant that searches and fetches pages for you, live. "
             "Queries go through your in-app Kiri router first — no "
-            "history, no identity, no training. Manual search always "
-            "stays free."
+            "history, no identity, no training. Manual search stays free."
         ),
     },
 ]

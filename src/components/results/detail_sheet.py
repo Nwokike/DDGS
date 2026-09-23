@@ -61,7 +61,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             text = str((res or {}).get("content") or "")
             if not text.strip():
                 text = f"{r.title}\n\n{r.snippet}"
-            show_ai_summary(page, r.title, text)
+            show_ai_summary(page, r.title, text, url=r.url)
 
         page.run_task(_run)
 

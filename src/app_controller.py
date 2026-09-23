@@ -11,13 +11,8 @@ import time
 
 import flet as ft
 
-from core.constants import (
-    COST_AI_ANSWER,
-    COST_DEEP_ANSWER,
-    COST_FOLLOWUP,
-    PREMIUM_DAILY_CREDITS,
-)
-from core.state import AiAnswer, SearchProgress, state
+from core.constants import PREMIUM_DAILY_CREDITS
+from core.state import SearchProgress, state
 from core.theme import AppTheme
 from core.utils import (
     ERR_NO_INTERNET,
@@ -381,8 +376,6 @@ class AppController:
 
         state.current_query = query
         state.search_active = True
-        state.current_ai_answer = None
-        state.ai_thread = []
         log_search_event("search_start", query=query, search_type=search_type)
 
         async def _run_search():
@@ -426,19 +419,6 @@ class AppController:
                 logger.warning(f"Search history save failed: {ex}")
 
             await self._refresh(progress)
-
-            # AI answer over these results (router-first, credit-metered)
-            if (
-                state.ai_mode_enabled
-                and search_type in ("text", "news")
-                and progress.results
-                and not progress.error
-            ):
-                sources = [
-                    {"title": r.title, "url": r.url, "snippet": r.snippet}
-                    for r in progress.results
-                ]
-                await self.run_ai_answer(query, sources)
 
             # Smart interstitial: show every 3rd search (skipped for premium)
             state.search_count += 1
@@ -527,157 +507,24 @@ class AppController:
         """
         state.search_progress = progress
 
-    # ── AI mode (DDGS 2.0) ────────────────────────────────────────────────
+    # ── AI chat (Ask-AI FAB) ──────────────────────────────────────────────
 
-    async def run_ai_answer(
-        self, query: str, sources: list[dict], mode: str = "standard"
-    ) -> None:
-        """Stream an AI answer over the given sources (router-first, credit-metered)."""
-        from dataclasses import replace
+    def open_chat(self, ctx: dict | None = None) -> None:
+        """Open the full-screen agentic chat (FAB entry)."""
+        from screens.chat_screen import open_chat_view
 
-        from services import ai_service
+        open_chat_view(self.page, ctx)
 
-        sources = sources[:8]
-        if not sources:
+    def on_view_pop(self, e=None) -> None:
+        """Back/gesture pop: leaving chat only clears its flag; else go home."""
+        if state.chat_open:
+            state.chat_open = False
+            try:
+                self.page.update()
+            except Exception:
+                pass
             return
-        if mode == "deep" and not state.is_premium:
-            await self.show_snack(
-                "Deep answers are a Premium feature — see Settings → AI & Premium.",
-                "warning",
-            )
-            return
-
-        answer = AiAnswer(query=query, sources=sources, mode=mode, is_running=True)
-        state.current_ai_answer = answer
-        state.ai_thread = []
-        cost = COST_DEEP_ANSWER if mode == "deep" else COST_AI_ANSWER
-
-        if mode == "deep":
-            pages: list[str] = []
-            for src in sources[:3]:
-                res, _err = await self.search_service.extract_url(
-                    src["url"], fmt="text_plain"
-                )
-                pages.append(
-                    str((res or {}).get("content") or src.get("snippet") or "")[:3000]
-                )
-            messages = ai_service.build_deep_messages(query, sources, pages)
-        else:
-            messages = ai_service.build_answer_messages(query, sources, mode=mode)
-
-        buffer = {"text": "", "last": 0.0}
-
-        def on_token(token: str) -> None:
-            buffer["text"] += token
-            now = time.monotonic()
-            if now - buffer["last"] >= 0.2:
-                buffer["last"] = now
-                state.current_ai_answer = replace(answer, text=buffer["text"])
-
-        try:
-            meta = await ai_service.stream_chat(messages, cost, on_token)
-            clean, related = ai_service.parse_related(buffer["text"])
-            state.current_ai_answer = replace(
-                answer,
-                text=ai_service.link_citations(clean, [s["url"] for s in sources]),
-                related=related,
-                served_by=meta.get("served_by", ""),
-                is_running=False,
-                is_done=True,
-            )
-            state.ai_thread = messages[1:] + [{"role": "assistant", "content": clean}]
-            await self._persist_ai_answer(query, clean)
-        except ai_service.NotEnoughCredits:
-            state.current_ai_answer = replace(answer, is_running=False, error="credits")
-        except ai_service.AIMidStream:
-            state.current_ai_answer = replace(
-                answer, text=buffer["text"], is_running=False, error="midstream"
-            )
-            clean, _ = ai_service.parse_related(buffer["text"])
-            await self._persist_ai_answer(query, clean)
-        except ai_service.AIUnavailable:
-            state.current_ai_answer = replace(
-                answer, is_running=False, error="unavailable"
-            )
-        except Exception as exc:
-            log_error(f"[{LOG_TAG}] AI answer", exc, query=query)
-            state.current_ai_answer = replace(
-                answer, is_running=False, error="unavailable"
-            )
-
-    async def ask_followup(self, question: str) -> None:
-        """Continue the current AI thread with a follow-up question."""
-        from dataclasses import replace
-
-        from services import ai_service
-
-        answer = state.current_ai_answer
-        question = (question or "").strip()
-        if not answer or not answer.is_done or not question or not answer.sources:
-            return
-
-        thread = state.ai_thread + [{"role": "user", "content": question}]
-        running = replace(
-            answer, followup=question, is_running=True, is_done=False, error=None
-        )
-        state.current_ai_answer = running
-        buffer = {"text": "", "last": 0.0}
-
-        def on_token(token: str) -> None:
-            buffer["text"] += token
-            now = time.monotonic()
-            if now - buffer["last"] >= 0.2:
-                buffer["last"] = now
-                state.current_ai_answer = replace(running, text=buffer["text"])
-
-        messages = ai_service.build_answer_messages(
-            question, answer.sources, mode=answer.mode, thread=thread[:-1]
-        )
-        try:
-            meta = await ai_service.stream_chat(messages, COST_FOLLOWUP, on_token)
-            clean, related = ai_service.parse_related(buffer["text"])
-            state.current_ai_answer = replace(
-                running,
-                text=ai_service.link_citations(
-                    clean, [s["url"] for s in answer.sources]
-                ),
-                related=related or answer.related,
-                served_by=meta.get("served_by", ""),
-                is_running=False,
-                is_done=True,
-            )
-            state.ai_thread = messages[1:] + [{"role": "assistant", "content": clean}]
-        except ai_service.NotEnoughCredits:
-            state.current_ai_answer = replace(
-                running, is_running=False, error="credits"
-            )
-        except ai_service.AIMidStream:
-            state.current_ai_answer = replace(
-                running, text=buffer["text"], is_running=False, error="midstream"
-            )
-        except ai_service.AIUnavailable:
-            state.current_ai_answer = replace(
-                running, is_running=False, error="unavailable"
-            )
-        except Exception as exc:
-            log_error(f"[{LOG_TAG}] AI followup", exc)
-            state.current_ai_answer = replace(
-                running, is_running=False, error="unavailable"
-            )
-
-    async def _persist_ai_answer(self, query: str, answer_text: str) -> None:
-        """Attach the AI answer to the matching history entry (best effort)."""
-        if not answer_text:
-            return
-        try:
-            history = await self.storage.get_history()
-            for entry in history:
-                if entry.get("query") == query:
-                    entry["ai_answer"] = answer_text[:4000]
-                    break
-            await self.storage.set_history(history)
-        except Exception as exc:
-            logger.debug("AI answer persistence skipped: %s", exc)
+        self.go_home()
 
     # ── Premium (flet-billing, mobile-only) ───────────────────────────────
 

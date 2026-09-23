@@ -200,7 +200,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
 
         if is_bytes:
             return
-        show_ai_summary(page, url, str(content))
+        show_ai_summary(page, url, str(content), url=url)
 
     def _expand_to_reader():
         """Close this preview and open the full-screen content reader."""

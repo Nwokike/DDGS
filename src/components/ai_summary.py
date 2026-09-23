@@ -18,7 +18,7 @@ from core.theme import AppColors
 _DISCLOSURE = "Sends this page's extracted text to Kiri AI. No history, no training."
 
 
-def show_ai_summary(page: ft.Page, title: str, content: str) -> None:
+def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> None:
     """Open the summary sheet and stream an AI summary of `content`."""
     from core.constants import COST_SUMMARIZE
     from services import ai_service
@@ -29,6 +29,21 @@ def show_ai_summary(page: ft.Page, title: str, content: str) -> None:
         color=ft.Colors.ON_SURFACE_VARIANT,
         selectable=True,
     )
+
+    def _close(e=None):
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
+
+    def _ask_ai(e=None):
+        """Hand this page to the agentic chat, preloaded to describe it."""
+        _close()
+        ctrl = getattr(page, "_ddgs_controller", None)
+        if ctrl:
+            page_url = url or (title if str(title).startswith("http") else "")
+            ctrl.open_chat({"url": page_url, "title": title, "auto": True})
+
     sheet = ft.BottomSheet(
         content=ft.Container(
             content=ft.Column(
@@ -68,10 +83,22 @@ def show_ai_summary(page: ft.Page, title: str, content: str) -> None:
                         content=ft.Column([body], scroll=ft.ScrollMode.AUTO),
                         height=240,
                     ),
-                    ft.Text(
-                        _DISCLOSURE,
-                        size=9,
-                        color=ft.Colors.with_opacity(0.5, ft.Colors.ON_SURFACE),
+                    ft.Row(
+                        [
+                            ft.Text(
+                                _DISCLOSURE,
+                                size=9,
+                                color=ft.Colors.with_opacity(0.5, ft.Colors.ON_SURFACE),
+                                expand=True,
+                            ),
+                            ft.TextButton(
+                                "Ask AI about this page",
+                                icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                                on_click=_ask_ai,
+                            ),
+                        ],
+                        spacing=6,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                 ],
                 spacing=8,
@@ -83,12 +110,6 @@ def show_ai_summary(page: ft.Page, title: str, content: str) -> None:
         open=True,
         elevation=8,
     )
-
-    def _close(e=None):
-        try:
-            page.pop_dialog()
-        except Exception:
-            pass
 
     page.show_dialog(sheet)
 

@@ -100,14 +100,19 @@ class SearchService:
         logger.info(f"[{LOG_TAG}] Cancelled")
 
     async def search(
-        self, search_type: str, query: str, on_progress=None
+        self, search_type: str, query: str, on_progress=None, *, ui: bool = True
     ) -> SearchProgress:
-        """One generic search method — maps to the correct DDGS method with all params."""
+        """One generic search method — maps to the correct DDGS method with all params.
+
+        ui=False (chat agent): skip global state mutations so an agent tool
+        call never clobbers the results screen the user is looking at.
+        """
         self._is_cancelled = False
         progress = SearchProgress(
             query=query, search_type=search_type, total_results=0, is_running=True
         )
-        state.search_progress = progress
+        if ui:
+            state.search_progress = progress
         start_time = time.perf_counter()
 
         try:
@@ -245,7 +250,8 @@ class SearchService:
             progress.results = parsed
             progress.is_running = False
             progress.error = None
-            state.last_results[search_type] = parsed
+            if ui:
+                state.last_results[search_type] = parsed
 
         except (
             DDGSException,

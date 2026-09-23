@@ -10,7 +10,6 @@ import flet as ft
 from flet import Control
 
 from components.offline_banner import build_offline_banner
-from components.wallet import build_credit_pill
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
@@ -643,7 +642,28 @@ def HomeScreen() -> Control:
                         ),
                         ft.Row(
                             [
-                                build_credit_pill(_get_page()),
+                                ft.Row(
+                                    [
+                                        ft.Text(
+                                            "AI",
+                                            size=tokens.FONT_XS,
+                                            weight=ft.FontWeight.W_700,
+                                            color=AppColors.PRIMARY
+                                            if state.ai_mode_enabled
+                                            else ft.Colors.ON_SURFACE_VARIANT,
+                                        ),
+                                        ft.Switch(
+                                            value=state.ai_mode_enabled,
+                                            tooltip="AI mode — show the Ask AI button",
+                                            on_change=lambda e: controller.save(
+                                                "ai_mode", e.control.value
+                                            ),
+                                        ),
+                                    ],
+                                    spacing=2,
+                                    tight=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
                                 ft.IconButton(
                                     icon=_get_theme_icon(),
                                     icon_size=20,
@@ -782,25 +802,6 @@ def HomeScreen() -> Control:
                                 ),
                             ],
                             alignment=ft.MainAxisAlignment.CENTER,
-                        ),
-                        # AI mode switch row
-                        ft.Row(
-                            [
-                                ft.Switch(
-                                    value=state.ai_mode_enabled,
-                                    on_change=lambda e: controller.save(
-                                        "ai_mode", e.control.value
-                                    ),
-                                ),
-                                ft.Text(
-                                    "AI answers — 1 credit each, 50 free daily",
-                                    size=tokens.FONT_XS,
-                                    color=ft.Colors.ON_SURFACE_VARIANT,
-                                    font_family="Outfit",
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.CENTER,
-                            spacing=8,
                         ),
                         # Tools panel
                         ft.Container(

@@ -141,12 +141,13 @@ VIDEO_LICENSE_OPTIONS = [
 # ── AI mode (DDGS 2.0) ───────────────────────────────────────────────────
 DAILY_FREE_CREDITS = 50
 PREMIUM_DAILY_CREDITS = 200
-COST_AI_ANSWER = 1
+COST_CHAT = 1  # one credit per chat message, whatever the tool loop spends
 COST_SUMMARIZE = 1
-COST_FOLLOWUP = 1
-COST_DEEP_ANSWER = 5
 AD_TOPUP_CREDITS = 2
 AD_TOPUP_COOLDOWN_SEC = 30.0
+AGENT_MAX_ITERS = 5  # model calls per turn
+AGENT_MAX_TOOLS = 6  # tool calls per turn
+AGENT_TIMEOUT_S = 120  # wall-clock per turn
 
 STORAGE_AI_MODE = "ai_mode_enabled"
 STORAGE_IS_PREMIUM = "is_premium"

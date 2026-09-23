@@ -83,10 +83,13 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         ),
         ft.Row(
             [
-                ft.Text("AI answer — 1", size=FONT_XS),
-                ft.Text("Summary — 1", size=FONT_XS),
-                ft.Text("Follow-up — 1", size=FONT_XS),
-                ft.Text("Deep — 5", size=FONT_XS, color=AppColors.PRIMARY),
+                ft.Text("Chat message — 1", size=FONT_XS),
+                ft.Text("Page summary — 1", size=FONT_XS),
+                ft.Text(
+                    "Tools inside a message are free",
+                    size=FONT_XS,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
             ],
             spacing=10,
             wrap=True,
@@ -94,7 +97,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         ft.Row(
             [
                 ft.Text(
-                    "AI answers in results",
+                    "AI mode — Ask AI chat",
                     size=FONT_SM,
                     font_family="Outfit",
                     weight=ft.FontWeight.W_500,
