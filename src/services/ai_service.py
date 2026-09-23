@@ -1,17 +1,23 @@
-"""AI service — embedded Kiri Router (free, primary) with Kiri Gateway fallback.
+"""AI service — embedded Kiri Router (auto-model first, free) → Kiri Gateway fallback.
 
-Architecture (DDGS 2.0 "AI Edition"):
-- PRIMARY:  the Kiri Router (vendored run.py) embedded in-process as a daemon
-            thread on 127.0.0.1 — zero keys, zero upstream cost, OpenAI-compatible.
-- FALLBACK: https://api.kiri.ng/chat (X-App-Secret) on router failure.
+v2 (chat redesign):
+- Router discovery attaches to ANY Kiri router already listening in
+  8082-8092 (the user's own instance — e.g. Node runtime on 8084) before
+  embedding run.py ourselves; embed only when none exists.
+- Model choice: the catalog's `auto` chat-completion model first (owner's
+  directive — "stick to it so we never have issues"), then healthy
+  chat-completion models by latency; per-request rotation over the top
+  candidates on 400/401/429/ModelError before failing over to the gateway.
+- Streaming returns finish_reason + assembled `tool_calls` deltas so the
+  chat agent can run DDGS tools (OpenAI streaming tool_calls contract:
+  arguments arrive as string fragments per index — concatenate, parse at
+  finish).
+- `stream_llm` does the raw router→gateway failover with NO credit
+  reservation (the agent reserves once per whole turn); `stream_chat` keeps
+  the reserve→call→commit wrapper for single-shot calls (summaries).
 
-Credits are the user-facing economy (SpanInsight model): reserve -> stream ->
-commit on success / rollback on failure for EVERY AI action, regardless of
-which source served it. Manual search/scraping never imports or calls this
-module, so it can never spend credits.
-
-Streaming is httpx SSE on both endpoints — AI never touches primp (the
-PRIMP_CRASH path).
+Manual search/scraping never imports this module, so it can never spend
+credits. Streaming is httpx SSE on both endpoints — AI never touches primp.
 """
 
 from __future__ import annotations
@@ -36,20 +42,20 @@ GATEWAY_URL = "https://api.kiri.ng"
 GATEWAY_SECRET = "ddgs-mobile-v1"
 USER_AGENT = "DDGSApp/2.0.0"
 
-# ── Embedded router ───────────────────────────────────────────────────────
+# ── Embedded/attached router ──────────────────────────────────────────────
 ROUTER_HOST = "127.0.0.1"
 ROUTER_BASE_PORT = 8082
-ROUTER_SPAN = 10
+ROUTER_SPAN = 10  # scan 8082..8092 for a running Kiri router before embedding
 ROUTER_STICKY_COOLDOWN = 60.0  # prefer gateway for a while after router failure
-ROUTER_MODEL_TTL = 300.0  # seconds to trust the cached model list
+ROUTER_MODEL_TTL = 300.0
+ROUTER_CANDIDATES = 3  # models to try per request before failing over
 
 ANSWER_MAX_TOKENS = 1400
-SUMMARY_MAX_TOKENS = 900
 TEMPERATURE = 0.4
 
 
 class AIUnavailable(Exception):
-    """No AI source could answer — callers degrade silently to classic results."""
+    """No AI source could answer — callers degrade silently."""
 
 
 class AIMidStream(Exception):
@@ -64,9 +70,17 @@ class NotEnoughCredits(Exception):
         super().__init__(f"AI credits exhausted ({balance} left)")
 
 
-# ── Embedded router lifecycle ─────────────────────────────────────────────
+class _RouterModelError(Exception):
+    """Retryable per-model router rejection (400/401/429/ModelError)."""
 
-_router_server = None
+    def __init__(self, status: int, detail: str = ""):
+        self.status = status
+        super().__init__(f"router model rejected ({status}) {detail}")
+
+
+# ── Router lifecycle: discover-and-attach, else embed ─────────────────────
+
+_router_server = None  # only set when WE embedded it
 _router_port: int | None = None
 _router_lock = threading.Lock()
 _router_failed_until = 0.0
@@ -74,93 +88,78 @@ _router_models: list[str] = []
 _router_models_at = 0.0
 
 
-def ensure_router() -> int | None:
-    """Start the embedded router once. Returns its port or None if unavailable."""
+async def _probe_existing_router() -> int | None:
+    """Scan 8082..8092 for a live Kiri router (ours or the user's own)."""
+    async with httpx.AsyncClient(http2=False) as client:
+        for port in range(ROUTER_BASE_PORT, ROUTER_BASE_PORT + ROUTER_SPAN + 1):
+            try:
+                resp = await client.get(
+                    f"http://{ROUTER_HOST}:{port}/health", timeout=0.5
+                )
+                if resp.status_code == 200 and resp.json().get("adapter") == "kiri-router":
+                    return port
+            except Exception:
+                pass  # closed port or not a router — keep scanning
+    return None
+
+
+async def ensure_router() -> int | None:
+    """Attach to a running Kiri router, or embed one. Returns its port."""
     global _router_server, _router_port
     with _router_lock:
         if _router_port is not None:
             return _router_port
-        try:
-            from services.router import run as router_run
 
-            server, port = router_run.acquire_server(ROUTER_BASE_PORT, ROUTER_SPAN)
-            if server is None:
-                # A Kiri router is already running on the wanted port — attach.
-                _router_port = port
-                logger.info("AI router: attached to existing instance on %d", port)
-                return port
-            server.access_log = False
-            threading.Thread(target=server.serve_forever, daemon=True).start()
-            _router_server, _router_port = server, port
-            logger.info("AI router: embedded on 127.0.0.1:%d", port)
+    existing = await _probe_existing_router()
+    if existing is not None:
+        _router_port = existing
+        logger.info("AI router: attached to existing instance on %d", existing)
+        return existing
+
+    try:
+        from services.router import run as router_run
+
+        server, port = router_run.acquire_server(ROUTER_BASE_PORT, ROUTER_SPAN)
+        if server is None:
+            # Raced with another Kiri instance on the wanted port — attach.
+            _router_port = port
+            logger.info("AI router: attached to instance on %d", port)
             return port
-        except SystemExit:
-            logger.warning(
-                "AI router: no free port in %d..%d",
-                ROUTER_BASE_PORT,
-                ROUTER_BASE_PORT + ROUTER_SPAN,
-            )
-            return None
-        except Exception as exc:
-            logger.warning("AI router: failed to start: %s", exc)
-            return None
+        server.access_log = False
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        with _router_lock:
+            _router_server, _router_port = server, port
+        logger.info("AI router: embedded on %s:%d", ROUTER_HOST, port)
+        return port
+    except SystemExit:
+        logger.warning(
+            "AI router: no free port in %d..%d",
+            ROUTER_BASE_PORT,
+            ROUTER_BASE_PORT + ROUTER_SPAN,
+        )
+        return None
+    except Exception as exc:
+        logger.warning("AI router: failed to start: %r", exc)
+        return None
 
 
 def stop_router() -> None:
-    """Shut the embedded router down (called from page.on_close)."""
+    """Stop ONLY an embedded router (never the user's own instance)."""
     global _router_server, _router_port
     with _router_lock:
-        server, _router_server, _router_port = _router_server, None, None
+        server, _router_server = _router_server, None
+        _router_port = None
     if server is not None:
         try:
             server.shutdown()
             server.server_close()
-            logger.info("AI router: stopped")
+            logger.info("AI router: stopped embedded instance")
         except Exception:
             pass
 
 
 def shutdown() -> None:
-    """Best-effort teardown for app exit."""
     stop_router()
-
-
-def _router_base() -> str | None:
-    if time.monotonic() < _router_failed_until:
-        return None
-    port = ensure_router()
-    if port is None:
-        return None
-    return f"http://{ROUTER_HOST}:{port}/v1"
-
-
-async def _pick_model(client: httpx.AsyncClient, base: str) -> str | None:
-    """Lowest-latency active free model from the router catalog (cached)."""
-    global _router_models, _router_models_at
-    if _router_models and time.monotonic() - _router_models_at < ROUTER_MODEL_TTL:
-        return _router_models[0]
-    try:
-        resp = await client.get(f"{base}/models", timeout=10.0)
-        data = resp.json().get("data", [])
-    except Exception as exc:
-        logger.warning("AI router: model catalog failed: %r", exc)
-        return None
-    usable = [
-        m
-        for m in data
-        if m.get("id") and m.get("status", "active") == "active" and m.get("is_free", True)
-    ]
-    if not usable:
-        usable = [m for m in data if m.get("id")]
-    usable.sort(key=lambda m: m.get("latency_ms") or 10**9)
-    _router_models = [m["id"] for m in usable]
-    _router_models_at = time.monotonic()
-    return _router_models[0] if _router_models else None
-
-
-def _invalidate_models() -> None:
-    global _router_models_at
-    _router_models_at = 0.0
 
 
 def _mark_router_failed() -> None:
@@ -168,11 +167,110 @@ def _mark_router_failed() -> None:
     _router_failed_until = time.monotonic() + ROUTER_STICKY_COOLDOWN
 
 
-# ── SSE consumption (shared shape for both sources) ───────────────────────
+async def _router_base() -> str | None:
+    if time.monotonic() < _router_failed_until:
+        return None
+    port = await ensure_router()
+    if port is None:
+        return None
+    return f"http://{ROUTER_HOST}:{port}/v1"
 
 
-async def _consume_sse(resp: httpx.Response, on_token: Callable[[str], None]) -> None:
-    """Parse OpenAI-style SSE; forward content deltas only (reasoning dropped)."""
+# ── Model choice ──────────────────────────────────────────────────────────
+
+
+def rank_models(data: list[dict]) -> list[str]:
+    """Ordered model candidates: `auto` first, then healthy chat models.
+
+    Pure function (unit-tested). endpoint types seen in the wild:
+    '/chat.completion', '/response', '/systemone' — only chat-completion
+    models are safe for /v1/chat/completions without translation.
+    """
+
+    def is_chat(m: dict) -> bool:
+        return "chat.completion" in str(m.get("endpoint_type") or "")
+
+    def active(m: dict) -> bool:
+        return str(m.get("status") or "active") == "active"
+
+    def latency(m: dict):
+        value = m.get("latency_ms")
+        return value if isinstance(value, int) else 10**9
+
+    usable = [m for m in data if m.get("id")]
+    autos = [m for m in usable if str(m.get("id")).lower() == "auto" and active(m)]
+    chat_active = [m for m in usable if is_chat(m) and active(m)]
+    others_active = [m for m in usable if active(m) and m not in chat_active]
+    chat_active.sort(key=latency)
+    others_active.sort(key=latency)
+    ordered: list[dict] = autos + chat_active + others_active + [
+        m for m in usable if m not in autos + chat_active + others_active
+    ]
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in ordered:
+        mid = str(m["id"])
+        if mid not in seen:
+            seen.add(mid)
+            out.append(mid)
+    return out
+
+
+async def _fetch_candidates(client: httpx.AsyncClient, base: str) -> list[str]:
+    """Model candidates for this request (cached, `auto` first)."""
+    global _router_models, _router_models_at
+    if _router_models and time.monotonic() - _router_models_at < ROUTER_MODEL_TTL:
+        return _router_models[:ROUTER_CANDIDATES]
+    try:
+        resp = await client.get(f"{base}/models", timeout=10.0)
+        data = resp.json().get("data", [])
+    except Exception as exc:
+        logger.warning("AI router: model catalog failed: %r", exc)
+        return []
+    _router_models = rank_models(data)
+    _router_models_at = time.monotonic()
+    return _router_models[:ROUTER_CANDIDATES]
+
+
+def invalidate_models() -> None:
+    global _router_models_at
+    _router_models_at = 0.0
+
+
+# ── SSE consumption with tool_calls assembly ──────────────────────────────
+
+
+def assemble_tool_calls(fragments: dict) -> list[dict]:
+    """Turn per-index delta fragments into complete OpenAI tool_calls.
+
+    fragments: {index: {"id": str, "name": str, "args": str}} — `arguments`
+    accumulates as JSON string fragments across chunks; parsing happens at
+    the caller once finish_reason == "tool_calls". Pure (unit-tested).
+    """
+    calls = []
+    for idx in sorted(fragments):
+        piece = fragments[idx]
+        calls.append(
+            {
+                "id": piece.get("id") or f"call_{idx}",
+                "type": "function",
+                "function": {
+                    "name": piece.get("name") or "",
+                    "arguments": piece.get("args") or "",
+                },
+            }
+        )
+    return calls
+
+
+async def _consume_sse(
+    resp: httpx.Response,
+    on_token: Callable[[str], None],
+    collect_tools: bool,
+) -> tuple[str, list[dict] | None]:
+    """Parse OpenAI-style SSE. Returns (finish_reason, tool_calls|None)."""
+    finish = ""
+    fragments: dict = {}
     async for line in resp.aiter_lines():
         if not line.startswith("data: "):
             continue
@@ -183,94 +281,163 @@ async def _consume_sse(resp: httpx.Response, on_token: Callable[[str], None]) ->
             chunk = json.loads(data)
         except ValueError:
             continue
-        if "error" in chunk:
+        if "error" in chunk and not (chunk.get("choices")):
             raise AIUnavailable(str(chunk.get("error"))[:200])
         choices = chunk.get("choices") or [{}]
-        delta = choices[0].get("delta") or {}
+        choice = choices[0] or {}
+        if choice.get("finish_reason"):
+            finish = str(choice["finish_reason"])
+        delta = choice.get("delta") or {}
         text = delta.get("content") or ""
         if not text:
-            message = choices[0].get("message") or {}
+            message = choice.get("message") or {}
             text = message.get("content") or ""
         if text:
             on_token(text)
+        if collect_tools:
+            for tc in delta.get("tool_calls") or []:
+                idx = tc.get("index", 0)
+                piece = fragments.setdefault(idx, {"id": "", "name": "", "args": ""})
+                fn = tc.get("function") or {}
+                if tc.get("id"):
+                    piece["id"] = tc["id"]
+                if fn.get("name"):
+                    piece["name"] = (piece["name"] + fn["name"]) if False else fn["name"]
+                if fn.get("arguments"):
+                    piece["args"] += fn["arguments"]
+            # some providers stream whole tool_calls only under message
+            for tc in (choice.get("message") or {}).get("tool_calls") or []:
+                idx = tc.get("index", len(fragments))
+                fn = tc.get("function") or {}
+                fragments[idx] = {
+                    "id": tc.get("id") or f"call_{idx}",
+                    "name": fn.get("name") or "",
+                    "args": fn.get("arguments") or "",
+                }
+    tool_calls = assemble_tool_calls(fragments) if fragments else None
+    if tool_calls and not finish:
+        finish = "tool_calls"
+    return finish, tool_calls
 
 
-async def _stream_json_body(resp: httpx.Response, on_token: Callable[[str], None]) -> None:
-    """Non-SSE fallback: server answered with a plain JSON completion."""
+async def _stream_json_body(
+    resp: httpx.Response, on_token: Callable[[str], None]
+) -> tuple[str, None]:
     body = resp.json()
     choices = body.get("choices") or [{}]
-    text = ((choices[0].get("message") or {}).get("content")) or choices[0].get(
-        "text", ""
-    )
+    choice = choices[0] or {}
+    text = ((choice.get("message") or {}).get("content")) or choice.get("text", "")
     if text:
         on_token(text)
+    return str(choice.get("finish_reason") or ""), None
+
+
+# ── Router streaming (multi-candidate) ────────────────────────────────────
 
 
 async def _stream_router(
-    client: httpx.AsyncClient, messages: list[dict], on_token: Callable[[str], None]
-) -> None:
-    base = _router_base()
+    client: httpx.AsyncClient,
+    messages: list[dict],
+    on_token: Callable[[str], None],
+    tools: list[dict] | None,
+) -> dict:
+    base = await _router_base()
     if base is None:
         raise AIUnavailable("router cooling down")
-    model = await _pick_model(client, base)
-    if not model:
+    candidates = await _fetch_candidates(client, base)
+    if not candidates:
         raise AIUnavailable("no router models available")
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": True,
-        "max_tokens": ANSWER_MAX_TOKENS,
-        "temperature": TEMPERATURE,
-    }
-    got_first = False
-    try:
-        async with client.stream(
-            "POST",
-            f"{base}/chat/completions",
-            json=payload,
-            headers={"Authorization": "Bearer any"},
-            timeout=httpx.Timeout(180.0, connect=3.0),
-        ) as resp:
-            if resp.status_code >= 400:
-                await resp.aread()
-                if resp.status_code == 400 and b"model" in resp.content:
-                    _invalidate_models()  # stale catalog — refresh next call
-                raise AIUnavailable(f"router HTTP {resp.status_code}")
-            ctype = resp.headers.get("content-type", "")
-            if "text/event-stream" in ctype:
+
+    last_error: Exception | None = None
+    for model in candidates:
+        payload: dict = {
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "max_tokens": ANSWER_MAX_TOKENS,
+            "temperature": TEMPERATURE,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+        got_first = False
+        try:
+            async with client.stream(
+                "POST",
+                f"{base}/chat/completions",
+                json=payload,
+                headers={"Authorization": "Bearer any"},
+                timeout=httpx.Timeout(180.0, connect=4.0),
+            ) as resp:
+                if resp.status_code >= 400:
+                    await resp.aread()
+                    detail = resp.content[:200].decode("utf-8", "replace")
+                    if (
+                        resp.status_code in (400, 401, 429, 500, 502, 503, 504)
+                        or "Model" in detail
+                    ):
+                        # Retryable per-model rejection (rate limit / overload /
+                        # unknown model) → rotate through candidates. A generic
+                        # 400 that isn't model-related means the request itself
+                        # is wrong (e.g. tools unsupported) — not worth retrying.
+                        if resp.status_code == 400 and "model" not in detail.lower():
+                            raise AIUnavailable(f"router rejected request: {detail}")
+                        last_error = _RouterModelError(resp.status_code, detail)
+                        invalidate_models()
+                        continue
+                    raise AIUnavailable(f"router HTTP {resp.status_code}")
+                ctype = resp.headers.get("content-type", "")
+
                 def _counting(token: str) -> None:
                     nonlocal got_first
                     got_first = True
                     on_token(token)
 
-                await _consume_sse(resp, _counting)
-            else:
-                await resp.aread()
-                got_first = True
-                await _stream_json_body(resp, on_token)
-    except AIUnavailable:
-        _mark_router_failed()
-        raise
-    except (httpx.TimeoutException, httpx.RequestError, ValueError, KeyError) as exc:
-        _mark_router_failed()
-        if got_first:
-            raise AIMidStream(str(exc)) from exc
-        raise AIUnavailable(f"router failed: {exc}") from exc
+                if "text/event-stream" in ctype:
+                    finish, tool_calls = await _consume_sse(resp, _counting, bool(tools))
+                else:
+                    await resp.aread()
+                    got_first = True
+                    finish, tool_calls = await _stream_json_body(resp, _counting)
+            return {"finish_reason": finish, "tool_calls": tool_calls, "model": model}
+        except AIUnavailable:
+            _mark_router_failed()
+            raise
+        except _RouterModelError as exc:
+            last_error = exc
+            continue
+        except (httpx.TimeoutException, httpx.RequestError, ValueError, KeyError) as exc:
+            _mark_router_failed()
+            if got_first:
+                raise AIMidStream(str(exc)) from exc
+            last_error = exc
+            break  # connectivity is model-independent — go to gateway
+    _mark_router_failed()
+    raise AIUnavailable(f"router exhausted candidates: {last_error}")
+
+
+# ── Gateway streaming ─────────────────────────────────────────────────────
 
 
 async def _stream_gateway(
-    client: httpx.AsyncClient, messages: list[dict], on_token: Callable[[str], None]
-) -> None:
-    payload = {
+    client: httpx.AsyncClient,
+    messages: list[dict],
+    on_token: Callable[[str], None],
+    tools: list[dict] | None,
+) -> dict:
+    payload: dict = {
         "messages": messages,
         "task_type": "text",
         "stream": True,
         "max_tokens": ANSWER_MAX_TOKENS,
         "temperature": TEMPERATURE,
     }
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
     headers = {"X-App-Secret": GATEWAY_SECRET, "User-Agent": USER_AGENT}
     got_first = False
-    attempts = 2  # SpanInsight-style: narrow retry, connect/502/503/504 only
+    attempts = 2  # SpanInsight-style: narrow retry (connect/502/503/504)
     last_exc: Exception | None = None
     for attempt in range(attempts):
         try:
@@ -295,12 +462,12 @@ async def _stream_gateway(
                     on_token(token)
 
                 if "text/event-stream" in ctype:
-                    await _consume_sse(resp, _counting)
+                    finish, tool_calls = await _consume_sse(resp, _counting, bool(tools))
                 else:
                     await resp.aread()
                     got_first = True
-                    await _stream_json_body(resp, on_token)
-            return
+                    finish, tool_calls = await _stream_json_body(resp, _counting)
+            return {"finish_reason": finish, "tool_calls": tool_calls}
         except AIUnavailable:
             raise
         except (httpx.TimeoutException, httpx.RequestError, ValueError, KeyError) as exc:
@@ -317,81 +484,58 @@ async def _stream_gateway(
 # ── Orchestration ─────────────────────────────────────────────────────────
 
 
+async def stream_llm(
+    messages: list[dict],
+    on_token: Callable[[str], None],
+    tools: list[dict] | None = None,
+) -> dict:
+    """Raw router→gateway failover. NO credit handling (agent reserves per turn).
+
+    Returns {"served_by", "finish_reason", "tool_calls"|None}.
+    Raises AIUnavailable (nothing delivered) or AIMidStream (partial).
+    """
+    try:
+        async with httpx.AsyncClient(http2=False) as client:
+            result = await _stream_router(client, messages, on_token, tools)
+        result["served_by"] = "router"
+        return result
+    except AIUnavailable as exc:
+        logger.info("AI router unavailable (%s) — falling back to gateway", exc)
+    except AIMidStream:
+        raise
+    async with httpx.AsyncClient(http2=False) as client:
+        result = await _stream_gateway(client, messages, on_token, tools)
+    result["served_by"] = "gateway"
+    return result
+
+
 async def stream_chat(
     messages: list[dict], cost: int, on_token: Callable[[str], None]
 ) -> dict:
-    """Stream one AI action router-first with credit-metered gateway fallback.
-
-    Returns {"served_by": "router"|"gateway"}.
-    Raises NotEnoughCredits, AIUnavailable (nothing delivered) or
-    AIMidStream (partial answer already delivered — do not retry).
-    """
+    """Single-shot credit-metered call (summaries). Returns {"served_by"}."""
     credits = getattr(state, "credit_service", None)
     if credits is None:
         raise AIUnavailable("credit service not ready")
-
-    balance = await credits.get_balance()
     tx_id = await credits.reserve(cost)
     if tx_id is None:
-        raise NotEnoughCredits(balance)
-
-    served_by = "router"
+        raise NotEnoughCredits(await credits.get_balance())
     try:
-        try:
-            async with httpx.AsyncClient(http2=False) as client:
-                await _stream_router(client, messages, on_token)
-        except AIUnavailable as exc:
-            logger.info("AI router unavailable (%s) — falling back to gateway", exc)
-            served_by = "gateway"
-            async with httpx.AsyncClient(http2=False) as client:
-                await _stream_gateway(client, messages, on_token)
+        result = await stream_llm(messages, on_token)
         await credits.commit(tx_id)
+    except AIMidStream:
+        # Tokens were delivered — charge fairly.
+        await credits.commit(tx_id)
+        raise
     except BaseException:
         try:
             await credits.rollback(tx_id)
         except Exception:
             logger.exception("credit rollback failed (tx=%s)", tx_id)
         raise
-    logger.info("AI action served by %s (cost %d, tx=%s)", served_by, cost, tx_id)
-    return {"served_by": served_by}
+    return {"served_by": result.get("served_by", "")}
 
 
 # ── Prompt builders + response parsing ────────────────────────────────────
-
-
-def build_answer_messages(
-    query: str,
-    sources: list[dict],
-    mode: str = "standard",
-    thread: list[dict] | None = None,
-) -> list[dict]:
-    """Answer-over-sources prompt. Sources are 1-indexed and citations must match."""
-    numbered = "\n".join(
-        f"[{i + 1}] {s.get('title', '')} — {s.get('url', '')}\n    {s.get('snippet', '')}"
-        for i, s in enumerate(sources[:8])
-    )
-    depth = (
-        "Give a thorough synthesis comparing sources."
-        if mode == "deep"
-        else "Answer in 2-5 sentences, direct and concrete."
-    )
-    system = (
-        "You are DDGS AI, a private search assistant. "
-        "Answer ONLY from the numbered sources below. "
-        "Cite claims with [n] matching the source numbers. "
-        f"{depth} "
-        "End with a final line exactly in this format:\n"
-        "RELATED: query one | query two | query three\n"
-        "(three short alternative search queries, no numbering)."
-    )
-    messages: list[dict] = [{"role": "system", "content": system}]
-    for turn in thread or []:
-        messages.append(
-            {"role": turn.get("role", "assistant"), "content": turn.get("text", "")}
-        )
-    user = f"Sources:\n{numbered}\n\nQuestion: {query}"
-    messages.append({"role": "user", "content": user})
-    return messages
 
 
 def build_summary_messages(title: str, content: str) -> list[dict]:
@@ -404,31 +548,6 @@ def build_summary_messages(title: str, content: str) -> list[dict]:
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": f"Title: {title}\n\n{body}"},
-    ]
-
-
-def build_deep_messages(
-    query: str, sources: list[dict], pages: list[str]
-) -> list[dict]:
-    """Premium Deep answer: synthesis over the top pages' extracted text."""
-    numbered = []
-    for i, s in enumerate(sources[:3]):
-        body = (pages[i] if i < len(pages) else "") or s.get("snippet", "")
-        numbered.append(
-            f"[{i + 1}] {s.get('title', '')} — {s.get('url', '')}\n{body[:2500]}"
-        )
-    system = (
-        "You are DDGS AI in Deep mode. Synthesize a thorough answer across the "
-        "full page texts below, noting where sources agree or conflict. "
-        "Cite with [1]/[2]/[3]. End with a final line exactly:\n"
-        "RELATED: query one | query two | query three"
-    )
-    return [
-        {"role": "system", "content": system},
-        {
-            "role": "user",
-            "content": f"Pages:\n{chr(10).join(numbered)}\n\nQuestion: {query}",
-        },
     ]
 
 

@@ -108,4 +108,73 @@ def AppShell() -> Control:
 
             screen = HomeScreen(key=ft.ValueKey("home"))
 
-    return ft.SafeArea(content=screen, expand=True)
+    # ── Ask-AI FAB (AI mode ON, hidden while chat is open) ─────────────
+    content = ft.SafeArea(content=screen, expand=True)
+    if (
+        not state.has_accepted_terms
+        or state.chat_open
+        or not state.ai_mode_enabled
+    ):
+        return content
+
+    from flet import context as flet_context
+
+    from components.wallet import show_wallet_dialog
+    from core import tokens as _t
+    from core.theme import AppColors
+
+    def _on_fab(e):
+        page = flet_context.page
+        ctrl = getattr(page, "_ddgs_controller", None) if page else None
+        if not ctrl:
+            return
+        if state.credits_remaining <= 0:
+            show_wallet_dialog(page)
+        else:
+            ctrl.open_chat()
+
+    credits = state.credits_remaining
+    fab_color = AppColors.PRIMARY if credits > 0 else ft.Colors.with_opacity(
+        0.4, ft.Colors.ON_SURFACE
+    )
+    badge_color = (
+        AppColors.SUCCESS
+        if credits > 20
+        else AppColors.WARNING
+        if credits >= 5
+        else AppColors.ERROR
+    )
+    fab = ft.FloatingActionButton(
+        icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+        bgcolor=fab_color,
+        tooltip="Ask AI" if credits > 0 else "Out of AI credits — tap for options",
+        on_click=_on_fab,
+    )
+    badge = ft.Container(
+        content=ft.Text(
+            str(credits),
+            size=9,
+            weight=ft.FontWeight.W_700,
+            color=ft.Colors.WHITE,
+        ),
+        padding=ft.Padding(5, 1, 5, 1),
+        border_radius=_t.RADIUS_PILL,
+        bgcolor=badge_color,
+        border=ft.Border.all(1.5, ft.Colors.SURFACE),
+    )
+    return ft.Stack(
+        [
+            content,
+            ft.Positioned(
+                right=16,
+                bottom=96,
+                content=ft.Stack(
+                    [
+                        fab,
+                        ft.Positioned(top=-6, right=-4, content=badge),
+                    ]
+                ),
+            ),
+        ],
+        expand=True,
+    )

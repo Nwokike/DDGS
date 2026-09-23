@@ -185,7 +185,7 @@ def build_content_reader(
             page.show_dialog(snack)
             page.update()
             return
-        show_ai_summary(page, _current_url or "Page", str(_current_content))
+        show_ai_summary(page, _current_url or "Page", str(_current_content), url=_current_url or "")
 
     # ── Build UI ──
 

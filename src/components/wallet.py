@@ -11,9 +11,7 @@ from core import tokens
 from core.constants import (
     AD_TOPUP_COOLDOWN_SEC,
     AD_TOPUP_CREDITS,
-    COST_AI_ANSWER,
-    COST_DEEP_ANSWER,
-    COST_FOLLOWUP,
+    COST_CHAT,
     COST_SUMMARIZE,
     DAILY_FREE_CREDITS,
 )
@@ -27,35 +25,6 @@ def _credit_color(credits: int) -> str:
     if credits >= 5:
         return AppColors.WARNING
     return AppColors.ERROR
-
-
-def build_credit_pill(page: ft.Page) -> ft.Container:
-    """Compact color-coded credit chip for the home header."""
-    color = _credit_color(state.credits_remaining)
-    return ft.Container(
-        content=ft.Row(
-            [
-                ft.Icon(
-                    ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM, color=color
-                ),
-                ft.Text(
-                    str(state.credits_remaining),
-                    size=tokens.FONT_SM,
-                    weight=ft.FontWeight.W_600,
-                    color=color,
-                ),
-            ],
-            spacing=4,
-            tight=True,
-        ),
-        padding=ft.Padding(8, 4, 10, 4),
-        border_radius=tokens.RADIUS_PILL,
-        bgcolor=ft.Colors.with_opacity(0.12, color),
-        border=ft.Border.all(1, ft.Colors.with_opacity(0.25, color)),
-        ink=True,
-        tooltip="AI credits — tap for details",
-        on_click=lambda e: show_wallet_dialog(page),
-    )
 
 
 def show_wallet_dialog(page: ft.Page) -> None:
@@ -200,10 +169,8 @@ def show_wallet_dialog(page: ft.Page) -> None:
                 alignment=ft.MainAxisAlignment.CENTER,
             ),
             ft.Container(height=6),
-            _cost_line("AI answer", str(COST_AI_ANSWER)),
+            _cost_line("Chat message (any tools it runs)", str(COST_CHAT)),
             _cost_line("Page summary", str(COST_SUMMARIZE)),
-            _cost_line("Follow-up question", str(COST_FOLLOWUP)),
-            _cost_line("Deep answer (Premium)", str(COST_DEEP_ANSWER)),
             ft.Container(height=4),
             ft.Text(
                 "Manual search, scraping and downloads never use credits.",
