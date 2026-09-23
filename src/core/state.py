@@ -145,6 +145,7 @@ class AppState:
         self.ad_cooldown_end: float = 0.0
         self.chat_open: bool = False
         self.ai_overview: AiOverview | None = None
+        self.ai_overview_expanded: bool = False
 
         # ── Services (set by AppController) ──
         self.ad_service = None

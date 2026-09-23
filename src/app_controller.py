@@ -380,6 +380,7 @@ class AppController:
         state.current_query = query
         state.search_active = True
         state.ai_overview = None
+        state.ai_overview_expanded = False
         log_search_event("search_start", query=query, search_type=search_type)
 
         async def _run_search():
@@ -530,7 +531,7 @@ class AppController:
         ]
         overview = AiOverview(
             query=query,
-            sources=[{"title": s["title"], "url": s["url"]} for s in sources],
+            sources=[{"title": s["title"], "url": s["url"], "thumb": getattr(r, "thumbnail", "") or ""} for r, s in zip(results[:8], sources)],
             is_running=True,
         )
         state.ai_overview = overview
