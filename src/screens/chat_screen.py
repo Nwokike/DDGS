@@ -61,7 +61,9 @@ class ChatSession:
         self._current: dict | None = None
 
         # ── Controls ────────────────────────────────────────────────
-        self._list = ft.Column([], spacing=tokens.SPACE_SM, expand=True)
+        self._list = ft.Column(
+            [], spacing=tokens.SPACE_SM, expand=True, scroll=ft.ScrollMode.AUTO
+        )
         self.field = ft.TextField(
             hint_text="Ask AI anything — it can search and fetch for you…",
             expand=True,
@@ -215,7 +217,11 @@ class ChatSession:
 
         try:
             await chat_agent.run_turn(
-                text, list(self.agent_history), self.emit, self.cancel
+                text,
+                list(self.agent_history),
+                self.emit,
+                self.cancel,
+                on_thought=lambda t: self.emit("thought", {"text": t}),
             )
         finally:
             self.busy = False
@@ -255,6 +261,7 @@ class ChatSession:
             self._current = {
                 "role": "assistant",
                 "text": "",
+                "thought": "",
                 "partial": True,
                 "steps": [],
                 "cards": [],
@@ -267,6 +274,14 @@ class ChatSession:
         elif event == "text_partial" and self._current is not None:
             self._current["text"] = data.get("text", "")
             force = False  # throttle partials
+            if now - self._last_partial_flush < 0.2:
+                return
+            self._last_partial_flush = now
+        elif event == "thought" and self._current is not None:
+            self._current["thought"] = (self._current.get("thought") or "") + data.get(
+                "text", ""
+            )
+            force = False
             if now - self._last_partial_flush < 0.2:
                 return
             self._last_partial_flush = now
@@ -354,6 +369,7 @@ class ChatSession:
         if force:
             try:
                 self.page.update()
+                self._list.scroll_to(offset=-1e9, duration=200)
             except Exception:
                 pass
 
@@ -422,6 +438,22 @@ class ChatSession:
             expand=True,
         )
 
+    def _open_in_app(self, url: str) -> None:
+        """Open like the rest of DDGS: in-app extracted preview (which itself
+        offers Open in browser, full reader, and save). Falls back to browser."""
+
+        async def _go() -> None:
+            if not url:
+                return
+            from components.results.content_fetcher import _fetch_and_show
+
+            try:
+                await _fetch_and_show(self.page, url)
+            except Exception:
+                await launch_url(url)
+
+        self.page.run_task(_go)
+
     def _render_user(self, turn: dict) -> ft.Container:
         bubble_width = min(300, (getattr(self.page, "width", None) or 400) * 0.72)
         return ft.Row(
@@ -444,6 +476,22 @@ class ChatSession:
 
     def _render_assistant(self, turn: dict) -> ft.Container:
         kids: list[ft.Control] = []
+        if (turn.get("thought") or "").strip():
+            kids.append(
+                ft.Container(
+                    content=ft.Text(
+                        "💭 " + turn["thought"].strip(),
+                        size=tokens.FONT_XS,
+                        italic=True,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        max_lines=3,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                    padding=ft.Padding(8, 4, 8, 4),
+                    border_radius=tokens.RADIUS_SM,
+                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                )
+            )
 
         for step in turn.get("steps", []):
             if step["state"] == "running":
@@ -493,9 +541,7 @@ class ChatSession:
                     turn["text"],
                     selectable=True,
                     extension_set="gitHubWeb",
-                    on_tap_link=lambda e: (
-                        e.data and self.page.run_task(launch_url, e.data)
-                    ),
+                    on_tap_link=lambda e: self._open_in_app(e.data),
                 )
             )
 
@@ -593,7 +639,7 @@ class ChatSession:
         for r in results[:5]:
             rows.append(
                 ft.GestureDetector(
-                    on_tap=lambda e, u=r.url: u and self.page.run_task(launch_url, u),
+                    on_tap=lambda e, u=r.url: self._open_in_app(u),
                     content=ft.Row(
                         [
                             ft.Icon(

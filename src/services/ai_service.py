@@ -273,6 +273,7 @@ async def _consume_sse(
     resp: httpx.Response,
     on_token: Callable[[str], None],
     collect_tools: bool,
+    on_thought: Callable[[str], None] | None = None,
 ) -> tuple[str, list[dict] | None]:
     """Parse OpenAI-style SSE. Returns (finish_reason, tool_calls|None)."""
     finish = ""
@@ -295,11 +296,19 @@ async def _consume_sse(
             finish = str(choice["finish_reason"])
         delta = choice.get("delta") or {}
         text = delta.get("content") or ""
+        message = choice.get("message") or {}
         if not text:
-            message = choice.get("message") or {}
             text = message.get("content") or ""
         if text:
             on_token(text)
+        thought = (
+            delta.get("reasoning_content")
+            or delta.get("reasoning")
+            or message.get("reasoning_content")
+            or ""
+        )
+        if thought and on_thought:
+            on_thought(thought)
         if collect_tools:
             for tc in delta.get("tool_calls") or []:
                 idx = tc.get("index", 0)
@@ -348,6 +357,7 @@ async def _stream_router(
     messages: list[dict],
     on_token: Callable[[str], None],
     tools: list[dict] | None,
+    on_thought: Callable[[str], None] | None = None,
 ) -> dict:
     base = await _router_base()
     if base is None:
@@ -403,7 +413,7 @@ async def _stream_router(
 
                 if "text/event-stream" in ctype:
                     finish, tool_calls = await _consume_sse(
-                        resp, _counting, bool(tools)
+                        resp, _counting, bool(tools), on_thought
                     )
                 else:
                     await resp.aread()
@@ -439,6 +449,7 @@ async def _stream_gateway(
     messages: list[dict],
     on_token: Callable[[str], None],
     tools: list[dict] | None,
+    on_thought: Callable[[str], None] | None = None,
 ) -> dict:
     payload: dict = {
         "messages": messages,
@@ -478,7 +489,7 @@ async def _stream_gateway(
 
                 if "text/event-stream" in ctype:
                     finish, tool_calls = await _consume_sse(
-                        resp, _counting, bool(tools)
+                        resp, _counting, bool(tools), on_thought
                     )
                 else:
                     await resp.aread()
@@ -510,6 +521,7 @@ async def stream_llm(
     messages: list[dict],
     on_token: Callable[[str], None],
     tools: list[dict] | None = None,
+    on_thought: Callable[[str], None] | None = None,
 ) -> dict:
     """Raw router→gateway failover. NO credit handling (agent reserves per turn).
 
@@ -518,7 +530,9 @@ async def stream_llm(
     """
     try:
         async with httpx.AsyncClient(http2=False) as client:
-            result = await _stream_router(client, messages, on_token, tools)
+            result = await _stream_router(
+                client, messages, on_token, tools, on_thought
+            )
         result["served_by"] = "router"
         return result
     except AIUnavailable as exc:
@@ -526,7 +540,9 @@ async def stream_llm(
     except AIMidStream:
         raise
     async with httpx.AsyncClient(http2=False) as client:
-        result = await _stream_gateway(client, messages, on_token, tools)
+        result = await _stream_gateway(
+            client, messages, on_token, tools, on_thought
+        )
     result["served_by"] = "gateway"
     return result
 

@@ -36,7 +36,9 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
     header = ft.Row(
         [
             ft.Icon(
-                ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM, color=AppColors.ACCENT
+                ft.Icons.AUTO_AWESOME_ROUNDED,
+                size=tokens.ICON_SM,
+                color=AppColors.ACCENT,
             ),
             ft.Text(
                 "AI overview",
@@ -48,12 +50,14 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
             ft.TextButton(
                 "Ask AI",
                 icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                on_click=lambda e: ctrl
-                and ctrl.open_chat(
-                    {
-                        "question": f"Give me a deeper, well-sourced answer about: {ov.query}",
-                        "auto": True,
-                    }
+                on_click=lambda e: (
+                    ctrl
+                    and ctrl.open_chat(
+                        {
+                            "question": f"Give me a deeper, well-sourced answer about: {ov.query}",
+                            "auto": True,
+                        }
+                    )
                 ),
             ),
             ft.IconButton(
@@ -174,13 +178,13 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
                 border=ft.Border.all(1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)),
                 ink=True,
                 tooltip=f"Search: {q}",
-                on_click=lambda e, qq=q: ctrl and page.run_task(ctrl.start_search, qq, "text"),
+                on_click=lambda e, qq=q: (
+                    ctrl and page.run_task(ctrl.start_search, qq, "text")
+                ),
             )
             for q in ov.related
         ]
-        body.append(
-            ft.Row(pills, spacing=6, wrap=True, run_spacing=4)
-        )
+        body.append(ft.Row(pills, spacing=6, wrap=True, run_spacing=4))
 
     return ft.Container(
         content=ft.Column(
