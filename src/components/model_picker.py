@@ -1,13 +1,21 @@
-"""Assistant model picker — snapshot of the router's active models with status hints.
+"""Assistant model picker — a live pill and menu over the router's models.
 
-Lists the models that were `active` in the router catalog at attach/fetch time
-(per the owner's LM-Router pattern): `auto` first, then the rest by latency,
-each with its live latency and rate-limit hint. Scrollable + filterable (the
-router can expose 30+ models). Selecting persists via controller save
-"ai_model"; if it later goes rate-limited the client falls back to `auto`.
+Follows the pattern LM Router proved in
+`lm-router/src/components/chat_controls.py:60-205`: every startup
+circumstance gets its own honest label, so an empty list during discovery
+reads as "still starting" rather than as a broken app.
+
+The label logic lives in `model_picker_state()` and is shared by the chat
+header pill and the Settings row, so the two can never disagree about what
+the router is doing.
+
+List order: `auto` first, then the rest by the router's own latency, each
+with its live rate hint. Nothing is hardcoded; the default is `auto`.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 import flet as ft
 
@@ -18,18 +26,183 @@ from core.theme import AppColors
 _CHAT = ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED
 
 
-def show_model_picker(page: ft.Page) -> None:
+@dataclass(frozen=True)
+class PickerState:
+    """What the picker should show right now."""
+
+    label: str
+    discovering: bool
+    selected: str
+    active: bool
+    models: tuple[dict, ...]
+    message: str = ""
+    action: str = ""
+
+
+def model_picker_state() -> PickerState:
+    """Derive the picker's label, models and empty-state copy from state.
+
+    Mirrors LM Router's label ladder:
+      chosen + in catalog -> its name
+      starting            -> "Starting router..."
+      router stopped      -> "Router stopped"
+      models but no match -> "No chat models yet"
+      otherwise           -> "Loading models..."
+
+    The chosen name only counts once it is actually present in the catalog
+    we hold. Otherwise a saved preference would be shown while the router
+    is still starting, which is the stale-label problem this ladder exists
+    to avoid.
+    """
     from services import ai_service
 
+    models = tuple(ai_service.snapshot_models())
+    selected = state.ai_model
+    status = getattr(state, "ai_router_status", "starting") or "starting"
+    fetched = bool(getattr(ai_service, "_catalog_fetched_at", 0.0))
+    # Spin only while we are genuinely still finding out. Once a fetch has
+    # completed, an empty list is a real answer, not a wait.
+    discovering = status in ("starting", "ready") and not models and not fetched
+
+    current = next(
+        (m for m in models if str(m.get("id") or "") == str(selected or "")),
+        None,
+    )
+    if current is not None:
+        label = "Auto" if str(current.get("id")) == "auto" else str(current["id"])
+    elif status == "starting":
+        label = "Starting router..."
+    elif status == "stopped":
+        label = "Router stopped"
+    elif status == "unavailable":
+        label = "Router unavailable"
+    elif fetched:
+        label = "No chat models yet"
+    else:
+        label = "Loading models..."
+
+    message = action = ""
+    if not models:
+        if discovering:
+            message, action = "Looking for available models...", ""
+        elif status == "stopped":
+            message, action = "The local model router stopped.", "Start router"
+        elif status == "unavailable":
+            message, action = (
+                "No local model router is running. Replies will use Kiri Gateway.",
+                "Start router",
+            )
+        else:
+            message, action = "No models reported by the router.", "Refresh"
+
+    return PickerState(
+        label=label,
+        discovering=discovering,
+        selected=selected,
+        # True only when the saved choice is in the catalog we actually
+        # hold, so the pill does not claim a model it cannot see.
+        active=current is not None,
+        models=models,
+        message=message,
+        action=action,
+    )
+
+
+def _pill_state(ps: PickerState) -> tuple[str, ft.Control | None]:
+    """Pill label + leading icon/spinner."""
+    if ps.active:
+        icon = ft.Icon(
+            _CHAT if ps.selected == "auto" else ft.Icons.MEMORY_ROUNDED,
+            size=tokens.ICON_SM,
+            color=AppColors.PRIMARY,
+        )
+        return ps.label, icon
+    if ps.discovering:
+        return ps.label, ft.ProgressRing(width=12, height=12, stroke_width=2)
+    icon = ft.Icon(
+        ft.Icons.CLOUD_OFF_ROUNDED
+        if ps.action == "Start router"
+        else ft.Icons.MEMORY_ROUNDED,
+        size=tokens.ICON_SM,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+    )
+    return ps.label, icon
+
+
+def build_model_pill(
+    page: ft.Page,
+    *,
+    on_open: callable | None = None,
+) -> ft.Container:
+    """The chat-header pill. Opens the dialog; label reflects live state."""
+    ps = model_picker_state()
+    label, icon = _pill_state(ps)
+    return ft.Container(
+        content=ft.Row(
+            [
+                *( [icon] if icon is not None else [] ),
+                ft.Text(
+                    label,
+                    size=tokens.FONT_XS,
+                    weight=ft.FontWeight.W_600,
+                    color=AppColors.PRIMARY
+                    if ps.active
+                    else ft.Colors.ON_SURFACE_VARIANT,
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                ),
+                ft.Icon(
+                    ft.Icons.EXPAND_MORE_ROUNDED,
+                    size=12,
+                    color=AppColors.PRIMARY
+                    if ps.active
+                    else ft.Colors.ON_SURFACE_VARIANT,
+                ),
+            ],
+            spacing=2,
+            tight=True,
+        ),
+        padding=ft.Padding(7, 3, 7, 3),
+        border_radius=tokens.RADIUS_PILL,
+        bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY)
+        if ps.active
+        else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+        ink=True,
+        tooltip="Assistant model",
+        on_click=(lambda e: on_open()) if on_open else (lambda e: show_model_picker(page)),
+    )
+
+
+def model_status_subtitle() -> str:
+    """One line for the Settings row, under the model name."""
+    from services import ai_service
+
+    ps = model_picker_state()
+    if ps.active:
+        return ai_service.model_hint(ps.selected) or "Active at last fetch"
+    if ps.message:
+        return ps.message
+    return "No model selected"
+
+
+def show_model_picker(page: ft.Page) -> None:
+    """Open the full picker dialog with a live, filterable model list."""
+
     ctrl = getattr(page, "_ddgs_controller", None)
-    catalog = ai_service.snapshot_models()
-    if not catalog:
-        # No router attached yet — attach on demand so the list is real.
+    ps = model_picker_state()
+
+    if not ps.models:
+        # Nothing to list yet. Say what is happening and offer the action
+        # that helps, instead of opening an empty dialog.
         async def _load_and_show() -> None:
-            await ai_service.refresh_catalog()
+            from services import ai_service as _ai
+
+            if ps.action == "Start router":
+                await _ai.ensure_router()
+            await _ai.refresh_catalog()
             show_model_picker(page)
 
-        page.run_task(_load_and_show)
+        _show_empty_dialog(page, ps, _load_and_show)
         return
 
     filter_box = {"q": ""}
@@ -37,18 +210,19 @@ def show_model_picker(page: ft.Page) -> None:
 
     def _rows() -> list[ft.Control]:
         out: list[ft.Control] = []
-        for entry in catalog:
-            if filter_box["q"] and filter_box["q"] not in entry["id"].lower():
+        for entry in ps.models:
+            model_id = str(entry.get("id") or "")
+            if not model_id:
                 continue
-            selected = state.ai_model == entry["id"]
+            if filter_box["q"] and filter_box["q"] not in model_id.lower():
+                continue
+            selected = state.ai_model == model_id
             out.append(
                 ft.Container(
                     content=ft.Row(
                         [
                             ft.Icon(
-                                _CHAT
-                                if entry["id"] == "auto"
-                                else ft.Icons.MEMORY_ROUNDED,
+                                _CHAT if model_id == "auto" else ft.Icons.MEMORY_ROUNDED,
                                 size=16,
                                 color=AppColors.PRIMARY
                                 if selected
@@ -57,7 +231,7 @@ def show_model_picker(page: ft.Page) -> None:
                             ft.Column(
                                 [
                                     ft.Text(
-                                        entry["id"],
+                                        "Auto" if model_id == "auto" else model_id,
                                         size=tokens.FONT_SM,
                                         weight=ft.FontWeight.W_700
                                         if selected
@@ -67,7 +241,7 @@ def show_model_picker(page: ft.Page) -> None:
                                         else ft.Colors.ON_SURFACE,
                                     ),
                                     ft.Text(
-                                        entry["hint"],
+                                        entry.get("hint", ""),
                                         size=9,
                                         color=ft.Colors.ON_SURFACE_VARIANT,
                                         max_lines=2,
@@ -97,7 +271,7 @@ def show_model_picker(page: ft.Page) -> None:
                     bgcolor=ft.Colors.with_opacity(0.05, AppColors.PRIMARY)
                     if selected
                     else None,
-                    on_click=lambda e, mid=entry["id"]: _select(page, ctrl, mid),
+                    on_click=lambda e, mid=model_id: _select(page, ctrl, mid),
                 )
             )
         return out
@@ -105,9 +279,7 @@ def show_model_picker(page: ft.Page) -> None:
     def _apply_filter(e=None) -> None:
         filter_box["q"] = (e.control.value or "").lower() if e is not None else ""
         list_col.controls = _rows()
-        list_col.height = min(
-            400, max(56, 52 * len(list_col.controls) + 8)
-        )
+        list_col.height = min(400, max(56, 52 * len(list_col.controls) + 8))
         try:
             page.update()
         except Exception:
@@ -139,6 +311,70 @@ def show_model_picker(page: ft.Page) -> None:
         ],
     )
     page.show_dialog(dlg)
+
+
+def _show_empty_dialog(page: ft.Page, ps: PickerState, on_action) -> None:
+    """Dialog for the no-models-yet case: status + the action that helps."""
+    controls: list[ft.Control] = [
+        ft.Row(
+            [
+                ft.Icon(
+                    ft.Icons.CLOUD_OFF_ROUNDED
+                    if ps.action == "Start router"
+                    else ft.Icons.MEMORY_ROUNDED,
+                    size=20,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+                ft.Text(
+                    ps.message,
+                    size=tokens.FONT_SM,
+                    color=ft.Colors.ON_SURFACE,
+                    expand=True,
+                ),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+    ]
+    actions: list[ft.Control] = []
+    if ps.action:
+        controls.append(
+            ft.Text(
+                ps.action,
+                size=tokens.FONT_SM,
+                weight=ft.FontWeight.W_600,
+                color=AppColors.PRIMARY,
+            )
+        )
+        actions.append(
+            ft.FilledButton(
+                ps.action,
+                on_click=lambda e: _dismiss_then(page, on_action),
+                style=ft.ButtonStyle(bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE),
+            )
+        )
+    actions.append(ft.TextButton("Close", on_click=lambda e: page.pop_dialog()))
+
+    page.show_dialog(
+        ft.AlertDialog(
+            title=ft.Text("Assistant model", font_family="Outfit"),
+            content=ft.Container(
+                content=ft.Column(controls, spacing=8, tight=True), width=320
+            ),
+            actions=actions,
+        )
+    )
+
+
+def _dismiss_then(page: ft.Page, action) -> None:
+    try:
+        page.pop_dialog()
+    except Exception:
+        pass
+    try:
+        page.run_task(action)
+    except Exception:
+        action()
 
 
 def _select(page: ft.Page, ctrl, model_id: str) -> None:

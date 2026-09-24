@@ -23,6 +23,7 @@ from core.utils import (
     sanitize_url,
 )
 from services.ad_service import AdService
+from services.cache_service import cache_service
 from services.credit_service import init_credit_service
 from services.search_service import SearchService
 from services.storage_service import StorageService
@@ -92,6 +93,8 @@ class AppController:
         self.storage = StorageService(self.page)
         state.credit_service = init_credit_service(self.storage)
         self.search_service = SearchService()
+        # Set for one call by refresh_search() to bypass a cache hit.
+        self._skip_cache_once = False
 
         self.ad_service = AdService(self.page)
         self.update_service = UpdateService()
@@ -121,6 +124,10 @@ class AppController:
         self.page.run_task(self._scrape_scheduler)
         # Attach to the router and snapshot the active models for the picker
         self.page.run_task(self._refresh_ai_catalog)
+        # Watchdog keeps the router's live status honest for the picker.
+        self.page.run_task(self._router_watchdog)
+        # Cache maintenance + temp cleanup are best-effort housekeeping.
+        self.page.run_task(self._cache_maintenance)
 
         # ── Mount declarative UI ──
         from app_shell import AppShell
@@ -128,6 +135,7 @@ class AppController:
 
         methods = ControllerMethods(
             start_search=self.start_search,
+            refresh_search=self.refresh_search,
             run_extract=self.run_extract,
             cancel_search=self.cancel_search,
             go_home=self.go_home,
@@ -252,11 +260,12 @@ class AppController:
             try:
                 import json as _json2
 
-                state.assistant_history = _json2.loads(
+                legacy_history = _json2.loads(
                     await storage.get_assistant_history() or "[]"
                 )
             except Exception:
-                state.assistant_history = []
+                legacy_history = []
+            await self._init_conversations(legacy_history)
             state.is_premium = await storage.get_is_premium()
             import json as _json
 
@@ -389,6 +398,89 @@ class AppController:
 
     # ── Search ─────────────────────────────────────────────────────────
 
+    async def _init_conversations(self, legacy_history: list[dict]) -> None:
+        """Load chat history, migrating the old flat list exactly once.
+
+        Disk work is off the UI thread: this runs during init, before the
+        first paint, and scanning the conversation directory must not delay
+        the app appearing.
+        """
+        import asyncio
+
+        from services import conversation_service as conversations
+
+        try:
+            rows = await asyncio.to_thread(conversations.list_conversations)
+            if not rows and legacy_history:
+                migrated = await asyncio.to_thread(
+                    conversations.migrate_legacy_history, legacy_history
+                )
+                if migrated:
+                    rows = await asyncio.to_thread(conversations.list_conversations)
+                    await self.show_snack(
+                        "Your previous Assistant chat is now in Chat history",
+                        "info",
+                    )
+            state.conversations = rows
+            state.active_conversation = (
+                rows[0]["id"] if rows else conversations.new_conversation_id()
+            )
+            active = await asyncio.to_thread(
+                conversations.load_conversation, state.active_conversation
+            )
+            state.assistant_history = list((active or {}).get("messages") or [])
+        except Exception:
+            logger.exception("conversation history init failed")
+            state.conversations = []
+            state.assistant_history = list(legacy_history or [])
+
+    def _cache_filters(self) -> dict[str, str]:
+        """The search inputs that change the result set.
+
+        Folded into the cache key so a different region or engine can never
+        be served a list produced under the previous settings.
+        """
+        return {
+            "region": state.region,
+            "safesearch": state.safe_search,
+            "timelimit": state.timelimit or "",
+            "backend": state.backend,
+        }
+
+    def _cached_progress(
+        self, query: str, search_type: str
+    ) -> SearchProgress | None:
+        """Build a finished SearchProgress from cache, or None on a miss.
+
+        Synchronous on purpose: it is one small JSON read and the caller is
+        already on a task, so there is nothing to await.
+        """
+        try:
+            results = cache_service.get_cached_search(
+                query, search_type, **self._cache_filters()
+            )
+        except Exception as exc:
+            logger.warning("search cache read failed: %s", exc)
+            return None
+        if not results:
+            return None
+        return SearchProgress(
+            query=query,
+            search_type=search_type,
+            total_results=len(results),
+            loaded_results=len(results),
+            is_running=False,
+            results=results,
+        )
+
+    async def refresh_search(self, query: str, search_type: str = "text"):
+        """Re-run a search, ignoring and repopulating the cache."""
+        self._skip_cache_once = True
+        try:
+            await self.start_search(query, search_type)
+        finally:
+            self._skip_cache_once = False
+
     async def start_search(self, query: str, search_type: str = "text"):
         """Execute a search and update state with progress/results."""
         if not query or not query.strip():
@@ -401,7 +493,9 @@ class AppController:
 
         # Fail fast when offline: re-probe once in case the connection just
         # came back, then surface the offline card immediately instead of
-        # waiting for the ~15s engine timeout.
+        # waiting for the ~15s engine timeout. A cached result set beats the
+        # offline card, because "no internet" is useless when the answer is
+        # already on disk.
         if not state.is_online:
             if self.connectivity is not None:
                 try:
@@ -410,6 +504,14 @@ class AppController:
                 except Exception:
                     pass
             if not state.is_online:
+                cached = self._cached_progress(query, search_type)
+                if cached is not None:
+                    self.cancel_search()
+                    state.current_query = query
+                    state.search_active = True
+                    state.results_from_cache = True
+                    await self._refresh(cached)
+                    return
                 progress = SearchProgress(
                     query=query,
                     search_type=search_type,
@@ -424,6 +526,17 @@ class AppController:
 
         # Cancel prior tasks
         self.cancel_search()
+
+        # Fresh-enough results are shown immediately while the live search
+        # runs underneath and replaces them (stale-while-revalidate). The
+        # user gets an answer in milliseconds and still ends up current.
+        if not self._skip_cache_once:
+            cached = self._cached_progress(query, search_type)
+            if cached is not None:
+                state.results_from_cache = True
+                state.current_query = query
+                state.search_active = True
+                await self._refresh(cached)
 
         state.current_query = query
         state.search_active = True
@@ -445,6 +558,22 @@ class AppController:
                 query=query,
                 results=len(progress.results),
             )
+
+            # The live result supersedes whatever the cache showed.
+            state.results_from_cache = False
+
+            # Cache a clean result set so re-running this exact search is
+            # instant. A failed or empty search is not worth remembering.
+            if progress.results and not progress.error:
+                try:
+                    await cache_service.store_search(
+                        query,
+                        search_type,
+                        progress.results,
+                        **self._cache_filters(),
+                    )
+                except Exception as exc:
+                    logger.warning("search cache write failed: %s", exc)
 
             # Persist to history
             try:
@@ -494,10 +623,19 @@ class AppController:
                 self.page.run_task(self.run_ai_overview, query, progress.results)
 
         # Show loading state immediately
-        loading = SearchProgress(
-            query=query, search_type=search_type, total_results=0, is_running=True
-        )
-        await self._refresh(loading)
+        # Show loading state immediately, unless a cached set is already on
+        # screen and the live run is about to replace it.
+        if state.results_from_cache:
+            cached = self._cached_progress(query, search_type)
+            if cached is not None:
+                await self._refresh(cached)
+            else:
+                state.results_from_cache = False
+        if not state.results_from_cache:
+            loading = SearchProgress(
+                query=query, search_type=search_type, total_results=0, is_running=True
+            )
+            await self._refresh(loading)
 
         task = self.page.run_task(_run_search)
         self._current_search_tasks[search_type] = task
@@ -730,6 +868,72 @@ class AppController:
             await ai_service.refresh_catalog()
         except Exception:
             logger.exception("AI catalog snapshot failed")
+
+    async def _router_watchdog(self) -> None:
+        """Poll router health so the model picker can report the truth.
+
+        Only reports liveness; the model catalog has its own 5-minute
+        refresh. A single failed tick must never kill the watchdog, and the
+        status is only written when it actually changes so the observable
+        does not trigger a repaint every 3 seconds.
+        """
+        import asyncio
+
+        from services import ai_service
+
+        while True:
+            try:
+                status, port = await ai_service.probe_router()
+                changed = (
+                    state.ai_router_status != status
+                    or state.ai_router_port != port
+                )
+                if changed:
+                    state.ai_router_status = status
+                    state.ai_router_port = port
+                    logger.info("router status: %s (port %s)", status, port)
+                    # An open Assistant shows the router state in its header
+                    # pill, and that pill is a static control, so nudge it.
+                    session = getattr(self.page, "_chat_session", None)
+                    if state.chat_open and session is not None:
+                        try:
+                            session.refresh_model_chip()
+                        except Exception:
+                            pass
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug("router watchdog tick failed: %s", exc)
+            await asyncio.sleep(3)
+
+    async def _cache_maintenance(self) -> None:
+        """Clear temp/ once, then prune the cache every 30 minutes."""
+        import asyncio
+
+        from core.storage_paths import clear_temp
+
+        try:
+            removed = clear_temp()
+            if removed:
+                logger.info("cleared %d temp entries at startup", removed)
+            stats = await cache_service.prune()
+            if stats["removed"]:
+                logger.info(
+                    "cache pruned at startup: %d entries, %.1f KB",
+                    stats["removed"],
+                    stats["freed"] / 1024,
+                )
+        except Exception:
+            logger.exception("cache maintenance failed")
+
+        while True:
+            await asyncio.sleep(30 * 60)
+            try:
+                await cache_service.prune()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("cache prune failed")
 
     async def _scrape_scheduler(self):
         """Run due scheduled crawls every 60s while the app is open."""

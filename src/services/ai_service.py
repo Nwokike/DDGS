@@ -98,6 +98,7 @@ _router_failed_until = 0.0
 _router_models: list[str] = []
 _router_models_at = 0.0
 _catalog: list[dict] = []  # snapshot of models ACTIVE at fetch/attach time
+_catalog_fetched_at: float = 0.0  # 0 until the first successful /v1/models
 
 
 def _hint(entry: dict) -> str:
@@ -156,6 +157,38 @@ async def _probe_existing_router() -> int | None:
     return None
 
 
+async def probe_router() -> tuple[str, int | None]:
+    """Report the router's live status without starting anything.
+
+    Returns (status, port) where status is one of:
+      ready        attached and answering /health
+      stopped      a port was known but nothing is answering now
+      unavailable  no router, and none is embedded
+      starting     embedded server is coming up but not yet healthy
+
+    The picker turns this into an honest label, the same way LM Router's
+    ModelPicker distinguishes "Starting gateway..." from "Gateway stopped".
+    """
+    with _router_lock:
+        port = _router_port
+    if port is None:
+        # Cheap probe only: never embed a server just to report status.
+        found = await _probe_existing_router()
+        if found is None:
+            return ("unavailable", None)
+        return ("ready", found)
+    try:
+        async with httpx.AsyncClient(http2=False) as client:
+            resp = await client.get(
+                f"http://{ROUTER_HOST}:{port}/health", timeout=2.0
+            )
+        if resp.status_code == 200:
+            return ("ready", port)
+    except Exception as exc:
+        logger.debug("router health probe failed on %s: %r", port, exc)
+    return ("stopped", port)
+
+
 async def ensure_router() -> int | None:
     """Attach to a running Kiri router, or embed one. Returns its port."""
     global _router_server, _router_port
@@ -163,9 +196,13 @@ async def ensure_router() -> int | None:
         if _router_port is not None:
             return _router_port
 
+    # Publish "starting" before the slow parts so the picker can say so.
+    _publish_status("starting", None)
+
     existing = await _probe_existing_router()
     if existing is not None:
         _router_port = existing
+        _publish_status("ready", existing)
         logger.info("AI router: attached to existing instance on %d", existing)
         return existing
 
@@ -176,12 +213,14 @@ async def ensure_router() -> int | None:
         if server is None:
             # Raced with another Kiri instance on the wanted port — attach.
             _router_port = port
+            _publish_status("ready", port)
             logger.info("AI router: attached to instance on %d", port)
             return port
         server.access_log = False
         threading.Thread(target=server.serve_forever, daemon=True).start()
         with _router_lock:
             _router_server, _router_port = server, port
+        _publish_status("ready", port)
         logger.info("AI router: embedded on %s:%d", ROUTER_HOST, port)
         return port
     except SystemExit:
@@ -190,10 +229,27 @@ async def ensure_router() -> int | None:
             ROUTER_BASE_PORT,
             ROUTER_BASE_PORT + ROUTER_SPAN,
         )
+        _publish_status("unavailable", None)
         return None
     except Exception as exc:
         logger.warning("AI router: failed to start: %r", exc)
+        _publish_status("unavailable", None)
         return None
+
+
+def _publish_status(status: str, port: int | None) -> None:
+    """Write router lifecycle to observable state, only on a real change.
+
+    The watchdog ticks every 3 seconds; assigning unconditionally would
+    repaint the whole UI on every tick for no reason.
+    """
+    from core.state import state
+
+    if getattr(state, "ai_router_status", None) != status or (
+        getattr(state, "ai_router_port", None) != port
+    ):
+        state.ai_router_status = status
+        state.ai_router_port = port
 
 
 def stop_router() -> None:
@@ -209,6 +265,7 @@ def stop_router() -> None:
             logger.info("AI router: stopped embedded instance")
         except Exception:
             pass
+        _publish_status("stopped", None)
 
 
 def shutdown() -> None:
@@ -280,7 +337,7 @@ async def _fetch_candidates(
     Also snapshots the ACTIVE chat-completion models for the picker
     (see snapshot_models).
     """
-    global _router_models, _router_models_at, _catalog
+    global _router_models, _router_models_at, _catalog, _catalog_fetched_at
     if (
         not force
         and _router_models
@@ -301,6 +358,9 @@ async def _fetch_candidates(
                 await asyncio.sleep(1.0)
     if not data:
         return []
+    # Recorded even when nothing is chat-eligible, so the picker can tell
+    # "not fetched yet" from "fetched, and there are no chat models".
+    _catalog_fetched_at = time.monotonic()
     _catalog = [
         m
         for m in data

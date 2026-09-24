@@ -194,12 +194,25 @@ def ResultsScreen() -> Control:
         visible=not is_running and (not bool(error) or is_video_rate_limit),
     )
 
+    from components.cache_banner import build_cache_banner
+
     return ft.Container(
         content=ft.Column(
             [
                 appbar,
                 loading_box,
                 error_box,
+                # Only meaningful once a result set is on screen; a running
+                # search with nothing cached yet must not flash the strip.
+                build_cache_banner(
+                    bool(getattr(state, "results_from_cache", False)) and bool(results),
+                    refreshing=bool(
+                        getattr(state, "results_from_cache", False) and is_running
+                    ),
+                    on_refresh=lambda: _get_page().run_task(
+                        controller.refresh_search, query, search_type
+                    ),
+                ),
                 results_container,
                 build_banner_ad(page),
             ],
