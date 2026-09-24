@@ -248,9 +248,9 @@ def build_content_reader(
                 on_click=lambda _: page.run_task(_fetch, _current_url),
             ),
             ft.IconButton(
-                icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                 icon_size=tokens.ICON_SM,
-                tooltip="Summarize with AI",
+                tooltip="Summarize with Assistant",
                 on_click=_on_summarize,
             ),
             ft.IconButton(

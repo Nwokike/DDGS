@@ -1,4 +1,4 @@
-"""✨ AI Summary sheet — streams a page summary from reader/preview/detail.
+"""✨ Assistant summary sheet — streams a page summary from reader/preview/detail.
 
 Lives outside the reactive component tree (BottomSheet via show_dialog), so it
 drives its Text control manually with >=0.2s page.update() throttling — the
@@ -20,7 +20,7 @@ _DISCLOSURE = "Sends this page's extracted text to Kiri AI. No history, no train
 
 def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> None:
     """Open the summary sheet and stream an AI summary of `content`."""
-    from core.constants import COST_SUMMARIZE
+    from core.constants import COST_SUMMARY
     from services import ai_service
 
     body = ft.Text(
@@ -51,12 +51,12 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
                     ft.Row(
                         [
                             ft.Icon(
-                                ft.Icons.AUTO_AWESOME_ROUNDED,
+                                ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                                 size=18,
                                 color=AppColors.ACCENT,
                             ),
                             ft.Text(
-                                "AI Summary",
+                                "Assistant summary",
                                 size=tokens.FONT_SM,
                                 weight=ft.FontWeight.W_700,
                                 font_family="Outfit",
@@ -92,8 +92,8 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
                                 expand=True,
                             ),
                             ft.TextButton(
-                                "Ask AI about this page",
-                                icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                                "Ask Assistant about this page",
+                                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                                 on_click=_ask_ai,
                             ),
                         ],
@@ -131,14 +131,14 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
         try:
             await ai_service.stream_chat(
                 messages,
-                COST_SUMMARIZE,
+                COST_SUMMARY,
                 on_token,
                 model=getattr(state, "ai_model", "auto"),
             )
             body.value = buffer["text"] or "(empty summary)"
         except ai_service.NotEnoughCredits as exc:
             body.value = (
-                f"Out of free AI credits ({exc.balance} left) — "
+                f"Assistant summary unavailable ({exc.balance} left) — "
                 "close this and open the credit pill for options. "
                 "Manual reading and downloads are unaffected."
             )

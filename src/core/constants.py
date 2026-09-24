@@ -25,6 +25,7 @@ STORAGE_SEARCH_DURATION = "search_duration"
 STORAGE_SEARCH_LICENSE = "search_license"
 STORAGE_SCHEDULED_SCRAPES = "scheduled_scrapes"
 STORAGE_AI_MODEL = "ai_model"
+STORAGE_ASSISTANT_HISTORY = "assistant_history"
 
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
@@ -143,13 +144,16 @@ VIDEO_LICENSE_OPTIONS = [
 # ── AI mode (DDGS 2.0) ───────────────────────────────────────────────────
 DAILY_FREE_CREDITS = 50
 PREMIUM_DAILY_CREDITS = 200
-COST_CHAT = 1  # one credit per chat message, whatever the tool loop spends
-COST_SUMMARIZE = 1
+COST_STEP = 2  # one Assistant step = one model call
+COST_OVERVIEW = 0  # passive search overview is free
+COST_SUMMARY = 0  # passive page summary is free
 AD_TOPUP_CREDITS = 2
 AD_TOPUP_COOLDOWN_SEC = 30.0
-AGENT_MAX_ITERS = 5  # model calls per turn
-AGENT_MAX_TOOLS = 6  # tool calls per turn
-AGENT_TIMEOUT_S = 120  # wall-clock per turn
+AGENT_MAX_ITERS = 6  # model calls per step-cap (max 12 credits/message)
+AGENT_MAX_TOOLS = 10  # tool calls per turn
+AGENT_TIMEOUT_S = 240  # wall-clock per turn
+TOOL_OUTPUT_CAP = 2000  # chars of tool output re-sent per loop
+AGENT_HISTORY_MESSAGES = 6
 
 STORAGE_AI_MODE = "ai_mode_enabled"
 STORAGE_IS_PREMIUM = "is_premium"

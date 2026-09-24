@@ -258,9 +258,9 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 on_click=lambda _: page.run_task(save_extract),
             ),
             ft.IconButton(
-                icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                 icon_size=tokens.ICON_MD,
-                tooltip="Summarize with AI",
+                tooltip="Summarize with Assistant",
                 on_click=_summarize_preview,
             ),
             ft.IconButton(

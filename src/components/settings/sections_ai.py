@@ -1,4 +1,4 @@
-"""Settings → AI & Premium: balance, cost table, AI switch, purchases."""
+"""Settings → Assistant & Premium: balance, cost table, AI switch, purchases."""
 
 from __future__ import annotations
 
@@ -62,9 +62,9 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
     controls: list[ft.Control] = [
         ft.Row(
             [
-                ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=22, color=AppColors.ACCENT),
+                ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=22, color=AppColors.ACCENT),
                 ft.Text(
-                    f"{state.credits_remaining} / {cap} AI credits today",
+                    f"{state.credits_remaining} / {cap} assistant credits today",
                     size=FONT_MD,
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",
@@ -82,10 +82,10 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         ft.Row(
             [
                 ft.Text("Chat message — 1", size=FONT_XS),
-                ft.Text("AI overview — 1", size=FONT_XS),
-                ft.Text("Page summary — 1", size=FONT_XS),
+                ft.Text("Search overview — free", size=FONT_XS),
+                ft.Text("Page summary — free", size=FONT_XS),
                 ft.Text(
-                    "Tools inside a message are free",
+                    "Each assistant step = 1 model call",
                     size=FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
@@ -96,7 +96,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         ft.Row(
             [
                 ft.Text(
-                    "AI mode — Ask AI chat",
+                    "Assistant mode — Ask Assistant chat",
                     size=FONT_SM,
                     font_family="Outfit",
                     weight=ft.FontWeight.W_500,
@@ -121,7 +121,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                         color=AppColors.SUCCESS,
                     ),
                     ft.Text(
-                        "Premium active — ad-free, 200 AI credits/day.",
+                        "Premium active — ad-free, 200 assistant credits/day.",
                         size=FONT_SM,
                         weight=ft.FontWeight.W_600,
                     ),
@@ -134,7 +134,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
             [
                 ft.Divider(height=10, thickness=1),
                 ft.Text(
-                    "DDGS Premium — ad-free + 200 AI credits/day",
+                    "DDGS Premium — ad-free + 200 assistant credits/day",
                     size=FONT_SM,
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",
@@ -190,7 +190,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
     else:
         controls.append(
             ft.Text(
-                "Premium (ad-free + 200 AI credits/day) is available in the "
+                "Premium (ad-free + 200 assistant credits/day) is available in the "
                 "Android app.",
                 size=FONT_XS,
                 color=ft.Colors.ON_SURFACE_VARIANT,
@@ -206,7 +206,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                 ft.Column(
                     [
                         ft.Text(
-                            "AI model",
+                            "Assistant model",
                             size=FONT_SM,
                             weight=ft.FontWeight.W_500,
                             font_family="Outfit",
@@ -281,8 +281,8 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
 
     _ = DAILY_FREE_CREDITS  # used above via cap
     return AppStyles.section_card(
-        "AI & Premium",
-        ft.Icons.AUTO_AWESOME_ROUNDED,
+        "Assistant & Premium",
+        ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
         ft.Column(controls, spacing=10),
         page=page,
     )

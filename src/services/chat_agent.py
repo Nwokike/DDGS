@@ -24,12 +24,15 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from typing import Any
 
 from core.constants import (
+    AGENT_HISTORY_MESSAGES,
     AGENT_MAX_ITERS,
     AGENT_MAX_TOOLS,
     AGENT_TIMEOUT_S,
-    COST_CHAT,
+    COST_STEP,
+    TOOL_OUTPUT_CAP,
 )
 from core.state import state
 from services import agent_files, ai_service
@@ -37,6 +40,8 @@ from services import agent_files, ai_service
 logger = logging.getLogger(__name__)
 
 # tool name -> SearchService.search type
+_WRITE_TOOLS = {"save_page", "download_media", "scrape_site", "schedule_scrape"}
+
 TOOL_KINDS = {
     "search_web": "text",
     "search_images": "images",
@@ -62,6 +67,8 @@ SYSTEM_PROMPT = (
     "crawls a site and saves every page, and schedule_scrape/cancel_scrape manage "
     "recurring crawls (they run while the app is open). Use them when the user asks. "
     "After saving or downloading, tell them the exact file paths. "
+    "If a tool returns an error or 'No results found', retry ONCE with a "
+    "broader query or a different search tool, then answer with what you have. "
     "If no tool is needed (greetings, math, opinions), just answer."
 )
 
@@ -345,73 +352,112 @@ async def _dispatch(name: str, args: dict):
     raise ValueError(f"unknown tool: {name}")
 
 
+async def settle_turn(credits, tx_id: str | None, steps: int) -> int:
+    """Charge 2 credits per delivered step (2 * steps). Never breaks the user's
+    work: a finished/partial message is always settled (overdraft clamps at
+    zero); zero delivered steps refunds the hold entirely."""
+    amount = max(0, steps) * COST_STEP
+    if not tx_id:
+        if amount:
+            return await credits.charge(amount)
+        return await credits.get_balance()
+    if steps <= 0:
+        await credits.rollback(tx_id)
+        return await credits.get_balance()
+    return await credits.commit_amount(tx_id, amount)
+
+
 async def run_turn(
     user_text: str,
     history: list[dict],
     emit: Callable[[str, dict], None],
     cancel: asyncio.Event,
     on_thought: Callable[[str], None] | None = None,
+    ask_confirm: Callable[[str], Any] | None = None,
 ) -> None:
-    """One full agent turn: reserve → tool loop → final answer → commit."""
+    """One agent turn — 2 credits per model step, settled on every exit.
+
+    Soft metering: a low balance is never a mid-run kill switch; the turn
+    always finishes (balance may clamp to 0). A 0 balance starts blocked.
+    """
     credits = getattr(state, "credit_service", None)
     if credits is None:
-        emit("error", {"kind": "unavailable"})
+        emit("error", {"kind": "unavailable", "steps": 0, "cost": 0})
         return
-    tx = await credits.reserve(COST_CHAT)
-    if tx is None:
-        emit("error", {"kind": "credits", "balance": await credits.get_balance()})
+    balance = await credits.get_balance()
+    if balance <= 0:
+        emit("error", {"kind": "credits", "balance": 0, "steps": 0, "cost": 0})
         return
+    # Best-effort hold; at balance 1 the hold fails and we run hold-less
+    # (settlement then charges directly). Credits must never block the work.
+    tx = await credits.reserve(COST_STEP)
 
     emit("user", {"text": user_text})
     emit("assistant_start", {})
+    if balance < COST_STEP * 3:
+        emit(
+            "nudge",
+            {"text": "Low credit balance — this message finishes regardless."},
+        )
 
     messages: list[dict] = (
         [{"role": "system", "content": SYSTEM_PROMPT}]
-        + history[-8:]
-        + [{"role": "user", "content": user_text}]
+        + history[-AGENT_HISTORY_MESSAGES:]
+        + [{"role": "user", "content": user_text[:2000]}]
     )
     tools = build_tools()
     seen_urls: list[str] = []
     served_by = ""
     content_parts: list[str] = []
+    parts: list[str] = []
     final_text = ""
-    t0 = time.monotonic()
-    iters = 0
+    steps = 0
     tools_used = 0
+    t0 = time.monotonic()
+    empty_retried = False
+    max_tokens: int | None = None
 
     def on_token(token: str) -> None:
+        if cancel.is_set():
+            raise ChatCancelled()
+        parts.append(token)
         content_parts.append(token)
         emit("text_partial", {"text": "".join(content_parts)})
 
     try:
-        while (
-            iters < AGENT_MAX_ITERS
-            and tools_used < AGENT_MAX_TOOLS
-            and time.monotonic() - t0 < AGENT_TIMEOUT_S
-        ):
+        while steps < AGENT_MAX_ITERS and time.monotonic() - t0 < AGENT_TIMEOUT_S:
             if cancel.is_set():
                 raise ChatCancelled()
-            iters += 1
-            result = await ai_service.stream_llm(
-                messages,
-                on_token,
-                tools=tools,
-                on_thought=on_thought,
-                model=getattr(state, "ai_model", "auto"),
-            )
+            if steps > 0 and tx:
+                await credits.reserve_more(tx, COST_STEP)  # best-effort, never blocks
+            try:
+                result = await ai_service.stream_llm(
+                    messages,
+                    on_token,
+                    tools=tools,
+                    on_thought=on_thought,
+                    model=getattr(state, "ai_model", "auto"),
+                    max_tokens=max_tokens,
+                )
+                steps += 1
+            except ai_service.AIMidStream:
+                steps += 1
+                raise
             served_by = result.get("served_by") or served_by
             finish = result.get("finish_reason") or ""
             tool_calls = result.get("tool_calls") or []
-
             if finish == "tool_calls" and tool_calls:
                 assistant_msg: dict = {"role": "assistant", "tool_calls": tool_calls}
-                if content_parts:
-                    assistant_msg["content"] = "".join(content_parts)
+                if parts:
+                    assistant_msg["content"] = "".join(parts)
                 messages.append(assistant_msg)
+                parts.clear()
                 content_parts.clear()
                 for tc in tool_calls:
                     if cancel.is_set():
                         raise ChatCancelled()
+                    if tools_used >= AGENT_MAX_TOOLS:
+                        break
                     fn = tc.get("function") or {}
                     name = fn.get("name") or ""
                     try:
@@ -420,6 +466,26 @@ async def run_turn(
                         args = {}
                     label = pretty_label(name, args)
                     emit("step_start", {"label": label, "id": tc.get("id", "")})
+                    if name in _WRITE_TOOLS and ask_confirm is not None:
+                        allowed = await ask_confirm(label)
+                        if not allowed:
+                            emit(
+                                "step_error",
+                                {
+                                    "label": label,
+                                    "id": tc.get("id", ""),
+                                    "error": "declined",
+                                },
+                            )
+                            tools_used += 1
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc.get("id", ""),
+                                    "content": '{"error": "user declined this action"}',
+                                }
+                            )
+                            continue
                     try:
                         model_out, results = await _dispatch(name, args)
                     except Exception as exc:
@@ -456,18 +522,38 @@ async def run_turn(
                                 if r.url and r.url not in seen_urls:
                                     seen_urls.append(r.url)
                     tools_used += 1
-                    if name in ("schedule_scrape", "cancel_scrape"):
-                        await _persist_schedule()
                     messages.append(
                         {
                             "role": "tool",
                             "tool_call_id": tc.get("id", ""),
-                            "content": json.dumps(model_out, ensure_ascii=False)[:6000],
+                            "content": json.dumps(model_out, ensure_ascii=False)[
+                                :TOOL_OUTPUT_CAP
+                            ],
                         }
                     )
+                    if name in ("schedule_scrape", "cancel_scrape"):
+                        await _persist_schedule()
                 continue  # next model call sees the tool outputs
 
-            final_text = "".join(content_parts)
+            final_text = "".join(parts)
+            if (
+                not final_text.strip()
+                and finish == "length"
+                and not empty_retried
+                and steps < AGENT_MAX_ITERS
+            ):
+                # Reasoning models can burn the entire budget before any text
+                # appears — retry once with a bigger budget, same step count.
+                empty_retried = True
+                max_tokens = (max_tokens or ai_service.ANSWER_MAX_TOKENS) * 2
+                messages.append(
+                    {
+                        "role": "user",
+                        "content": "Your previous reply hit the token limit "
+                        "before any text appeared. Answer again, briefly.",
+                    }
+                )
+                continue
             break
 
         if cancel.is_set():
@@ -481,32 +567,53 @@ async def run_turn(
                 "text": ai_service.link_citations(clean, seen_urls),
                 "related": related,
                 "served_by": served_by,
+                "steps": steps,
+                "cost": steps * COST_STEP,
             },
         )
-        await credits.commit(tx)
+        await settle_turn(credits, tx, steps)
     except ChatCancelled:
-        try:
-            await credits.rollback(tx)
-        except Exception:
-            logger.exception("rollback failed on cancel")
-        emit("stopped", {"partial": "".join(content_parts)})
+        await settle_turn(credits, tx, steps)
+        emit(
+            "stopped",
+            {
+                "partial": "".join(content_parts),
+                "steps": steps,
+                "cost": steps * COST_STEP,
+            },
+        )
     except ai_service.AIMidStream:
-        try:
-            await credits.commit(tx)  # partial value was delivered
-        except Exception:
-            logger.exception("commit failed on midstream")
-        emit("error", {"kind": "midstream", "partial": "".join(content_parts)})
+        await settle_turn(credits, tx, steps)  # partial work delivered — charge it
+        emit(
+            "error",
+            {
+                "kind": "midstream",
+                "partial": "".join(content_parts),
+                "steps": steps,
+                "cost": steps * COST_STEP,
+            },
+        )
     except ai_service.AIUnavailable as exc:
-        try:
-            await credits.rollback(tx)
-        except Exception:
-            logger.exception("rollback failed")
+        await settle_turn(credits, tx, steps)
         logger.info("chat turn unavailable: %s", exc)
-        emit("error", {"kind": "unavailable", "partial": "".join(content_parts)})
+        emit(
+            "error",
+            {
+                "kind": "unavailable",
+                "partial": "".join(content_parts),
+                "steps": steps,
+                "cost": steps * COST_STEP,
+            },
+        )
     except Exception:
-        try:
-            await credits.rollback(tx)
-        except Exception:
-            logger.exception("rollback failed")
+        await settle_turn(credits, tx, steps)
         logger.exception("chat turn failed")
-        emit("error", {"kind": "unavailable", "partial": ""})
+        emit(
+            "error",
+            {
+                "kind": "unavailable",
+                "partial": "",
+                "steps": steps,
+                "cost": steps * COST_STEP,
+            },
+        )

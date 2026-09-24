@@ -49,11 +49,11 @@ _SLIDES = [
         ),
     },
     {
-        "icon": ft.Icons.AUTO_AWESOME_ROUNDED,
+        "icon": ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
         "color": AppColors.ACCENT,
-        "title": "AI, Done Privately",
+        "title": "Assistant, Done Privately",
         "body": (
-            "Turn on AI mode and an Ask AI button appears — chat with "
+            "Turn on Assistant mode and an Ask Assistant button appears — chat with "
             "an assistant that searches and fetches pages for you, live. "
             "Queries go through your in-app Kiri router first — no "
             "history, no identity, no training. Manual search stays free."

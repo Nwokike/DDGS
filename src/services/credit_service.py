@@ -51,12 +51,27 @@ class CreditService:
 
         tx_id = str(uuid.uuid4())
         self._reservations[tx_id] = amount
+        self._arm_rollback(tx_id, amount)
+        return tx_id
+
+    async def reserve_more(self, tx_id: str, extra: int) -> bool:
+        """Grow an existing hold. False just means the balance dipped below
+        the extra — soft metering: the caller keeps going (never breaks work)."""
+        if tx_id not in self._reservations:
+            return False
+        total_reserved = sum(self._reservations.values())
+        if await self._get_credits() - total_reserved < extra:
+            return False
+        self._reservations[tx_id] += extra
+        self._arm_rollback(tx_id, self._reservations[tx_id])
+        return True
+
+    def _arm_rollback(self, tx_id: str, amount: int) -> None:
+        task = self._rollback_tasks.pop(tx_id, None)
+        if task:
+            task.cancel()
 
         async def _auto_rollback():
-            # 240s, not SpanInsight's 60s: DDGS streams LLM answers (router
-            # timeout 180s) and a rollback firing mid-stream would both unlock
-            # the credit and make commit() a no-op — a free answer plus a
-            # misleading log. 240s still releases genuinely hung reservations.
             await asyncio.sleep(240)
             if tx_id in self._reservations:
                 del self._reservations[tx_id]
@@ -66,26 +81,45 @@ class CreditService:
                 )
 
         self._rollback_tasks[tx_id] = asyncio.create_task(_auto_rollback())
-        return tx_id
 
-    async def commit(self, tx_id: str) -> int:
-        """Finalize a reservation - deduct from actual balance."""
+    async def commit_amount(self, tx_id: str, amount: int) -> int:
+        """Settle a hold for an exact charge. May under/over-shoot the hold;
+        overdraft clamps at zero - a completed message is never revoked by billing."""
         from core.state import state
 
         task = self._rollback_tasks.pop(tx_id, None)
         if task:
             task.cancel()
-        amount = self._reservations.pop(tx_id, 0)
-        if amount == 0:
+        held = self._reservations.pop(tx_id, 0)
+        if amount <= 0:
             return await self._get_credits()
-
         current = await self._get_credits()
         new_balance = max(0, current - amount)
         await self._storage.set(STORAGE_CREDITS, str(new_balance))
         state.credits_remaining = new_balance
         logger.info(
-            "Committed %d credits (tx: %s). Remaining: %d", amount, tx_id, new_balance
+            "Settled %d credits (held %d, tx: %s). Remaining: %d",
+            amount,
+            held,
+            tx_id,
+            new_balance,
         )
+        return new_balance
+
+    async def commit(self, tx_id: str) -> int:
+        """Finalize a reservation - deduct the full held amount."""
+        return await self.commit_amount(tx_id, self._reservations.get(tx_id, 0))
+
+    async def charge(self, amount: int) -> int:
+        """Direct debit with no hold; overdraft clamps at zero (soft metering:
+        a completed message is never refunded by billing)."""
+        from core.state import state
+
+        current = await self._get_credits()
+        new_balance = max(0, current - amount)
+        await self._storage.set(STORAGE_CREDITS, str(new_balance))
+        state.credits_remaining = new_balance
+        logger.info("Charged %d credits. Remaining: %d", amount, new_balance)
         return new_balance
 
     async def rollback(self, tx_id: str) -> None:

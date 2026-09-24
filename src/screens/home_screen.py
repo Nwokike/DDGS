@@ -647,7 +647,7 @@ def HomeScreen() -> Control:
                                 ft.Row(
                                     [
                                         ft.Text(
-                                            "AI",
+                                            "Assistant",
                                             size=tokens.FONT_XS,
                                             weight=ft.FontWeight.W_700,
                                             color=AppColors.PRIMARY
@@ -656,7 +656,7 @@ def HomeScreen() -> Control:
                                         ),
                                         ft.Switch(
                                             value=state.ai_mode_enabled,
-                                            tooltip="AI mode — show the Ask AI button",
+                                            tooltip="Assistant mode — shows the Ask Assistant button",
                                             on_change=lambda e: controller.save(
                                                 "ai_mode", e.control.value
                                             ),

@@ -276,11 +276,19 @@ async def _fetch_candidates(
         and time.monotonic() - _router_models_at < ROUTER_MODEL_TTL
     ):
         return _router_models[:ROUTER_CANDIDATES]
-    try:
-        resp = await client.get(f"{base}/models", timeout=10.0)
-        data = resp.json().get("data", [])
-    except Exception as exc:
-        logger.warning("AI router: model catalog failed: %r", exc)
+    data: list[dict] = []
+    for attempt in range(2):
+        try:
+            resp = await client.get(f"{base}/models", timeout=30.0)
+            data = resp.json().get("data", [])
+            break
+        except Exception as exc:
+            logger.warning(
+                "AI router: model catalog failed (attempt %d): %r", attempt + 1, exc
+            )
+            if attempt == 0:
+                await asyncio.sleep(1.0)
+    if not data:
         return []
     _catalog = [
         m
@@ -438,6 +446,7 @@ async def _stream_router(
     tools: list[dict] | None,
     on_thought: Callable[[str], None] | None = None,
     model: str | None = None,
+    max_tokens: int | None = None,
 ) -> dict:
     base = await _router_base()
     if base is None:
@@ -459,7 +468,7 @@ async def _stream_router(
             "model": candidate,
             "messages": messages,
             "stream": True,
-            "max_tokens": ANSWER_MAX_TOKENS,
+            "max_tokens": max_tokens or ANSWER_MAX_TOKENS,
             "temperature": TEMPERATURE,
         }
         if tools:
@@ -537,12 +546,14 @@ async def _stream_gateway(
     on_token: Callable[[str], None],
     tools: list[dict] | None,
     on_thought: Callable[[str], None] | None = None,
+    model: str | None = None,
+    max_tokens: int | None = None,
 ) -> dict:
     payload: dict = {
         "messages": messages,
         "task_type": "text",
         "stream": True,
-        "max_tokens": ANSWER_MAX_TOKENS,
+        "max_tokens": max_tokens or ANSWER_MAX_TOKENS,
         "temperature": TEMPERATURE,
     }
     if tools:
@@ -610,8 +621,9 @@ async def stream_llm(
     tools: list[dict] | None = None,
     on_thought: Callable[[str], None] | None = None,
     model: str | None = None,
+    max_tokens: int | None = None,
 ) -> dict:
-    """Raw router→gateway failover. NO credit handling (agent reserves per turn).
+    """Raw router→gateway failover. NO credit handling (agent settles per step).
 
     Returns {"served_by", "finish_reason", "tool_calls"|None}.
     Raises AIUnavailable (nothing delivered) or AIMidStream (partial).
@@ -619,7 +631,7 @@ async def stream_llm(
     try:
         async with httpx.AsyncClient(http2=False) as client:
             result = await _stream_router(
-                client, messages, on_token, tools, on_thought, model
+                client, messages, on_token, tools, on_thought, model, max_tokens
             )
         result["served_by"] = "router"
         return result
@@ -629,7 +641,7 @@ async def stream_llm(
         raise
     async with httpx.AsyncClient(http2=False) as client:
         result = await _stream_gateway(
-            client, messages, on_token, tools, on_thought
+            client, messages, on_token, tools, on_thought, model, max_tokens
         )
     result["served_by"] = "gateway"
     return result
@@ -640,9 +652,13 @@ async def stream_chat(
     cost: int,
     on_token: Callable[[str], None],
     model: str | None = None,
+    max_tokens: int | None = None,
 ) -> dict:
-    """Single-shot credit-metered call (summaries). Returns {"served_by"}."""
+    """Single-shot metered call (cost 0 = free passive; >0 = reserve/settle)."""
     credits = getattr(state, "credit_service", None)
+    if cost <= 0:
+        # Free passive calls (search overview, page summary) skip credits.
+        return await stream_llm(messages, on_token, model=model, max_tokens=max_tokens)
     if credits is None:
         raise AIUnavailable("credit service not ready")
     tx_id = await credits.reserve(cost)

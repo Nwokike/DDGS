@@ -5,6 +5,7 @@ import asyncio
 
 import flet as ft
 
+from components.results.downloader import launch_url
 from core.theme import AppColors
 
 
@@ -30,7 +31,7 @@ def show_update_dialog(page: ft.Page, update_data: dict) -> None:
         content_controls.append(ft.Container(height=8))
     if release_notes:
         if not is_announcement: content_controls.extend([ft.Text("What's New:", size=12, weight=ft.FontWeight.W_600, color=AppColors.PRIMARY), ft.Container(height=4)])
-        content_controls.append(ft.Markdown(release_notes, selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB, on_tap_link=lambda e: asyncio.create_task(ft.UrlLauncher().launch_url(e.data))))
+        content_controls.append(ft.Markdown(release_notes, selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB, on_tap_link=lambda e: asyncio.create_task(launch_url(e.data, page))))
     icon_data = ft.Icons.CAMPAIGN_ROUNDED if is_announcement else ft.Icons.ROCKET_LAUNCH_ROUNDED
     icon_color = AppColors.ACCENT if is_announcement else AppColors.PRIMARY
     dlg = ft.AlertDialog(modal=is_mandatory, title=ft.Row([ft.Icon(icon_data, color=icon_color, size=24), ft.Text(title_text, size=14, weight=ft.FontWeight.BOLD, font_family="Outfit", expand=True)], spacing=8), content=ft.Container(content=ft.Column(controls=content_controls, tight=True, spacing=0, scroll=ft.ScrollMode.AUTO), width=360), actions=actions, actions_alignment=ft.MainAxisAlignment.END)
