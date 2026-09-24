@@ -5,6 +5,7 @@ description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "cryptography>=50.0.1",
     "ddgs>=9.16.0",
     "flet>=1.0.1",
     "flet-ads>=1.0.1",

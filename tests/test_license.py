@@ -83,12 +83,38 @@ def test_token_signed_by_another_key_is_rejected():
         verify_token(_VECTOR_TOKEN, _PRODUCTION_PUB)
 
 
-def test_production_public_key_is_a_valid_curve_point():
-    """Guards the pinned key: a typo here would silently break every user."""
-    from core.license_crypto import public_key_point
+def test_webcrypto_raw_signature_is_reencoded_to_der():
+    """Pins the one encoding detail that is easy to get wrong.
 
-    x, y = public_key_point(_PRODUCTION_PUB)
-    assert 0 < x < 2**256 and 0 < y < 2**256
+    WebCrypto signs with a raw 64-byte r||s pair. cryptography verifies
+    ASN.1 DER. If someone 'simplifies' this by handing the raw bytes
+    straight to verify(), every real token stops working while a
+    self-signed round-trip test still passes. The DER must start with the
+    SEQUENCE tag and decode to the r and s recovered from the raw pair.
+    """
+    from cryptography.hazmat.primitives.asymmetric import utils
+
+    from core.license_crypto import _b64url_decode, _der_from_raw
+
+    raw = _b64url_decode(_VECTOR_TOKEN.split(".")[2])
+    assert len(raw) == 64, "WebCrypto P-256 signatures are 64 raw bytes"
+    der = _der_from_raw(raw)
+    assert der[0] == 0x30, "DER must start with a SEQUENCE tag"
+    r, s = utils.decode_dss_signature(der)
+    assert r == int.from_bytes(raw[:32], "big")
+    assert s == int.from_bytes(raw[32:], "big")
+
+
+def test_production_public_key_is_a_valid_p256_key():
+    """Guards the pinned key: a typo here would silently break every user."""
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from core.license_crypto import _b64url_decode
+
+    key = serialization.load_der_public_key(_b64url_decode(_PRODUCTION_PUB))
+    assert isinstance(key, ec.EllipticCurvePublicKey)
+    assert isinstance(key.curve, ec.SECP256R1)
 
 
 @pytest.mark.parametrize(

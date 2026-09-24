@@ -73,7 +73,20 @@ class LicenseError(Exception):
 
 
 def is_available() -> bool:
-    """False in a Play-distributed build. See the module docstring."""
+    """Whether THIS build may offer the direct checkout channel.
+
+    This file is the direct build: main builds the direct APK plus Windows
+    and Linux, where external checkout is permitted, so this returns True.
+
+    A Play build never loads this module. The playstore branch ships
+    `license_service.py` replaced with a stub whose `is_available()` is
+    False and whose every entry point raises LicenseUnavailable. The
+    branch IS the channel, which is why this cannot be a runtime flag:
+    a Play-distributed AAB is built from the playstore branch.
+
+    tests/test_license.py asserts both directions, including that a Play
+    build contains no payment endpoint at all.
+    """
     return True
 
 

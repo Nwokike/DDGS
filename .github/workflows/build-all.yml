@@ -84,7 +84,7 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - name: Pre-compile binary wheels (primp, ddgs)
+      - name: Pre-compile binary wheels (primp, ddgs, cryptography)
         run: |
           mkdir -p ${{ github.workspace }}/wheels
           pip install wheel
