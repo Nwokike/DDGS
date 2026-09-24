@@ -281,19 +281,9 @@ class AppController:
         ) as e:
             log_error(f"[{LOG_TAG}] Settings load", e)
 
-    def save(self, key: str, value):
-        """Sync wrapper — schedules save_setting as a background task.
-
-        Components call this from sync callbacks (on_click, on_change, etc.).
-        """
-        self.page.run_task(self.save_setting, key, value)
-
-    async def save_setting(self, key: str, value):
-        """Persist a single setting and update state.
-
-        This is the unified setter exposed to components via context.
-        """
-        setter_map = {
+    def _setter_map(self) -> dict:
+        """key -> (storage setter coroutine, state attribute name)."""
+        return {
             "theme": (self.storage.set_theme, "theme_mode"),
             "safe_search": (self.storage.set_safe_search, "safe_search"),
             "region": (self.storage.set_region, "region"),
@@ -324,6 +314,23 @@ class AppController:
             "history": (self.storage.set_history, "search_history"),
         }
 
+    def save(self, key: str, value):
+        """Sync wrapper: apply to state now, persist in the background.
+
+        Components call this from sync callbacks (on_click, on_change, etc.).
+        State is updated synchronously so the control the user just touched
+        repaints on that tap; the storage write is scheduled and awaited
+        separately. Previously state only changed after the async write, so
+        picking an Assistant model appeared to do nothing.
+        """
+        self._apply_state(key, value)
+        self.page.run_task(self.save_setting, key, value)
+
+    def _apply_state(self, key: str, value) -> None:
+        entry = self._setter_map().get(key)
+        if not entry:
+            return
+        state_key = entry[1]
         if key == "theme":
             theme_map = {
                 "dark": ft.ThemeMode.DARK,
@@ -332,10 +339,22 @@ class AppController:
             }
             self.page.theme_mode = theme_map.get(value, ft.ThemeMode.SYSTEM)
             state.theme_mode = self.page.theme_mode
+            return
+        setattr(state, state_key, value)
 
-        if key in setter_map:
-            setter, state_key = setter_map[key]
-            await setter(value)
+    async def save_setting(self, key: str, value):
+        """Persist a single setting and update state.
+
+        This is the unified setter exposed to components via context.
+        """
+        entry = self._setter_map().get(key)
+        if not entry:
+            return
+        setter, state_key = entry
+        await setter(value)
+        if key != "theme":
+            # theme is applied by _apply_state as a ThemeMode enum; assigning
+            # the raw "dark"/"light" string here used to clobber it.
             setattr(state, state_key, value)
 
     # ── Navigation ─────────────────────────────────────────────────────
@@ -659,7 +678,7 @@ class AppController:
             )
         if first_time:
             await self.show_snack(
-                "Premium active — ads off, 200 assistant credits/day.", "success"
+                "Premium active. Ads off, 200 assistant credits/day.", "success"
             )
 
     async def verify_purchases(self) -> None:  # client-side re-check; server-side

@@ -146,5 +146,10 @@ def _select(page: ft.Page, ctrl, model_id: str) -> None:
         page.pop_dialog()
     except Exception:
         pass
+    # Apply locally first so the checkmark, the Settings row and the chat
+    # chip all reflect the choice on this tap, then persist in the
+    # background. ctrl.save() also sets state, but only after the storage
+    # write, which left the UI looking unchanged.
+    state.ai_model = model_id
     if ctrl:
         ctrl.save("ai_model", model_id)

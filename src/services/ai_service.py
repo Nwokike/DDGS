@@ -53,6 +53,17 @@ ROUTER_CANDIDATES = 3  # models to try per request before failing over
 ANSWER_MAX_TOKENS = 1400
 TEMPERATURE = 0.4
 
+# Single source of truth for the data-routing disclosure. It lives in
+# Settings next to the Assistant controls, not on the chat surface: a
+# consumer tapping "Ask" does not need router internals in their face, but
+# anyone configuring the feature should be able to read exactly what leaves
+# the device.
+ROUTER_DISCLOSURE = (
+    "Your messages and any page text you ask about are sent to the Kiri "
+    "router running in this app. If that router is unavailable, they are "
+    "sent to Kiri Gateway instead. We instruct no training on your data."
+)
+
 
 class AIUnavailable(Exception):
     """No AI source could answer — callers degrade silently."""
@@ -610,7 +621,11 @@ async def _stream_gateway(
                     await resp.aread()
                     got_first = True
                     finish, tool_calls = await _stream_json_body(resp, _counting, on_thought)
-            return {"finish_reason": finish, "tool_calls": tool_calls}
+            return {
+                "finish_reason": finish,
+                "tool_calls": tool_calls,
+                "model": model or "gateway auto",
+            }
         except AIUnavailable:
             raise
         except (
@@ -642,7 +657,9 @@ async def stream_llm(
 ) -> dict:
     """Raw router→gateway failover. NO credit handling (agent settles per step).
 
-    Returns {"served_by", "finish_reason", "tool_calls"|None}.
+    Returns {"served_by", "model", "finish_reason", "tool_calls"|None}.
+    `model` is the id that actually answered, which matters when the
+    request asked for "auto" and the router picked one.
     Raises AIUnavailable (nothing delivered) or AIMidStream (partial).
     """
     try:

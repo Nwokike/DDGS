@@ -27,12 +27,6 @@ from core.theme import AppColors
 
 _CHAT = ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED
 
-_DISCLOSURE = (
-    "Runs on your in-app Kiri router first; if it's down, requests fall back to "
-    "Kiri's gateway. We instruct no training; page text is sent only for "
-    "features you tap."
-)
-
 _KIND_ICONS = {
     "web": ft.Icons.LANGUAGE_ROUNDED,
     "images": ft.Icons.IMAGE_ROUNDED,
@@ -78,7 +72,7 @@ class ChatSession:
             [], spacing=tokens.SPACE_SM, expand=True, scroll=ft.ScrollMode.AUTO
         )
         self.field = ft.TextField(
-            hint_text="Ask the assistant — it can search and fetch for you…",
+            hint_text="Ask the assistant. It can search and fetch for you.",
             expand=True,
             dense=True,
             min_lines=1,
@@ -121,7 +115,7 @@ class ChatSession:
             bgcolor=ft.Colors.with_opacity(0.12, credits_color),
             border=ft.Border.all(1, ft.Colors.with_opacity(0.25, credits_color)),
             ink=True,
-            tooltip="Assistant credits — tap for details",
+            tooltip="Assistant credits, tap for details",
             on_click=lambda e: show_wallet_dialog(page),
         )
         self.model_chip = ft.Container(
@@ -183,20 +177,10 @@ class ChatSession:
         )
 
         composer = ft.Container(
-            content=ft.Column(
-                [
-                    ft.Row(
-                        [self.field, self.send_btn, self.stop_btn],
-                        vertical_alignment=ft.CrossAxisAlignment.END,
-                        spacing=2,
-                    ),
-                    ft.Text(
-                        _DISCLOSURE,
-                        size=9,
-                        color=ft.Colors.with_opacity(0.5, ft.Colors.ON_SURFACE),
-                    ),
-                ],
-                spacing=4,
+            content=ft.Row(
+                [self.field, self.send_btn, self.stop_btn],
+                vertical_alignment=ft.CrossAxisAlignment.END,
+                spacing=2,
             ),
             padding=ft.Padding(10, 6, 10, 10),
         )
@@ -367,6 +351,7 @@ class ChatSession:
                 "cards": [],
                 "related": [],
                 "served_by": "",
+                "model": "",
                 "error": None,
                 "stopped": False,
                 "receipt": "",
@@ -414,6 +399,7 @@ class ChatSession:
                 text=data.get("text", ""),
                 related=data.get("related", []),
                 served_by=data.get("served_by", ""),
+                model=data.get("model", ""),
                 steps=data.get("steps", 0),
                 cost=data.get("cost", 0),
                 partial=False,
@@ -428,6 +414,7 @@ class ChatSession:
             )[-16:]
             self._persist_history()
             self._refresh_credits_chip()
+            self.refresh_model_chip()
         elif event == "stopped" and self._current is not None:
             self._current.update(
                 partial=False,
@@ -455,6 +442,7 @@ class ChatSession:
                     "cards": [],
                     "related": [],
                     "served_by": "",
+                    "model": "",
                     "error": data.get("kind", "unavailable"),
                     "stopped": False,
                     "receipt": "",
@@ -475,9 +463,29 @@ class ChatSession:
         except Exception:
             pass
 
+    def refresh_model_chip(self) -> None:
+        """Re-read state.ai_model into the header chip.
+
+        The chip is built once when the session is created, so a model
+        chosen in Settings (or here) left it showing the old name.
+        """
+        try:
+            self.model_chip.content.controls[0].value = state.ai_model
+            self.model_chip.update()
+        except Exception:
+            pass
+
     # ── Rendering ──────────────────────────────────────────────────────────
 
     def _render(self, force: bool = True) -> None:
+        """Rebuild the turn list and push it to the client.
+
+        The update is unconditional. Streaming text and thinking arrive with
+        force=False, and gating page.update() behind `force` rebuilt the tree
+        in memory without painting it, so tokens only showed up at the next
+        hard event and the reply looked stuck. emit() already throttles to
+        0.2s, so the paint rate stays bounded.
+        """
         controls: list[ft.Control] = []
         if not self.turns:
             controls.append(self._welcome())
@@ -490,13 +498,12 @@ class ChatSession:
         if state.scheduled_scrapes:
             controls.append(self._render_schedules())
         self._list.controls = controls
-        if force:
-            try:
-                self.page.update()
-            except Exception:
-                pass
-            if self._pinned:
-                self.page.run_task(self._scroll_to_bottom)
+        try:
+            self.page.update()
+        except Exception:
+            pass
+        if self._pinned:
+            self.page.run_task(self._scroll_to_bottom)
 
     async def _scroll_to_bottom(self):
         # ScrollableControl.scroll_to is async in flet 1.0
@@ -520,7 +527,7 @@ class ChatSession:
             ),
             ft.Text(
                 "I can search across 10 engines, fetch and save pages, and "
-                "download media — myself, and show you what I find.",
+                "download media myself, and show you what I find.",
                 size=tokens.FONT_SM,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 text_align=ft.TextAlign.CENTER,
@@ -533,7 +540,7 @@ class ChatSession:
             chips.append(
                 ft.Container(
                     content=ft.Text(
-                        f"📄 Describe this page — {_domain(str(self.ctx['url']))}",
+                        f"📄 Describe this page: {_domain(str(self.ctx['url']))}",
                         size=tokens.FONT_XS,
                         color=AppColors.PRIMARY,
                     ),
@@ -628,9 +635,9 @@ class ChatSession:
             label = row["label"]
             if row["state"] == "done" and row.get("count"):
                 label = label.removesuffix("…")
-                label += f" — {row['count']} results"
+                label += f": {row['count']} results"
             if row["state"] == "error" and row.get("error"):
-                label = f"{label.rstrip('…')} — didn't return results"
+                label = f"{label.rstrip('…')}: no results"
             kids.append(
                 ft.Row(
                     [
@@ -721,7 +728,7 @@ class ChatSession:
                 ft.Row(
                     [
                         ft.Text(
-                            "Out of free assistant messages — assistant replies need credits.",
+                            "Out of assistant credits. Assistant replies need credits.",
                             size=tokens.FONT_XS,
                             color=AppColors.WARNING,
                         ),
@@ -737,7 +744,7 @@ class ChatSession:
         elif turn.get("error") == "midstream":
             kids.append(
                 ft.Text(
-                    "⚠ Connection lost mid-answer — what arrived was still charged.",
+                    "⚠ Connection lost mid-answer. What arrived was still charged.",
                     size=tokens.FONT_XS,
                     color=AppColors.WARNING,
                 )
@@ -745,7 +752,7 @@ class ChatSession:
         elif turn.get("error") == "unavailable":
             kids.append(
                 ft.Text(
-                    "Assistant unavailable — classic search, scraping and "
+                    "Assistant unavailable. Classic search, scraping and "
                     "downloads still work.",
                     size=tokens.FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
@@ -784,11 +791,15 @@ class ChatSession:
             ]
             kids.append(ft.Row(pills, spacing=6, wrap=True, run_spacing=4))
 
-        # receipt — every assistant turn shows what it cost
+        # receipt — every assistant turn shows what it cost and who answered
         if turn.get("cost"):
             receipt = (
                 f"Assistant used {turn.get('steps', 0)} steps · {turn['cost']} credits"
             )
+            if turn.get("model"):
+                receipt += f" · {turn['model']}"
+            if turn.get("served_by") == "gateway":
+                receipt += " (gateway)"
             if turn.get("stopped"):
                 receipt += " (stopped early)"
             kids.append(
@@ -1003,6 +1014,7 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
     existing = getattr(page, "_chat_session", None)
     if isinstance(existing, ChatSession):
         state.chat_open = True
+        existing.refresh_model_chip()
         page.views.append(existing.view)
         try:
             page.update()
