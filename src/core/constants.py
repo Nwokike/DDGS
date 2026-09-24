@@ -27,6 +27,18 @@ STORAGE_SCHEDULED_SCRAPES = "scheduled_scrapes"
 STORAGE_AI_MODEL = "ai_model"
 STORAGE_ASSISTANT_HISTORY = "assistant_history"
 
+# Kiri License (direct/web channel). Deliberately separate from
+# STORAGE_IS_PREMIUM, which is the *resolved* entitlement written by
+# whichever channel granted it, so either can be revoked independently.
+STORAGE_LICENSE_RECOVERY_ID = "license_recovery_id"
+STORAGE_LICENSE_TOKEN = "license_token"
+STORAGE_LICENSE_STATUS = "license_status"
+STORAGE_LICENSE_PRODUCT = "license_product"
+STORAGE_LICENSE_PAID_THROUGH = "license_paid_through"
+STORAGE_LICENSE_EMAIL = "license_email"
+STORAGE_LICENSE_NAME = "license_name"
+STORAGE_LICENSE_PHONE = "license_phone"
+
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
     {"key": "duckduckgo", "label": "DuckDuckGo"},

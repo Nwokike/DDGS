@@ -128,6 +128,9 @@ class AppController:
         self.page.run_task(self._router_watchdog)
         # Cache maintenance + temp cleanup are best-effort housekeeping.
         self.page.run_task(self._cache_maintenance)
+        # Premium: trust the stored token first so an offline launch still
+        # works, then ask the licence service for the authoritative answer.
+        self.page.run_task(self._init_premium)
 
         # ── Mount declarative UI ──
         from app_shell import AppShell
@@ -195,6 +198,23 @@ class AppController:
             logger.info("Connectivity restored")
             self.page.run_task(self.show_snack, "You're back online.", "info")
 
+    async def _init_premium(self) -> None:
+        """Resolve Premium at startup from both channels.
+
+        The stored token is trusted first so a user who launches offline
+        keeps what they paid for; only then do we ask the server, which is
+        the only thing allowed to take it away.
+        """
+        from services import premium_service
+
+        try:
+            await premium_service.load_from_storage(self.storage)
+            await self._sync_premium_storage()
+            await premium_service.refresh_from_server()
+            await self._sync_premium_storage()
+        except Exception:
+            logger.exception("premium init failed")
+
     async def _on_lifecycle_change(self, e: ft.AppLifecycleStateChangeEvent):
         """Flush storage when backgrounded; re-probe connectivity when foregrounded."""
         if e.state in (
@@ -215,6 +235,16 @@ class AppController:
             state.is_online = ft.ConnectivityType.NONE not in result
         except Exception as exc:
             logger.warning("Lifecycle connectivity probe failed: %s", exc)
+        # Re-check the licence on resume, as the client contract asks. A
+        # failure here changes nothing, so a flaky network is harmless.
+        if state.is_online:
+            from services import premium_service
+
+            try:
+                await premium_service.refresh_from_server()
+                await self._sync_premium_storage()
+            except Exception as exc:
+                logger.debug("licence refresh on resume skipped: %s", exc)
 
     # ── Settings persistence ───────────────────────────────────────────
 
@@ -789,9 +819,21 @@ class AppController:
         open_chat_view(self.page, ctx)
 
     def on_view_pop(self, e=None) -> None:
-        """Back/gesture pop: leaving chat only clears its flag; else go home."""
+        """Back/gesture pop.
+
+        Leaving the Assistant minimizes it: the session is retained and the
+        FAB becomes a restore button, so the conversation is never lost to
+        an accidental back. Anything else goes home as before.
+        """
         if state.chat_open:
             state.chat_open = False
+            state.chat_minimized = True
+            session = getattr(self.page, "_chat_session", None)
+            if session is not None:
+                try:
+                    session._persist_history()
+                except Exception:
+                    pass
             try:
                 self.page.update()
             except Exception:
@@ -799,22 +841,45 @@ class AppController:
             return
         self.go_home()
 
-    # ── Premium (flet-billing, mobile-only) ───────────────────────────────
+    # ── Premium (Play Billing and/or Kiri License) ───────────────────────
 
-    async def activate_premium(self, product_id: str) -> None:
-        """Grant the premium entitlement (server verification lands with the
-        gateway endpoint; interim re-check is verify_purchases each launch)."""
-        if not str(product_id).startswith("premium"):
-            return
+    async def _grant_premium_benefits(self) -> bool:
+        """Top up to the premium credit cap once, on the first activation."""
         first_time = not state.is_premium
-        state.is_premium = True
-        if self.storage:
-            await self.storage.set_is_premium(True)
-        if state.credit_service and state.credits_remaining < PREMIUM_DAILY_CREDITS:
+        if (
+            first_time
+            and state.credit_service
+            and state.credits_remaining < PREMIUM_DAILY_CREDITS
+        ):
             await state.credit_service.add_credits(
                 PREMIUM_DAILY_CREDITS - state.credits_remaining
             )
-        if first_time:
+        return first_time
+
+    async def _sync_premium_storage(self) -> None:
+        if self.storage:
+            try:
+                await self.storage.set_is_premium(bool(state.is_premium))
+            except Exception as exc:
+                logger.warning("premium flag save failed: %s", exc)
+
+    async def activate_premium(self, product_id: str) -> None:
+        """Play Billing purchase: grant through the entitlement arbiter.
+
+        This no longer latches a permanent local boolean. The Play channel
+        sets its own flag and the arbiter resolves the OR with the license
+        channel, so a license-only user is unaffected and either channel can
+        be withdrawn.
+        """
+        from services import premium_service
+
+        if not str(product_id).startswith("premium"):
+            return
+        was_premium = state.is_premium
+        premium_service.set_play_entitlement(True, product_id=product_id)
+        first_time = await self._grant_premium_benefits()
+        await self._sync_premium_storage()
+        if first_time and not was_premium:
             await self.show_snack(
                 "Premium active. Ads off, 200 assistant credits/day.", "success"
             )
@@ -824,17 +889,26 @@ class AppController:
         # gate and is tracked as an infra task — the client never trusts the
         # local flag beyond what Play itself reports.
         """Re-check owned products on launch — never trust the local flag alone."""
+        from services import premium_service
+
         billing = getattr(self, "billing", None)
         if billing is None:
             return
         try:
             result = await billing.query_past_purchases()
             owned = [p.product_id for p in (getattr(result, "purchases", None) or [])]
-            for pid in owned:
-                if str(pid).startswith("premium"):
-                    await self.activate_premium(pid)
-                    break
+            found = next(
+                (pid for pid in owned if str(pid).startswith("premium")), None
+            )
+            was_premium = state.is_premium
+            premium_service.set_play_entitlement(
+                bool(found), product_id=str(found or "")
+            )
+            if found and not was_premium:
+                await self._grant_premium_benefits()
+            await self._sync_premium_storage()
         except Exception as exc:
+            # A failed re-check must never revoke a working entitlement.
             logger.debug("purchase re-check skipped: %s", exc)
 
     async def _on_purchase_updated(self, e) -> None:
