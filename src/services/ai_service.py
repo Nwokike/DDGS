@@ -394,6 +394,16 @@ async def _consume_sse(
             or message.get("reasoning_content")
             or ""
         )
+        if not thought:
+            details = delta.get("reasoning_details")
+            if isinstance(details, list):
+                parts = []
+                for item in details:
+                    if isinstance(item, str):
+                        parts.append(item)
+                    elif isinstance(item, dict) and item.get("text"):
+                        parts.append(str(item["text"]))
+                thought = "".join(parts)
         if thought and on_thought:
             on_thought(thought)
         if collect_tools:
@@ -425,14 +435,21 @@ async def _consume_sse(
 
 
 async def _stream_json_body(
-    resp: httpx.Response, on_token: Callable[[str], None]
+    resp: httpx.Response,
+    on_token: Callable[[str], None],
+    on_thought: Callable[[str], None] | None = None,
 ) -> tuple[str, None]:
     body = resp.json()
     choices = body.get("choices") or [{}]
     choice = choices[0] or {}
-    text = ((choice.get("message") or {}).get("content")) or choice.get("text", "")
+    message = choice.get("message") or {}
+    text = message.get("content") or choice.get("text", "")
     if text:
         on_token(text)
+    if on_thought is not None:
+        thought = message.get("reasoning") or message.get("reasoning_content") or ""
+        if thought:
+            on_thought(str(thought))
     return str(choice.get("finish_reason") or ""), None
 
 
@@ -514,7 +531,7 @@ async def _stream_router(
                 else:
                     await resp.aread()
                     got_first = True
-                    finish, tool_calls = await _stream_json_body(resp, _counting)
+                    finish, tool_calls = await _stream_json_body(resp, _counting, on_thought)
             return {"finish_reason": finish, "tool_calls": tool_calls, "model": candidate}
         except AIUnavailable:
             _mark_router_failed()
@@ -592,7 +609,7 @@ async def _stream_gateway(
                 else:
                     await resp.aread()
                     got_first = True
-                    finish, tool_calls = await _stream_json_body(resp, _counting)
+                    finish, tool_calls = await _stream_json_body(resp, _counting, on_thought)
             return {"finish_reason": finish, "tool_calls": tool_calls}
         except AIUnavailable:
             raise
