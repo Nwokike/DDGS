@@ -21,22 +21,12 @@ import json
 import time
 from typing import Any
 
-# cryptography is a compiled (Rust) extension. It publishes wheels for
-# Windows, macOS, Linux and iOS, but not Android, and the Flet Android
-# runtime cannot build one from source. Desktop and web are unaffected;
-# on a platform where the import fails, offline token verification is
-# unavailable and we say so rather than refusing to start. Online status
-# checks against the Worker still work, because they need no crypto here.
-try:
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives import hashes, serialization
-    from cryptography.hazmat.primitives.asymmetric import ec, utils
-
-    HAVE_CRYPTOGRAPHY = True
-except ImportError:  # pragma: no cover - platform dependent
-    InvalidSignature = Exception
-    hashes = serialization = ec = utils = None  # type: ignore[assignment]
-    HAVE_CRYPTOGRAPHY = False
+# Flet publishes Android and iOS wheels for cryptography on its own index
+# (pypi.flet.dev), so this import works on every platform we ship, including
+# the direct APK. No fallback or platform guard is needed.
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, utils
 
 # WebCrypto's raw P-256 signature is r and s, 32 bytes each, big-endian.
 _RAW_SIG_LEN = 64
@@ -56,10 +46,8 @@ def _b64url_decode(value: str) -> bytes:
         raise TokenError("invalid base64url") from exc
 
 
-def _public_key(public_key_b64url: str):
+def _public_key(public_key_b64url: str) -> ec.EllipticCurvePublicKey:
     """Load a base64url SPKI DER public key as a P-256 verifying key."""
-    if not HAVE_CRYPTOGRAPHY:
-        raise TokenError("signature verification is unavailable on this platform")
     der = _b64url_decode(public_key_b64url)
     try:
         key = serialization.load_der_public_key(der)
@@ -85,12 +73,9 @@ def verify_token(token: str, public_key_b64url: str) -> dict[str, Any]:
     """Verify the signature and return the decoded claims.
 
     Raises TokenError when the token is not a well-formed, correctly signed
-    v1 entitlement, or when this platform cannot verify signatures at all.
-    This is the only thing standing between a pasted string and Premium,
-    so it fails closed on every ambiguity.
+    v1 entitlement. This is the only thing standing between a pasted
+    string and Premium, so it fails closed on every ambiguity.
     """
-    if not HAVE_CRYPTOGRAPHY:
-        raise TokenError("signature verification is unavailable on this platform")
     if not token or not isinstance(token, str):
         raise TokenError("empty token")
     parts = token.split(".")
