@@ -111,6 +111,9 @@ class AppController:
         await self.ad_service.gather_consent()
         await self.ad_service.preload_interstitial()
 
+        # Scheduled crawls run while the app is open
+        self.page.run_task(self._scrape_scheduler)
+
         # ── Mount declarative UI ──
         from app_shell import AppShell
         from contexts.controller_ctx import ControllerMethods, ControllerMethodsCtx
@@ -238,6 +241,14 @@ class AppController:
             state.has_accepted_terms = await storage.get_onboarding_done()
             state.ai_mode_enabled = await storage.get_ai_mode()
             state.is_premium = await storage.get_is_premium()
+            import json as _json
+
+            try:
+                state.scheduled_scrapes = _json.loads(
+                    await storage.get_scheduled_scrapes() or "[]"
+                )
+            except Exception:
+                state.scheduled_scrapes = []
 
             logger.info(f"[{LOG_TAG}] Settings loaded")
         except (
@@ -641,6 +652,51 @@ class AppController:
                 logger.error("purchase error: %s", getattr(p, "error", None))
             elif p.status == PurchaseStatus.CANCELED:
                 logger.info("purchase canceled: %s", p.product_id)
+
+    async def _scrape_scheduler(self):
+        """Run due scheduled crawls every 60s while the app is open."""
+        import asyncio
+
+        from services import agent_files
+        from services.chat_agent import _persist_schedule, _svc
+
+        while True:
+            try:
+                now = time.time()
+                due = [
+                    t for t in state.scheduled_scrapes if (t.get("next_run") or 0) <= now
+                ]
+                for task in due:
+                    url = task.get("url") or ""
+                    try:
+                        report = await agent_files.scrape_site(
+                            url, max_pages=5, fmt="text_markdown", svc=_svc()
+                        )
+                        task["pages_saved"] = len(report.get("saved") or [])
+                    except Exception as exc:
+                        logger.warning("scheduled crawl failed for %s: %r", url, exc)
+                        task["pages_saved"] = 0
+                    task["last_run"] = now
+                    task["next_run"] = now + max(
+                        15, int(task.get("interval_minutes") or 60)
+                    ) * 60
+                if due:
+                    await _persist_schedule()
+                    logger.info("scheduled crawls completed: %d", len(due))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("scrape scheduler tick failed")
+            await asyncio.sleep(60)
+
+    async def cancel_scheduled_scrape(self, url: str) -> None:
+        """Remove a scheduled crawl (settings UI)."""
+        from services.chat_agent import _persist_schedule
+
+        state.scheduled_scrapes = [
+            t for t in state.scheduled_scrapes if t.get("url") != url
+        ]
+        await _persist_schedule()
 
     def on_app_close(self, e=None) -> None:
         """Synchronous exit hook: flush storage + stop the embedded router."""

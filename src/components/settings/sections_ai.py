@@ -197,6 +197,54 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
             )
         )
 
+    if state.scheduled_scrapes:
+        import time as _time
+
+        controls.append(
+            ft.Text(
+                "Scheduled crawls (run while the app is open)",
+                size=FONT_SM,
+                weight=ft.FontWeight.W_600,
+                font_family="Outfit",
+            )
+        )
+        for task in state.scheduled_scrapes:
+            next_in = max(0, int((task.get("next_run") or 0) - _time.time()))
+            controls.append(
+                ft.Row(
+                    [
+                        ft.Column(
+                            [
+                                ft.Text(
+                                    task.get("url", ""),
+                                    size=FONT_XS,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                ft.Text(
+                                    f"every {task.get('interval_minutes', 60)} min · "
+                                    f"next in {next_in // 60}m {next_in % 60}s · "
+                                    f"{task.get('pages_saved', 0)} pages last run",
+                                    size=9,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                            ],
+                            expand=True,
+                            spacing=0,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                            icon_size=16,
+                            tooltip="Cancel scheduled crawl",
+                            on_click=lambda e, u=task: page.run_task(
+                                controller.cancel_scheduled_scrape, u.get("url") or ""
+                            ),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
+
     _ = DAILY_FREE_CREDITS  # used above via cap
     return AppStyles.section_card(
         "AI & Premium",

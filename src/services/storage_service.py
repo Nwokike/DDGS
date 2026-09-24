@@ -30,6 +30,7 @@ from core.constants import (
     STORAGE_PROXY,
     STORAGE_REGION,
     STORAGE_SAFE_SEARCH,
+    STORAGE_SCHEDULED_SCRAPES,
     STORAGE_SEARCH_DURATION,
     STORAGE_SEARCH_LICENSE,
     STORAGE_SEARCH_RESOLUTION,
@@ -377,6 +378,12 @@ class StorageService:
 
     async def set_ai_mode(self, v: bool) -> bool:
         return await self.set(STORAGE_AI_MODE, v)
+
+    async def get_scheduled_scrapes(self) -> str:
+        return str(await self.get(STORAGE_SCHEDULED_SCRAPES, "[]"))
+
+    async def set_scheduled_scrapes(self, v: str) -> bool:
+        return await self.set(STORAGE_SCHEDULED_SCRAPES, v)
 
     async def get_is_premium(self) -> bool:
         return bool(await self.get(STORAGE_IS_PREMIUM, False))
