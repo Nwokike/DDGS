@@ -146,7 +146,7 @@ def AppShell() -> Control:
                 else AppColors.ERROR
             )
             page.views[0].floating_action_button = ft.FloatingActionButton(
-                icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                 bgcolor=AppColors.PRIMARY
                 if credits > 0
                 else ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE),
@@ -155,9 +155,9 @@ def AppShell() -> Control:
                     bgcolor=badge_color,
                     text_color=ft.Colors.WHITE,
                 ),
-                tooltip="Ask AI"
+                tooltip="Ask Assistant"
                 if credits > 0
-                else "Out of AI credits — tap for options",
+                else "Out of assistant credits — tap for options",
                 on_click=_open,
             )
             page.update()

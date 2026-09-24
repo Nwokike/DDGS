@@ -148,6 +148,7 @@ class AppState:
         self.ai_overview: AiOverview | None = None
         self.ai_overview_expanded: bool = False
         self.scheduled_scrapes: list = []  # [{url, interval_min, next_run, last_run, pages_saved}]
+        self.assistant_history: list = []  # shared conversation (capped)
 
         # ── Services (set by AppController) ──
         self.ad_service = None

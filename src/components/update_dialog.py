@@ -6,6 +6,7 @@ import asyncio
 
 import flet as ft
 
+from components.results.downloader import launch_url
 from core.theme import AppColors
 
 
@@ -122,7 +123,7 @@ def show_update_dialog(page: ft.Page, update_data: dict) -> None:
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 on_tap_link=lambda e: asyncio.create_task(
-                    ft.UrlLauncher().launch_url(e.data)
+                    launch_url(e.data, page)
                 ),
             )
         )

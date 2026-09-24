@@ -1,4 +1,4 @@
-"""AI overview card — Google-style summary above normal text/news results.
+"""Assistant overview card — Google-style summary above normal text/news results.
 
 Companion to the agentic chat: the chat is where the AI *acts* (searches,
 fetches, iterates); this card is the passive glanceable answer for the
@@ -61,19 +61,19 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
     header = ft.Row(
         [
             ft.Icon(
-                ft.Icons.AUTO_AWESOME_ROUNDED,
+                ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                 size=tokens.ICON_SM,
                 color=AppColors.ACCENT,
             ),
             ft.Text(
-                "AI overview",
+                "Assistant overview",
                 size=tokens.FONT_SM,
                 weight=ft.FontWeight.W_700,
                 font_family="Outfit",
             ),
             ft.Container(expand=True),
             ft.TextButton(
-                "Ask AI",
+                "Ask Assistant",
                 icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                 on_click=lambda e: ctrl
                 and ctrl.open_chat(
@@ -102,7 +102,7 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
             ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,
                 icon_size=16,
-                tooltip="Hide AI overviews",
+                tooltip="Hide Assistant overviews",
                 on_click=lambda e: ctrl and ctrl.save("ai_mode", False),
             ),
         ],
@@ -154,7 +154,7 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
         body.extend(
             [
                 ft.Text(
-                    "Out of free AI overviews — results below are unaffected.",
+                    "Out of free Assistant overviews — results below are unaffected.",
                     size=tokens.FONT_XS,
                     color=AppColors.WARNING,
                 ),
@@ -168,7 +168,7 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
     elif ov.error == "midstream":
         body.append(
             ft.Text(
-                "⚠ Connection lost mid-overview — tap Ask AI to retry.",
+                "⚠ Connection lost mid-overview — tap Ask Assistant to retry.",
                 size=tokens.FONT_XS,
                 color=AppColors.WARNING,
             )

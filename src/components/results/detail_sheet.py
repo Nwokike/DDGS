@@ -51,7 +51,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         page.show_dialog(snack)
         page.update()
 
-    def _summarize(_):
+    def _ask_assistant(_):
         async def _run():
             from components.ai_summary import show_ai_summary
             from services.search_service import SearchService
@@ -321,9 +321,9 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             ft.OutlinedButton(
                 content=ft.Row(
                     [
-                        ft.Icon(ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM),
+                        ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=tokens.ICON_SM),
                         ft.Text(
-                            "Summarize with AI",
+                            "Summarize with Assistant",
                             size=tokens.FONT_SM,
                             font_family="Outfit",
                         ),
@@ -331,7 +331,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                     spacing=4,
                     tight=True,
                 ),
-                on_click=_summarize,
+                on_click=_ask_assistant,
                 style=ft.ButtonStyle(
                     shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
                     side=ft.BorderSide(1, ft.Colors.OUTLINE),

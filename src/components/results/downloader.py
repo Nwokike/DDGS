@@ -35,8 +35,19 @@ async def launch_url(url: str, page: ft.Page | None = None):
     """Open a URL in the system browser. Works on mobile + desktop."""
     if not url:
         return
+    launcher = getattr(page, "url_launcher", None) if page is not None else None
+    if launcher is None and page is not None:
+        # Transient UrlLaunchers have no channel on mobile — register one.
+        launcher = ft.UrlLauncher()
+        page.services.append(launcher)
     try:
-        await ft.UrlLauncher().launch_url(url)
+        if launcher is not None:
+            await launcher.launch_url(url)
+        else:
+            import webbrowser
+
+            webbrowser.open(url)
+            return
     except (
         ValueError,
         TypeError,

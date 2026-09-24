@@ -12,8 +12,7 @@ from core import tokens
 from core.constants import (
     AD_TOPUP_COOLDOWN_SEC,
     AD_TOPUP_CREDITS,
-    COST_CHAT,
-    COST_SUMMARIZE,
+    COST_STEP,
     DAILY_FREE_CREDITS,
 )
 from core.state import state
@@ -35,7 +34,7 @@ def build_credit_pill(page: ft.Page, credits: int) -> ft.Container:
         content=ft.Row(
             [
                 ft.Icon(
-                    ft.Icons.AUTO_AWESOME_ROUNDED, size=tokens.ICON_SM, color=color
+                    ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=tokens.ICON_SM, color=color
                 ),
                 ft.Text(
                     str(credits),
@@ -52,7 +51,7 @@ def build_credit_pill(page: ft.Page, credits: int) -> ft.Container:
         bgcolor=ft.Colors.with_opacity(0.12, color),
         border=ft.Border.all(1, ft.Colors.with_opacity(0.25, color)),
         ink=True,
-        tooltip="AI credits — tap for details",
+        tooltip="Assistant credits — tap for details",
         on_click=lambda e: show_wallet_dialog(page),
     )
 
@@ -153,7 +152,8 @@ def show_wallet_dialog(page: ft.Page) -> None:
         page.run_task(_countdown)
         from services.ad_service import AdService
 
-        ok = await AdService(page).show_rewarded_interstitial(_on_watch_success)
+        ad_service = getattr(state, "ad_service", None) or AdService(page)
+        ok = await ad_service.show_rewarded_interstitial(_on_watch_success)
         if not ok:
             state.ad_cooldown_end = 0.0
 
@@ -178,12 +178,12 @@ def show_wallet_dialog(page: ft.Page) -> None:
             ft.Row(
                 [
                     ft.Icon(
-                        ft.Icons.AUTO_AWESOME_ROUNDED,
+                        ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                         size=28,
                         color=AppColors.ACCENT,
                     ),
                     ft.Text(
-                        "AI Credits",
+                        "Assistant credits",
                         size=tokens.FONT_MD,
                         weight=ft.FontWeight.BOLD,
                         font_family="Outfit",
@@ -197,11 +197,11 @@ def show_wallet_dialog(page: ft.Page) -> None:
                 alignment=ft.MainAxisAlignment.CENTER,
             ),
             ft.Container(height=6),
-            _cost_line("Chat message (any tools it runs)", str(COST_CHAT)),
-            _cost_line("Search overview / page summary", str(COST_SUMMARIZE)),
+            _cost_line("Chat message (any tools it runs)", str(COST_STEP)),
+            _cost_line("Search overview / page summary", "free"),
             ft.Container(height=4),
             ft.Text(
-                "Manual search, scraping and downloads never use credits.",
+                "Search overviews and page summaries are free. Manual search, scraping and downloads never use credits.",
                 size=tokens.FONT_XS,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 text_align=ft.TextAlign.CENTER,
@@ -216,7 +216,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
     )
 
     dlg = ft.AlertDialog(
-        title=ft.Text("AI Credits", font_family="Outfit"),
+        title=ft.Text("Assistant credits", font_family="Outfit"),
         content=ft.Container(
             content=content, width=320, padding=ft.Padding(4, 8, 4, 4)
         ),

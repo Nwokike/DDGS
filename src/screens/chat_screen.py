@@ -1,9 +1,14 @@
-"""ChatScreen — full-screen agentic AI chat (the Ask-AI FAB entry).
+"""Assistant chat — the agentic surface (FAB entry).
 
-Imperative View (reader pattern): built once, refreshed from local session
-state with >=0.2s throttling for token streams and immediate refreshes for
-block additions (tool steps, result blocks). The agent loop lives in
-services/chat_agent; this file owns presentation + the emit protocol.
+Imperative View (reader pattern): built once, refreshed from session state
+with >=0.2s throttled streaming, pinned-to-bottom auto-scroll. Agent loop
+lives in services/chat_agent; this file owns presentation:
+  - "Assistant used N steps · 2N credits" receipts
+  - collapsible tool steps + thinking
+  - result blocks with "View N results in Results" (minimizes the Assistant)
+  - approve/deny gates before any file-writing tool
+  - long-press a message to delete; Clear chat in the app bar
+  - scheduled crawls listed with cancel
 """
 
 from __future__ import annotations
@@ -18,8 +23,15 @@ from components.results.downloader import launch_url
 from components.wallet import show_wallet_dialog
 from core import tokens
 from core.state import SearchResult, state
-from core.styles import build_banner_ad
 from core.theme import AppColors
+
+_CHAT = ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED
+
+_DISCLOSURE = (
+    "Runs on your in-app Kiri router first; if it's down, requests fall back to "
+    "Kiri's gateway. We instruct no training; page text is sent only for "
+    "features you tap."
+)
 
 _KIND_ICONS = {
     "web": ft.Icons.LANGUAGE_ROUNDED,
@@ -28,11 +40,7 @@ _KIND_ICONS = {
     "news": ft.Icons.NEWSPAPER_ROUNDED,
     "books": ft.Icons.BOOK_ROUNDED,
 }
-
-_DISCLOSURE = (
-    "1 credit per message · queries go to your in-app Kiri router first · "
-    "no history, no identity, no training."
-)
+_THROUGHT_CAP = 900
 
 _SUGGESTIONS = [
     "What happened in tech this week?",
@@ -48,25 +56,29 @@ def _domain(url: str) -> str:
 
 
 class ChatSession:
-    """Owns one chat thread: local message model, rendering, agent turn."""
+    """Owns one conversation: local model, rendering, agent turn, approvals."""
 
     def __init__(self, page: ft.Page, ctx: dict | None = None):
         self.page = page
         self.ctx = ctx or {}
         self.turns: list[dict] = []
-        self.agent_history: list[dict] = []
+        self.agent_history: list[dict] = list(
+            getattr(state, "assistant_history", []) or []
+        )
         self.pending_user = ""
         self.busy = False
         self.cancel = asyncio.Event()
         self._last_partial_flush = 0.0
+        self._pinned = True  # auto-scroll only while the user sits at the bottom
         self._current: dict | None = None
+        self._confirm: tuple[asyncio.Event, dict] | None = None
 
         # ── Controls ────────────────────────────────────────────────
         self._list = ft.Column(
             [], spacing=tokens.SPACE_SM, expand=True, scroll=ft.ScrollMode.AUTO
         )
         self.field = ft.TextField(
-            hint_text="Ask AI anything — it can search and fetch for you…",
+            hint_text="Ask the assistant — it can search and fetch for you…",
             expand=True,
             dense=True,
             min_lines=1,
@@ -74,8 +86,6 @@ class ChatSession:
             content_padding=ft.Padding(12, 8, 12, 8),
             border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_LG),
         )
-        if self.ctx.get("url"):
-            self.field.value = ""
         self.send_btn = ft.IconButton(
             icon=ft.Icons.SEND_ROUNDED,
             icon_color=AppColors.PRIMARY,
@@ -91,22 +101,14 @@ class ChatSession:
         )
         self.field.on_submit = lambda e: self._send_from_field()
 
-        credits_color = (
-            AppColors.SUCCESS
-            if state.credits_remaining > 20
-            else AppColors.WARNING
-            if state.credits_remaining >= 5
-            else AppColors.ERROR
-        )
+        credits_color = _credits_color(state.credits_remaining)
         self.credits_chip = ft.Container(
             content=ft.Row(
                 [
-                    ft.Icon(
-                        ft.Icons.AUTO_AWESOME_ROUNDED, size=14, color=credits_color
-                    ),
+                    ft.Icon(_CHAT, size=tokens.ICON_SM, color=credits_color),
                     ft.Text(
                         str(state.credits_remaining),
-                        size=tokens.FONT_XS,
+                        size=tokens.FONT_SM,
                         weight=ft.FontWeight.W_700,
                         color=credits_color,
                     ),
@@ -114,29 +116,50 @@ class ChatSession:
                 spacing=3,
                 tight=True,
             ),
-            padding=ft.Padding(7, 3, 9, 3),
+            padding=ft.Padding(8, 4, 10, 4),
             border_radius=tokens.RADIUS_PILL,
             bgcolor=ft.Colors.with_opacity(0.12, credits_color),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, credits_color)),
             ink=True,
-            tooltip="AI credits — tap for details",
+            tooltip="Assistant credits — tap for details",
             on_click=lambda e: show_wallet_dialog(page),
+        )
+        self.model_chip = ft.Container(
+            content=ft.Row(
+                [
+                    ft.Text(
+                        state.ai_model,
+                        size=tokens.FONT_XS,
+                        color=AppColors.PRIMARY,
+                    ),
+                    ft.Icon(
+                        ft.Icons.EXPAND_MORE_ROUNDED,
+                        size=12,
+                        color=AppColors.PRIMARY,
+                    ),
+                ],
+                spacing=2,
+                tight=True,
+            ),
+            padding=ft.Padding(7, 3, 7, 3),
+            border_radius=tokens.RADIUS_PILL,
+            bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY),
+            ink=True,
+            tooltip="Assistant model",
+            on_click=lambda e: show_model_picker(page),
         )
 
         appbar = ft.AppBar(
             leading=ft.IconButton(
                 icon=ft.Icons.ARROW_BACK_ROUNDED,
-                tooltip="Close chat",
+                tooltip="Minimize assistant",
                 on_click=lambda e: self.close(),
             ),
             title=ft.Row(
                 [
-                    ft.Icon(
-                        ft.Icons.AUTO_AWESOME_ROUNDED,
-                        size=20,
-                        color=AppColors.ACCENT,
-                    ),
+                    ft.Icon(_CHAT, size=20, color=AppColors.PRIMARY),
                     ft.Text(
-                        "DDGS AI",
+                        "Assistant",
                         size=tokens.FONT_MD,
                         weight=ft.FontWeight.W_700,
                         font_family="Outfit",
@@ -145,37 +168,15 @@ class ChatSession:
                 spacing=6,
             ),
             actions=[
-                ft.Container(
-                    content=ft.Row(
-                        [
-                            ft.Icon(
-                                ft.Icons.MEMORY_ROUNDED,
-                                size=13,
-                                color=AppColors.PRIMARY,
-                            ),
-                            ft.Text(
-                                state.ai_model,
-                                size=tokens.FONT_XS,
-                                color=AppColors.PRIMARY,
-                            ),
-                            ft.Icon(
-                                ft.Icons.EXPAND_MORE_ROUNDED,
-                                size=12,
-                                color=AppColors.PRIMARY,
-                            ),
-                        ],
-                        spacing=2,
-                        tight=True,
-                    ),
-                    padding=ft.Padding(7, 3, 7, 3),
-                    border_radius=tokens.RADIUS_PILL,
-                    bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY),
-                    ink=True,
-                    tooltip="AI model",
-                    on_click=lambda e: show_model_picker(page),
-                ),
+                self.model_chip,
                 self.credits_chip,
-                ft.Container(width=8),
+                ft.IconButton(
+                    icon=ft.Icons.DELETE_SWEEP_OUTLINED,
+                    icon_size=18,
+                    tooltip="Clear chat",
+                    on_click=lambda e: self._clear_chat(),
+                ),
+                ft.Container(width=6),
             ],
             bgcolor=ft.Colors.TRANSPARENT,
             elevation=0,
@@ -200,17 +201,18 @@ class ChatSession:
             padding=ft.Padding(10, 6, 10, 10),
         )
 
+        # Pinned detection: flip off when the user scrolls away from the end.
+        try:
+            self._list.on_scroll = self._on_scroll
+        except Exception:
+            pass
+
         self.view = ft.View(
             route="/chat",
             controls=[
                 ft.Container(
                     content=ft.Column(
-                        [
-                            appbar,
-                            ft.Container(self._list, expand=True),
-                            build_banner_ad(page),
-                            composer,
-                        ],
+                        [appbar, ft.Container(self._list, expand=True), composer],
                         spacing=0,
                         expand=True,
                     ),
@@ -255,6 +257,7 @@ class ChatSession:
                 self.emit,
                 self.cancel,
                 on_thought=lambda t: self.emit("thought", {"text": t}),
+                ask_confirm=self.ask_confirm,
             )
         finally:
             self.busy = False
@@ -264,8 +267,26 @@ class ChatSession:
     def stop(self) -> None:
         self.cancel.set()
 
+    async def ask_confirm(self, label: str) -> bool:
+        """Inline approve/deny gate for file-writing tools. Times out to deny."""
+        event = asyncio.Event()
+        self._confirm = (event, {"label": label, "decision": None})
+        self._render(force=True)
+        try:
+            await asyncio.wait_for(event.wait(), timeout=120)
+        except TimeoutError:
+            return False
+        decision = self._confirm[1]["decision"] if self._confirm else None
+        return decision == "allow"
+
+    def _confirm_decision(self, decision: str) -> None:
+        if self._confirm and self._confirm[1].get("decision") is None:
+            self._confirm[1]["decision"] = decision
+            self._confirm[0].set()
+
     def close(self) -> None:
         self.cancel.set()
+        self._persist_history()
         try:
             if self.page.views and self.page.views[-1] is self.view:
                 self.page.views.pop()
@@ -274,12 +295,56 @@ class ChatSession:
         except Exception:
             state.chat_open = False
 
+    def _clear_chat(self) -> None:
+        if not self.turns:
+            return
+        self.turns = []
+        self.agent_history = []
+        state.assistant_history = []
+        self._persist_history()
+        self._render(force=True)
+        snack = ft.SnackBar(ft.Text("Chat cleared"))
+        snack.open = True
+        self.page.show_dialog(snack)
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    def _delete_turn(self, index: int) -> None:
+        if 0 <= index < len(self.turns):
+            del self.turns[index]
+            self._persist_history()
+            self._render(force=True)
+
+    def _persist_history(self) -> None:
+        text = self.agent_history[-16:]
+        state.assistant_history = text
+        storage = _storage()
+        if storage:
+            try:
+                import json
+
+                self.page.run_task(storage.set_assistant_history, json.dumps(text))
+            except Exception:
+                pass
+
     def _set_busy_ui(self, busy: bool) -> None:
         self.send_btn.visible = not busy
         self.stop_btn.visible = busy
         try:
             self.send_btn.update()
             self.stop_btn.update()
+        except Exception:
+            pass
+
+    def _on_scroll(self, e) -> None:
+        try:
+            offset = getattr(self._list, "scroll_offset", None) or 0
+            extent = getattr(self._list, "scroll_extent", None) or 0
+            viewport = getattr(self._list, "viewport", None) or 0
+            if isinstance(offset, (int, float)) and isinstance(extent, (int, float)):
+                self._pinned = offset + viewport >= extent - 64
         except Exception:
             pass
 
@@ -295,31 +360,35 @@ class ChatSession:
                 "role": "assistant",
                 "text": "",
                 "thought": "",
+                "steps": 0,
+                "cost": 0,
                 "partial": True,
-                "steps": [],
+                "steps_rows": [],
                 "cards": [],
                 "related": [],
                 "served_by": "",
                 "error": None,
                 "stopped": False,
+                "receipt": "",
             }
             self.turns.append(self._current)
+        elif event == "nudge" and self._current is not None:
+            self._current["receipt"] = data.get("text", "")
         elif event == "text_partial" and self._current is not None:
             self._current["text"] = data.get("text", "")
-            force = False  # throttle partials
-            if now - self._last_partial_flush < 0.2:
-                return
-            self._last_partial_flush = now
-        elif event == "thought" and self._current is not None:
-            self._current["thought"] = (self._current.get("thought") or "") + data.get(
-                "text", ""
-            )
             force = False
             if now - self._last_partial_flush < 0.2:
                 return
             self._last_partial_flush = now
+        elif event == "thought" and self._current is not None:
+            buf = (self._current.get("thought") or "") + data.get("text", "")
+            self._current["thought"] = buf[:_THROUGHT_CAP]
+            force = False
+            if now - self._last_partial_flush < 0.5:
+                return
+            self._last_partial_flush = now
         elif event == "step_start" and self._current is not None:
-            self._current["steps"].append(
+            self._current["steps_rows"].append(
                 {
                     "id": data.get("id", ""),
                     "label": data.get("label", ""),
@@ -329,7 +398,7 @@ class ChatSession:
                 }
             )
         elif event in ("step_done", "step_error") and self._current is not None:
-            for step in self._current["steps"]:
+            for step in self._current["steps_rows"]:
                 if step["id"] == data.get("id") or step["state"] == "running":
                     step["state"] = "done" if event == "step_done" else "error"
                     step["count"] = data.get("count", 0)
@@ -343,48 +412,68 @@ class ChatSession:
         elif event == "text_final" and self._current is not None:
             self._current.update(
                 text=data.get("text", ""),
-                partial=False,
                 related=data.get("related", []),
                 served_by=data.get("served_by", ""),
+                steps=data.get("steps", 0),
+                cost=data.get("cost", 0),
+                partial=False,
+                receipt="",
             )
-            clean = self._current["text"]
-            if clean:
-                self.agent_history = (
-                    self.agent_history
-                    + [
-                        {"role": "user", "content": self.pending_user},
-                        {"role": "assistant", "content": clean},
-                    ]
-                )[-16:]
+            self.agent_history = (
+                self.agent_history
+                + [
+                    {"role": "user", "content": self.pending_user},
+                    {"role": "assistant", "content": self._current["text"]},
+                ]
+            )[-16:]
+            self._persist_history()
+            self._refresh_credits_chip()
         elif event == "stopped" and self._current is not None:
-            self._current.update(partial=False, stopped=True)
-            if data.get("partial") and not self._current["text"]:
-                self._current["text"] = data["partial"]
+            self._current.update(
+                partial=False,
+                stopped=True,
+                steps=data.get("steps", self._current.get("steps", 0)),
+                cost=data.get("cost", self._current.get("cost", 0)),
+            )
         elif event == "error" and self._current is not None:
             self._current.update(
                 partial=False,
                 error=data.get("kind", "unavailable"),
+                steps=data.get("steps", self._current.get("steps", 0)),
+                cost=data.get("cost", self._current.get("cost", 0)),
             )
-            if data.get("partial") and not self._current["text"]:
-                self._current["text"] = data["partial"]
         elif event == "error" and self._current is None:
-            # failed before assistant_start (e.g. no credits)
             self.turns.append(
                 {
                     "role": "assistant",
                     "text": "",
+                    "thought": "",
+                    "steps": 0,
+                    "cost": 0,
                     "partial": False,
-                    "steps": [],
+                    "steps_rows": [],
                     "cards": [],
                     "related": [],
                     "served_by": "",
                     "error": data.get("kind", "unavailable"),
                     "stopped": False,
+                    "receipt": "",
                 }
             )
             if data.get("kind") == "credits":
                 self.busy = False
+            self._refresh_credits_chip()
         self._render(force=force)
+
+    def _refresh_credits_chip(self) -> None:
+        try:
+            color = _credits_color(state.credits_remaining)
+            for control in self.credits_chip.content.controls:
+                control.color = color
+            self.credits_chip.content.controls[-1].value = str(state.credits_remaining)
+            self.credits_chip.update()
+        except Exception:
+            pass
 
     # ── Rendering ──────────────────────────────────────────────────────────
 
@@ -392,26 +481,34 @@ class ChatSession:
         controls: list[ft.Control] = []
         if not self.turns:
             controls.append(self._welcome())
-        for turn in self.turns:
+        for idx, turn in enumerate(self.turns):
             controls.append(
-                self._render_user(turn)
+                self._render_user(turn, idx)
                 if turn.get("role") == "user"
                 else self._render_assistant(turn)
             )
+        if state.scheduled_scrapes:
+            controls.append(self._render_schedules())
         self._list.controls = controls
         if force:
             try:
                 self.page.update()
-                self._list.scroll_to(offset=-1e9, duration=200)
             except Exception:
                 pass
+            if self._pinned:
+                self.page.run_task(self._scroll_to_bottom)
+
+    async def _scroll_to_bottom(self):
+        # ScrollableControl.scroll_to is async in flet 1.0
+        try:
+            await self._list.scroll_to(offset=-1, duration=200)
+        except Exception:
+            pass
 
     def _welcome(self) -> ft.Container:
         kids: list[ft.Control] = [
             ft.Container(
-                content=ft.Icon(
-                    ft.Icons.AUTO_AWESOME_ROUNDED, size=44, color=AppColors.ACCENT
-                ),
+                content=ft.Icon(_CHAT, size=44, color=AppColors.PRIMARY),
                 alignment=ft.Alignment.CENTER,
                 margin=ft.Margin(0, 40, 0, 8),
             ),
@@ -420,11 +517,10 @@ class ChatSession:
                 size=tokens.FONT_LG,
                 weight=ft.FontWeight.W_700,
                 font_family="Outfit",
-                text_align=ft.TextAlign.CENTER,
             ),
             ft.Text(
-                "I can search DDGS across web, images, videos, news and books — "
-                "and fetch pages — myself, then show you what I find.",
+                "I can search across 10 engines, fetch and save pages, and "
+                "download media — myself, and show you what I find.",
                 size=tokens.FONT_SM,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 text_align=ft.TextAlign.CENTER,
@@ -452,17 +548,19 @@ class ChatSession:
                     ),
                 )
             )
-        for s in _SUGGESTIONS:
+        for suggestion in _SUGGESTIONS:
             chips.append(
                 ft.Container(
-                    content=ft.Text(s, size=tokens.FONT_XS, color=AppColors.PRIMARY),
+                    content=ft.Text(
+                        suggestion, size=tokens.FONT_XS, color=AppColors.PRIMARY
+                    ),
                     padding=ft.Padding(10, 6, 10, 6),
                     border_radius=tokens.RADIUS_PILL,
                     border=ft.Border.all(
                         1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)
                     ),
                     ink=True,
-                    on_click=lambda e, q=s: self.send(q),
+                    on_click=lambda e, q=suggestion: self.send(q),
                 )
             )
         kids.append(ft.Row(chips, spacing=6, wrap=True, run_spacing=6))
@@ -471,51 +569,24 @@ class ChatSession:
             expand=True,
         )
 
-    def _open_result(self, r, kind: str) -> None:
-        """Open an AI-found result exactly like tapping a normal result card —
-        the same detail sheet with View Page Content, Download, Open/Copy/Share."""
-        from components.results.detail_sheet import _show_result_sheet
-
-        search_type = {
-            "web": "text",
-            "images": "images",
-            "videos": "videos",
-            "news": "news",
-            "books": "books",
-        }.get(kind, "text")
-        _show_result_sheet(self.page, r, search_type)
-
-    def _open_in_app(self, url: str) -> None:
-        """Open like the rest of DDGS: in-app extracted preview (which itself
-        offers Open in browser, full reader, and save). Falls back to browser."""
-
-        async def _go() -> None:
-            if not url:
-                return
-            from components.results.content_fetcher import _fetch_and_show
-
-            try:
-                await _fetch_and_show(self.page, url)
-            except Exception:
-                await launch_url(url)
-
-        self.page.run_task(_go)
-
-    def _render_user(self, turn: dict) -> ft.Container:
+    def _render_user(self, turn: dict, index: int) -> ft.Container:
         bubble_width = min(300, (getattr(self.page, "width", None) or 400) * 0.72)
         return ft.Row(
             [
-                ft.Container(
-                    content=ft.Text(
-                        turn.get("text", ""),
-                        size=tokens.FONT_SM,
-                        color=ft.Colors.WHITE,
-                        selectable=True,
+                ft.GestureDetector(
+                    on_long_press=lambda e, i=index: self._delete_turn(i),
+                    content=ft.Container(
+                        content=ft.Text(
+                            turn.get("text", ""),
+                            size=tokens.FONT_SM,
+                            color=ft.Colors.WHITE,
+                            selectable=True,
+                        ),
+                        padding=ft.Padding(12, 8, 12, 8),
+                        border_radius=ft.BorderRadius(16, 16, 4, 16),
+                        bgcolor=AppColors.PRIMARY,
+                        width=bubble_width,
                     ),
-                    padding=ft.Padding(12, 8, 12, 8),
-                    border_radius=ft.BorderRadius(16, 16, 4, 16),
-                    bgcolor=AppColors.PRIMARY,
-                    width=bubble_width,
                 )
             ],
             alignment=ft.MainAxisAlignment.END,
@@ -523,15 +594,16 @@ class ChatSession:
 
     def _render_assistant(self, turn: dict) -> ft.Container:
         kids: list[ft.Control] = []
+
         if (turn.get("thought") or "").strip():
             kids.append(
                 ft.Container(
                     content=ft.Text(
-                        "💭 " + turn["thought"].strip(),
+                        "💭 " + turn["thought"].strip().replace("\n", " "),
                         size=tokens.FONT_XS,
                         italic=True,
                         color=ft.Colors.ON_SURFACE_VARIANT,
-                        max_lines=3,
+                        max_lines=2,
                         overflow=ft.TextOverflow.ELLIPSIS,
                     ),
                     padding=ft.Padding(8, 4, 8, 4),
@@ -540,30 +612,25 @@ class ChatSession:
                 )
             )
 
-        for step in turn.get("steps", []):
-            if step["state"] == "running":
+        for row in turn.get("steps_rows", []):
+            if row["state"] == "running":
                 icon = ft.Row(
-                    [
-                        ft.ProgressRing(width=12, height=12, stroke_width=2),
-                    ],
-                    tight=True,
+                    [ft.ProgressRing(width=12, height=12, stroke_width=2)], tight=True
                 )
-            elif step["state"] == "error":
+            elif row["state"] == "error":
                 icon = ft.Icon(
                     ft.Icons.ERROR_OUTLINE_ROUNDED, size=14, color=AppColors.ERROR
                 )
             else:
                 icon = ft.Icon(
-                    ft.Icons.CHECK_CIRCLE_ROUNDED,
-                    size=14,
-                    color=AppColors.SUCCESS,
+                    ft.Icons.CHECK_CIRCLE_ROUNDED, size=14, color=AppColors.SUCCESS
                 )
-            label = step["label"]
-            if step["state"] == "done" and step.get("count"):
+            label = row["label"]
+            if row["state"] == "done" and row.get("count"):
                 label = label.removesuffix("…")
-                label += f" — {step['count']} results"
-            if step["state"] == "error" and step.get("error"):
-                label = f"{label.rstrip('…')} — {step['error']}"
+                label += f" — {row['count']} results"
+            if row["state"] == "error" and row.get("error"):
+                label = f"{label.rstrip('…')} — didn't return results"
             kids.append(
                 ft.Row(
                     [
@@ -576,6 +643,48 @@ class ChatSession:
                     ],
                     spacing=6,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
+
+        # approval gate row
+        if self._confirm and self._confirm[1].get("decision") is None:
+            label = self._confirm[1]["label"]
+            kids.append(
+                ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text(
+                                label,
+                                size=tokens.FONT_XS,
+                                color=AppColors.WARNING,
+                                max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS,
+                            ),
+                            ft.Row(
+                                [
+                                    ft.FilledButton(
+                                        "Allow",
+                                        icon=ft.Icons.CHECK_ROUNDED,
+                                        on_click=lambda e: self._confirm_decision(
+                                            "allow"
+                                        ),
+                                    ),
+                                    ft.TextButton(
+                                        "No",
+                                        on_click=lambda e: self._confirm_decision(
+                                            "deny"
+                                        ),
+                                    ),
+                                ],
+                                spacing=8,
+                            ),
+                        ],
+                        spacing=4,
+                        tight=True,
+                    ),
+                    padding=ft.Padding(10, 6, 10, 6),
+                    border_radius=tokens.RADIUS_MD,
+                    bgcolor=ft.Colors.with_opacity(0.08, AppColors.WARNING),
                 )
             )
 
@@ -598,7 +707,7 @@ class ChatSession:
                     [
                         ft.ProgressRing(width=12, height=12, stroke_width=2),
                         ft.Text(
-                            "Thinking…",
+                            "Working…",
                             size=tokens.FONT_XS,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                         ),
@@ -612,7 +721,7 @@ class ChatSession:
                 ft.Row(
                     [
                         ft.Text(
-                            "Out of free AI messages — refill options:",
+                            "Out of free assistant messages — assistant replies need credits.",
                             size=tokens.FONT_XS,
                             color=AppColors.WARNING,
                         ),
@@ -628,7 +737,7 @@ class ChatSession:
         elif turn.get("error") == "midstream":
             kids.append(
                 ft.Text(
-                    "⚠ Connection lost mid-answer.",
+                    "⚠ Connection lost mid-answer — what arrived was still charged.",
                     size=tokens.FONT_XS,
                     color=AppColors.WARNING,
                 )
@@ -636,7 +745,8 @@ class ChatSession:
         elif turn.get("error") == "unavailable":
             kids.append(
                 ft.Text(
-                    "AI unavailable right now — your searches still work normally.",
+                    "Assistant unavailable — classic search, scraping and "
+                    "downloads still work.",
                     size=tokens.FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     italic=True,
@@ -674,6 +784,23 @@ class ChatSession:
             ]
             kids.append(ft.Row(pills, spacing=6, wrap=True, run_spacing=4))
 
+        # receipt — every assistant turn shows what it cost
+        if turn.get("cost"):
+            receipt = (
+                f"Assistant used {turn.get('steps', 0)} steps · {turn['cost']} credits"
+            )
+            if turn.get("stopped"):
+                receipt += " (stopped early)"
+            kids.append(
+                ft.Text(
+                    receipt,
+                    size=9,
+                    color=ft.Colors.with_opacity(0.6, ft.Colors.ON_SURFACE),
+                )
+            )
+        elif turn.get("receipt"):
+            kids.append(ft.Text(turn["receipt"], size=9, color=AppColors.WARNING))
+
         return ft.Container(
             content=ft.Column(kids, spacing=tokens.SPACE_XS, tight=True),
             padding=ft.Padding(4, 2, 4, 2),
@@ -683,19 +810,19 @@ class ChatSession:
         results: list[SearchResult] = block.get("results") or []
         kind = block.get("kind", "web")
         rows: list[ft.Control] = []
-        for r in results[:5]:
+        for r in results[:8]:
             thumb = (r.thumbnail or r.image_url or "") if r else ""
             rows.append(
                 ft.GestureDetector(
-                    on_tap=lambda e, r=r, k=kind: self._open_result(r, k),
+                    on_tap=lambda e, res=r: self._open_result(res, kind),
                     content=ft.Row(
                         [
                             (
                                 ft.Container(
                                     content=ft.Image(
                                         src=thumb,
-                                        width=34,
-                                        height=34,
+                                        width=30,
+                                        height=30,
                                         fit=ft.BoxFit.COVER,
                                         border_radius=ft.BorderRadius(6, 6, 6, 6),
                                         error_content=ft.Icon(
@@ -735,24 +862,34 @@ class ChatSession:
                     ),
                 )
             )
-        if len(results) > 5:
-            rows.append(
-                ft.Text(
-                    f"…and {len(results) - 5} more",
-                    size=9,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                )
-            )
+        body = ft.Column(rows, spacing=4, tight=True, scroll=ft.ScrollMode.AUTO)
         return ft.Container(
             content=ft.Column(
                 [
                     ft.Text(
-                        f"Found {len(results)} {kind} result{'' if len(results) == 1 else 's'}",
-                        size=9,
+                        f"Found {len(results)} {kind} result"
+                        f"{'' if len(results) == 1 else 's'}",
+                        size=tokens.FONT_XS,
                         weight=ft.FontWeight.W_700,
                         color=AppColors.PRIMARY,
                     ),
-                    *rows,
+                    body,
+                    *(
+                        [
+                            ft.TextButton(
+                                f"View {len(results)} results in Results",
+                                icon=ft.Icons.LIST_ROUNDED,
+                                on_click=lambda e, rs=results, k=kind: self._open_results(
+                                    rs, k
+                                ),
+                                style=ft.ButtonStyle(
+                                    padding=ft.Padding(0, 0, 0, 0)
+                                ),
+                            )
+                        ]
+                        if results
+                        else []
+                    ),
                 ],
                 spacing=3,
                 tight=True,
@@ -762,12 +899,121 @@ class ChatSession:
             bgcolor=ft.Colors.with_opacity(0.05, AppColors.PRIMARY),
         )
 
+    def _render_schedules(self) -> ft.Container:
+        rows = []
+        for task in state.scheduled_scrapes:
+            rows.append(
+                ft.Row(
+                    [
+                        ft.Text(
+                            task.get("url", ""),
+                            size=tokens.FONT_XS,
+                            max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            expand=True,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                            icon_size=15,
+                            tooltip="Cancel scheduled crawl",
+                            on_click=lambda e, task=task: self._cancel_schedule(
+                                task.get("url") or ""
+                            ),
+                        ),
+                    ],
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                )
+            )
+        return ft.Container(
+            content=ft.Column(
+                [
+                    ft.Text(
+                        "Scheduled crawls (run while the app is open)",
+                        size=tokens.FONT_XS,
+                        weight=ft.FontWeight.W_600,
+                    ),
+                    *rows,
+                ],
+                spacing=2,
+                tight=True,
+            ),
+            padding=ft.Padding(8, 6, 8, 6),
+            border_radius=tokens.RADIUS_MD,
+            bgcolor=ft.Colors.with_opacity(0.04, AppColors.PRIMARY),
+        )
+
+    def _cancel_schedule(self, url: str) -> None:
+        ctrl = getattr(self.page, "_ddgs_controller", None)
+        if ctrl:
+            self.page.run_task(ctrl.cancel_scheduled_scrape, url)
+
+    def _open_result(self, r, kind: str) -> None:
+        """Open an assistant-found result exactly like a normal result card."""
+        from components.results.detail_sheet import _show_result_sheet
+
+        search_type = {
+            "web": "text",
+            "images": "images",
+            "videos": "videos",
+            "news": "news",
+            "books": "books",
+        }.get(kind, "text")
+        _show_result_sheet(self.page, r, search_type)
+
+    def _open_results(self, results: list, kind: str) -> None:
+        """Send the assistant's results to the app Results screen and minimize."""
+        ctrl = getattr(self.page, "_ddgs_controller", None)
+        if ctrl:
+            ctrl.open_assistant_results(results, kind)
+            self.close()
+
+    def _open_in_app(self, url: str) -> None:
+        """Open a link the DDGS way: in-app extracted preview (browser inside)."""
+
+        async def _go() -> None:
+            if not url:
+                return
+            from components.results.content_fetcher import _fetch_and_show
+
+            try:
+                await _fetch_and_show(self.page, url)
+            except Exception:
+                await launch_url(url)
+
+        self.page.run_task(_go)
+
+
+def _credits_color(credits: int) -> str:
+    if credits > 20:
+        return AppColors.SUCCESS
+    if credits >= 5:
+        return AppColors.WARNING
+    return AppColors.ERROR
+
+
+def _storage():
+    credits = getattr(state, "credit_service", None)
+    return getattr(credits, "_storage", None) if credits else None
+
 
 def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
-    """Push the chat view (idempotent). Called by AppController.open_chat."""
+    """Open (or re-expand) the assistant. Reuses the retained session."""
     if state.chat_open:
         return
-    ctx = ctx or {}
+    existing = getattr(page, "_chat_session", None)
+    if isinstance(existing, ChatSession):
+        state.chat_open = True
+        page.views.append(existing.view)
+        try:
+            page.update()
+        except Exception:
+            pass
+        if ctx and ctx.get("auto"):
+            if ctx.get("url"):
+                existing.send(f"Describe this page for me: {ctx['url']}")
+            elif ctx.get("question"):
+                existing.send(ctx["question"])
+        return
     session = ChatSession(page, ctx)
     page._chat_session = session
     state.chat_open = True
@@ -776,9 +1022,8 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         page.update()
     except Exception:
         pass
-    if not ctx.get("auto"):
-        return
-    if ctx.get("url"):
-        session.send(f"Describe this page for me: {ctx['url']}")
-    elif ctx.get("question"):
-        session.send(ctx["question"])
+    if ctx and ctx.get("auto"):
+        if ctx.get("url"):
+            session.send(f"Describe this page for me: {ctx['url']}")
+        elif ctx.get("question"):
+            session.send(ctx["question"])

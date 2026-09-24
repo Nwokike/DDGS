@@ -11,7 +11,7 @@ import time
 
 import flet as ft
 
-from core.constants import COST_CHAT, PREMIUM_DAILY_CREDITS
+from core.constants import COST_OVERVIEW, PREMIUM_DAILY_CREDITS
 from core.state import AiOverview, SearchProgress, state
 from core.theme import AppTheme
 from core.utils import (
@@ -59,6 +59,12 @@ class AppController:
         self.page.window.min_height = 600
         self.page.padding = 0
         self.page.spacing = 0
+
+        # URL launching (persistent service — transient UrlLauncher has no
+        # channel on mobile; this is the registered singleton)
+        self.url_launcher = ft.UrlLauncher()
+        self.page.services.append(self.url_launcher)
+        self.page.url_launcher = self.url_launcher
 
         # FilePicker service (singleton, registered once)
         file_picker = ft.FilePicker()
@@ -243,6 +249,14 @@ class AppController:
             state.has_accepted_terms = await storage.get_onboarding_done()
             state.ai_mode_enabled = await storage.get_ai_mode()
             state.ai_model = await storage.get_ai_model()
+            try:
+                import json as _json2
+
+                state.assistant_history = _json2.loads(
+                    await storage.get_assistant_history() or "[]"
+                )
+            except Exception:
+                state.assistant_history = []
             state.is_premium = await storage.get_is_premium()
             import json as _json
 
@@ -562,7 +576,7 @@ class AppController:
         messages = ai_service.build_overview_messages(query, sources)
         try:
             await ai_service.stream_chat(
-                messages, COST_CHAT, on_token, model=state.ai_model
+                messages, COST_OVERVIEW, on_token, model=state.ai_model
             )
             clean, related = ai_service.parse_related(buffer["text"])
             state.ai_overview = replace(
@@ -583,6 +597,33 @@ class AppController:
         except Exception as exc:
             log_error(f"[{LOG_TAG}] AI overview", exc, query=query)
             state.ai_overview = replace(overview, is_running=False, error="unavailable")
+
+    def open_assistant_results(self, results: list, kind: str) -> None:
+        """Surface the assistant's findings in the real Results screen —
+        side-effect free: no history write, no overview re-fire, no ad."""
+        from core.state import SearchProgress
+
+        search_type = {
+            "web": "text",
+            "images": "images",
+            "videos": "videos",
+            "news": "news",
+            "books": "books",
+        }.get(kind, "text")
+        state.search_progress = SearchProgress(
+            query="Assistant results",
+            search_type=search_type,
+            results=list(results),
+            total_results=len(results),
+            is_running=False,
+        )
+        state.last_results[search_type] = list(results)
+        state.search_active = True
+        state.ai_overview = None
+        try:
+            self.page.update()
+        except Exception:
+            pass
 
     def open_chat(self, ctx: dict | None = None) -> None:
         """Open the full-screen agentic chat (FAB entry)."""
@@ -618,10 +659,13 @@ class AppController:
             )
         if first_time:
             await self.show_snack(
-                "Premium active — ads off, 200 AI credits/day.", "success"
+                "Premium active — ads off, 200 assistant credits/day.", "success"
             )
 
-    async def verify_purchases(self) -> None:
+    async def verify_purchases(self) -> None:  # client-side re-check; server-side
+        # verification (Play Developer API on your backend) is the Play-review
+        # gate and is tracked as an infra task — the client never trusts the
+        # local flag beyond what Play itself reports.
         """Re-check owned products on launch — never trust the local flag alone."""
         billing = getattr(self, "billing", None)
         if billing is None:
