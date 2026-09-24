@@ -129,7 +129,12 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
 
         messages = ai_service.build_summary_messages(title, content)
         try:
-            await ai_service.stream_chat(messages, COST_SUMMARIZE, on_token)
+            await ai_service.stream_chat(
+                messages,
+                COST_SUMMARIZE,
+                on_token,
+                model=getattr(state, "ai_model", "auto"),
+            )
             body.value = buffer["text"] or "(empty summary)"
         except ai_service.NotEnoughCredits as exc:
             body.value = (

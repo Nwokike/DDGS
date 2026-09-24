@@ -197,6 +197,40 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
             )
         )
 
+    from components.model_picker import show_model_picker
+    from services import ai_service as _ai
+
+    controls.append(
+        ft.Row(
+            [
+                ft.Column(
+                    [
+                        ft.Text(
+                            "AI model",
+                            size=FONT_SM,
+                            weight=ft.FontWeight.W_500,
+                            font_family="Outfit",
+                        ),
+                        ft.Text(
+                            f"{state.ai_model} — "
+                            f"{_ai.model_hint(state.ai_model) or 'active models at attach'}",
+                            size=9,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                    expand=True,
+                    spacing=0,
+                ),
+                ft.TextButton(
+                    "Change",
+                    icon=ft.Icons.EXPAND_MORE_ROUNDED,
+                    on_click=lambda e: show_model_picker(page),
+                ),
+            ],
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+    )
+
     if state.scheduled_scrapes:
         import time as _time
 

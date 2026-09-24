@@ -13,6 +13,7 @@ import time
 
 import flet as ft
 
+from components.model_picker import show_model_picker
 from components.results.downloader import launch_url
 from components.wallet import show_wallet_dialog
 from core import tokens
@@ -143,7 +144,39 @@ class ChatSession:
                 ],
                 spacing=6,
             ),
-            actions=[self.credits_chip, ft.Container(width=8)],
+            actions=[
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.Icon(
+                                ft.Icons.MEMORY_ROUNDED,
+                                size=13,
+                                color=AppColors.PRIMARY,
+                            ),
+                            ft.Text(
+                                state.ai_model,
+                                size=tokens.FONT_XS,
+                                color=AppColors.PRIMARY,
+                            ),
+                            ft.Icon(
+                                ft.Icons.EXPAND_MORE_ROUNDED,
+                                size=12,
+                                color=AppColors.PRIMARY,
+                            ),
+                        ],
+                        spacing=2,
+                        tight=True,
+                    ),
+                    padding=ft.Padding(7, 3, 7, 3),
+                    border_radius=tokens.RADIUS_PILL,
+                    bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY),
+                    ink=True,
+                    tooltip="AI model",
+                    on_click=lambda e: show_model_picker(page),
+                ),
+                self.credits_chip,
+                ft.Container(width=8),
+            ],
             bgcolor=ft.Colors.TRANSPARENT,
             elevation=0,
         )

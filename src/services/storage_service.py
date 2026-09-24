@@ -14,6 +14,7 @@ import flet as ft
 
 from core.constants import (
     STORAGE_AI_MODE,
+    STORAGE_AI_MODEL,
     STORAGE_BACKEND,
     STORAGE_DEFAULT_TAB,
     STORAGE_EXTRACT_FORMAT,
@@ -384,6 +385,12 @@ class StorageService:
 
     async def set_scheduled_scrapes(self, v: str) -> bool:
         return await self.set(STORAGE_SCHEDULED_SCRAPES, v)
+
+    async def get_ai_model(self) -> str:
+        return str(await self.get(STORAGE_AI_MODEL, "auto") or "auto")
+
+    async def set_ai_model(self, v: str) -> bool:
+        return await self.set(STORAGE_AI_MODEL, v or "auto")
 
     async def get_is_premium(self) -> bool:
         return bool(await self.get(STORAGE_IS_PREMIUM, False))
