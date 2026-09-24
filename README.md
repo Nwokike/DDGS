@@ -108,29 +108,35 @@ history and logs never leave your device.
 Runs on **Android, Windows and Linux** (light/dark/system theme, offline
 detection, in-app updates).
 
-### ✨ AI mode (new in 2.0)
+### ✨ The Assistant (new in 2.0)
 
-Flip the compact **AI switch** in the home header and you get **both**: a Google-style **AI overview** card above every text/news search (cited, streamed, 1 credit) and an **Ask AI** button
-(FAB) appears — tap it for a **chat with an agentic assistant** that searches
-DDGS **itself**: all five search categories plus page fetching, run as tools
-mid-conversation. You watch it work — "Searching the web for…" status rows,
-live **result blocks** it found (tappable), then a streamed answer with
-tappable citations, related-search pills, and a stop button whenever you want
-out.
+Flip the compact **Assistant** switch in the home header and an **Ask
+Assistant** button appears. Tap it for a chat with an agent that **acts, not
+just explains**:
 
-- **Credits:** **1 credit per chat message** no matter how many
-  searches/fetches that message runs — 50 free daily (resets 00:00 UTC), +2
-  per rewarded ad. **Manual search, scraping and downloads never use
-  credits.**
-- **Describe this page:** open ✨ Summarize on any page, then tap **Ask AI
-  about this page** — the chat opens preloaded to describe it.
-- **Router-first, privately:** chat goes to your embedded **Kiri router**
-  first (free, keyless, runs inside the app so queries exit from *your* IP),
-  failing over to the Kiri gateway only when needed. Disclosure on every
-  chat: query + short snippets only — no history, no identity, no training.
-- **DDGS Premium (Android, in-app):** **$3.99/mo · $24.99/yr · $49.99
-  lifetime** — ad-free everywhere and **200 AI credits/day**. Billed through
-  Google Play; *Restore purchases* included.
+- **Searches for you** — web, images, videos, news, books — and streams the
+  answer with tappable citations, collapsible tool steps, related-search pills
+  and a thinking indicator while the model works.
+- **Shows you what it found** — result blocks with **"View N results in
+  Results"** open the real results screen (Assistant minimizes; tap the button
+  again to re-expand). Single taps open the normal result sheet with
+  download/share/open.
+- **Acts with approval** — save any page as Markdown/HTML/text, download video
+  (YouTube included) or images, crawl a site and save every page, or schedule a
+  recurring crawl — each asks once before writing anything.
+- **Cheap to try** — the passive search **overview** and **page summaries are
+  free**. Only agentic chat steps cost credits: **2 credits per model step**
+  (one step = one model call), with a receipt on every answer. A message can
+  use several steps and is **never blocked mid-way** by a low balance.
+- **Your router, your keys** — requests hit your in-app **Kiri router** first
+  (free models, queries exit from *your* IP) and fall back to the Kiri gateway
+  only if it is down. The model picker lists exactly the models that were
+  **active at attach**, each with live latency and rate-limit hints; `auto` is
+  the default and takes over when a chosen model is rate-limited.
+
+**DDGS Premium (Android, in-app):** **$3.99/mo · $24.99/yr · $49.99
+lifetime** — ad-free everywhere and **200 assistant credits/day**. Manual
+search, scraping and downloads never use credits.
 
 ---
 
@@ -206,7 +212,7 @@ DDGS is built on a strict **Privacy-First** philosophy:
 1. **No account, ever** — no sign-up, no login cookies, no personal data collection.
 2. **Searches go direct** — queries travel straight from your device to the search sources you chose. We don't run a server in the middle and we don't profile you; no ad profiling by us either.
 3. **Everything stays on-device** — history, settings and logs live in local storage on your device and can be cleared from Settings at any time.
-4. **Transparent network calls** — the app checks for updates (once per launch) and, on the free ad-supported build, loads ads. Nothing else phones home.
+4. **Transparent network calls** — the app checks for updates (once per launch) and, on the free ad-supported build, loads ads. When you use the Assistant, your query and short source excerpts (or the page text for a summary) go to your in-app Kiri router first; if it is down they fall back to Kiri's gateway. We instruct no training.
 5. **Fully configurable** — proxy support and an SSL-verification toggle for restricted networks; you choose the engines, region and safe-search level.
 
 ---
