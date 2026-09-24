@@ -112,48 +112,11 @@ def _setting_row(
 
 def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
     controller = getattr(page, "_ddgs_controller", None)
-    billing = getattr(controller, "billing", None) if controller else None
-    is_android = page.platform == ft.PagePlatform.ANDROID
     narrow = bool(page.width and page.width < 560)
     cap = PREMIUM_DAILY_CREDITS if state.is_premium else DAILY_FREE_CREDITS
 
     def _save(key: str, value) -> None:
         page.run_task(save_fn, key, value)
-
-    def _snack(message: str) -> None:
-        snack = ft.SnackBar(ft.Text(message))
-        snack.open = True
-        page.show_dialog(snack)
-        try:
-            page.update()
-        except Exception:
-            pass
-
-    async def _buy(product_id: str) -> None:
-        if billing is None:
-            return
-        try:
-            result = await billing.query_products([product_id])
-            if not result.products:
-                _snack("Product not found. Create it in Play Console first.")
-                return
-            product = result.products[0]
-            ok = await billing.buy_non_consumable(
-                product_id, offer_token=product.offer_token
-            )
-            if not ok:
-                _snack("Purchase could not start.")
-        except Exception as exc:
-            _snack(f"Billing error: {exc}")
-
-    async def _restore() -> None:
-        if billing is None:
-            return
-        try:
-            await billing.restore_purchases()
-            _snack("Checking your purchases")
-        except Exception as exc:
-            _snack(f"Restore failed: {exc}")
 
     from components.model_picker import show_model_picker
     from services import ai_service as _ai
@@ -223,103 +186,20 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         )
     )
 
-    # ── Premium ─────────────────────────────────────────────────────────
-    if state.is_premium:
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                "Premium active",
-                "Ad-free, with 200 assistant credits every day",
-                ft.Icon(
-                    ft.Icons.CHECK_CIRCLE_ROUNDED,
-                    size=ICON_MD,
-                    color=AppColors.SUCCESS,
-                ),
-            )
+    # ── Data routing ────────────────────────────────────────────────────
+    rows.append(_divider())
+    rows.append(
+        _setting_row(
+            ft.Icons.PRIVACY_TIP_ROUNDED,
+            "Where your messages go",
+            _ai.ROUTER_DISCLOSURE,
+            ft.Icon(
+                ft.Icons.INFO_OUTLINE_ROUNDED,
+                size=ICON_SM,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+            ),
         )
-    elif is_android:
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                "DDGS Premium",
-                "Ad-free, with 200 assistant credits every day",
-                ft.FilledButton(
-                    "$3.99 / month",
-                    on_click=lambda e: page.run_task(_buy, "premium_monthly"),
-                    style=ft.ButtonStyle(
-                        bgcolor=AppColors.PRIMARY,
-                        color=ft.Colors.WHITE,
-                        shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
-                    ),
-                ),
-                stacked=narrow,
-            )
-        )
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.CALENDAR_MONTH_ROUNDED,
-                "Yearly",
-                "Two months free compared with monthly",
-                ft.OutlinedButton(
-                    "$24.99 / year",
-                    on_click=lambda e: page.run_task(_buy, "premium_yearly"),
-                    style=ft.ButtonStyle(
-                        color=AppColors.PRIMARY,
-                        side=ft.BorderSide(1, AppColors.PRIMARY),
-                        shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
-                    ),
-                ),
-                stacked=narrow,
-            )
-        )
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.ALL_INCLUSIVE_ROUNDED,
-                "Lifetime",
-                "Pay once, keep it",
-                ft.OutlinedButton(
-                    "$49.99",
-                    on_click=lambda e: page.run_task(_buy, "premium_lifetime"),
-                    style=ft.ButtonStyle(
-                        color=AppColors.PRIMARY,
-                        side=ft.BorderSide(1, AppColors.PRIMARY),
-                        shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
-                    ),
-                ),
-                stacked=narrow,
-            )
-        )
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.RESTORE_ROUNDED,
-                "Restore purchases",
-                "Billed through Google Play. Cancel anytime in the Play Store",
-                ft.TextButton(
-                    "Restore",
-                    on_click=lambda e: page.run_task(_restore),
-                ),
-                stacked=narrow,
-            )
-        )
-    else:
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                "DDGS Premium",
-                "Ad-free, with 200 assistant credits every day",
-                ft.Text(
-                    "Android only",
-                    size=FONT_XS,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
-            )
-        )
+    )
 
     # ── Scheduled crawls ────────────────────────────────────────────────
     if state.scheduled_scrapes:
@@ -348,10 +228,175 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                 )
             )
 
-    _ = DAILY_FREE_CREDITS, RADIUS_SM, PREMIUM_PRODUCTS  # kept for parity
+    _ = DAILY_FREE_CREDITS, RADIUS_SM  # kept for parity
     return AppStyles.section_card(
-        "Assistant & Premium",
+        "Assistant",
         ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+        ft.Column(rows, spacing=0, tight=True),
+        page=page,
+    )
+
+
+def build_premium_section(page: ft.Page) -> ft.Container:
+    """Premium is its own card: it changes the free tier, not the Assistant.
+
+    It removes ads and raises the daily credit allowance, so it belongs
+    next to the account/billing story rather than inside the Assistant
+    feature the user is configuring.
+    """
+    controller = getattr(page, "_ddgs_controller", None)
+    billing = getattr(controller, "billing", None) if controller else None
+    is_android = page.platform == ft.PagePlatform.ANDROID
+    narrow = bool(page.width and page.width < 560)
+
+    def _snack(message: str) -> None:
+        snack = ft.SnackBar(ft.Text(message))
+        snack.open = True
+        page.show_dialog(snack)
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    async def _buy(product_id: str) -> None:
+        if billing is None:
+            return
+        try:
+            result = await billing.query_products([product_id])
+            if not result.products:
+                _snack("Product not found. Create it in Play Console first.")
+                return
+            product = result.products[0]
+            ok = await billing.buy_non_consumable(
+                product_id, offer_token=product.offer_token
+            )
+            if not ok:
+                _snack("Purchase could not start.")
+        except Exception as exc:
+            _snack(f"Billing error: {exc}")
+
+    async def _restore() -> None:
+        if billing is None:
+            return
+        try:
+            await billing.restore_purchases()
+            _snack("Checking your purchases")
+        except Exception as exc:
+            _snack(f"Restore failed: {exc}")
+
+    def _outlined(label: str, product_id: str) -> ft.OutlinedButton:
+        return ft.OutlinedButton(
+            label,
+            on_click=lambda e: page.run_task(_buy, product_id),
+            style=ft.ButtonStyle(
+                color=AppColors.PRIMARY,
+                side=ft.BorderSide(1, AppColors.PRIMARY),
+                shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
+            ),
+        )
+
+    rows: list[ft.Control] = []
+
+    if state.is_premium:
+        rows.append(
+            _setting_row(
+                ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
+                "Premium active",
+                "No ads, and your daily Assistant credits are raised to 200",
+                ft.Icon(
+                    ft.Icons.CHECK_CIRCLE_ROUNDED,
+                    size=ICON_MD,
+                    color=AppColors.SUCCESS,
+                ),
+            )
+        )
+    else:
+        rows.append(
+            _setting_row(
+                ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
+                "What Premium changes",
+                "Removes ads and raises your daily Assistant credits from "
+                f"{DAILY_FREE_CREDITS} to {PREMIUM_DAILY_CREDITS}. "
+                "Everything else in DDGS stays the same",
+                ft.Icon(
+                    ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
+                    size=ICON_SM,
+                    color=AppColors.PRIMARY,
+                ),
+            )
+        )
+
+        if is_android:
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.CALENDAR_MONTH_ROUNDED,
+                    "Monthly",
+                    "Billed every month, cancel any time",
+                    ft.FilledButton(
+                        "$3.99 / month",
+                        on_click=lambda e: page.run_task(_buy, "premium_monthly"),
+                        style=ft.ButtonStyle(
+                            bgcolor=AppColors.PRIMARY,
+                            color=ft.Colors.WHITE,
+                            shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
+                        ),
+                    ),
+                    stacked=narrow,
+                )
+            )
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.CALENDAR_MONTH_ROUNDED,
+                    "Yearly",
+                    "Two months free compared with monthly",
+                    _outlined("$24.99 / year", "premium_yearly"),
+                    stacked=narrow,
+                )
+            )
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.ALL_INCLUSIVE_ROUNDED,
+                    "Lifetime",
+                    "Pay once, keep it",
+                    _outlined("$49.99", "premium_lifetime"),
+                    stacked=narrow,
+                )
+            )
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.RESTORE_ROUNDED,
+                    "Restore purchases",
+                    "Billed through Google Play. Cancel anytime in the Play Store",
+                    ft.TextButton(
+                        "Restore",
+                        on_click=lambda e: page.run_task(_restore),
+                    ),
+                    stacked=narrow,
+                )
+            )
+        else:
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.PHONE_ANDROID_ROUNDED,
+                    "Available on Android",
+                    "Premium is sold through Google Play",
+                    ft.Text(
+                        "Android only",
+                        size=FONT_XS,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                )
+            )
+
+    _ = PREMIUM_PRODUCTS
+    return AppStyles.section_card(
+        "DDGS Premium",
+        ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
         ft.Column(rows, spacing=0, tight=True),
         page=page,
     )

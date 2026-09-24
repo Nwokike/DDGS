@@ -51,7 +51,7 @@ def build_credit_pill(page: ft.Page, credits: int) -> ft.Container:
         bgcolor=ft.Colors.with_opacity(0.12, color),
         border=ft.Border.all(1, ft.Colors.with_opacity(0.25, color)),
         ink=True,
-        tooltip="Assistant credits — tap for details",
+        tooltip="Assistant credits, tap for details",
         on_click=lambda e: show_wallet_dialog(page),
     )
 

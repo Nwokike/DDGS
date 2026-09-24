@@ -19,11 +19,6 @@ from core import theme, tokens
 from core.state import state
 from core.theme import AppColors
 
-_DISCLOSURE = (
-    "Your query and short result snippets go to your in-app Kiri router, "
-    "or Kiri Gateway if it's down. We instruct no training."
-)
-
 
 def _domain(url: str) -> str:
     if "//" in url:
@@ -156,7 +151,7 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
         body.extend(
             [
                 ft.Text(
-                    "Out of free Assistant overviews — results below are unaffected.",
+                    "Out of free Assistant overviews. Results below are unaffected.",
                     size=tokens.FONT_XS,
                     color=AppColors.WARNING,
                 ),
@@ -170,7 +165,7 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
     elif ov.error == "midstream":
         body.append(
             ft.Text(
-                "⚠ Connection lost mid-overview — tap Ask Assistant to retry.",
+                "⚠ Connection lost mid-overview. Tap Ask Assistant to retry.",
                 size=tokens.FONT_XS,
                 color=AppColors.WARNING,
             )
@@ -178,7 +173,7 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
     elif ov.error == "unavailable":
         body.append(
             ft.Text(
-                "Assistant unavailable — showing classic results.",
+                "Assistant unavailable. Showing classic results.",
                 size=tokens.FONT_XS,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 italic=True,
@@ -295,11 +290,6 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
             [
                 header,
                 *body,
-                ft.Text(
-                    _DISCLOSURE,
-                    size=9,
-                    color=ft.Colors.with_opacity(0.5, ft.Colors.ON_SURFACE),
-                ),
             ],
             spacing=tokens.SPACE_XS,
             tight=True,

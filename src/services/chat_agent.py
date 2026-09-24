@@ -408,6 +408,7 @@ async def run_turn(
     tools = build_tools()
     seen_urls: list[str] = []
     served_by = ""
+    used_model = ""
     content_parts: list[str] = []
     parts: list[str] = []
     final_text = ""
@@ -444,6 +445,7 @@ async def run_turn(
                 steps += 1
                 raise
             served_by = result.get("served_by") or served_by
+            used_model = result.get("model") or used_model
             finish = result.get("finish_reason") or ""
             tool_calls = result.get("tool_calls") or []
             if finish == "tool_calls" and tool_calls:
@@ -567,6 +569,7 @@ async def run_turn(
                 "text": ai_service.link_citations(clean, seen_urls),
                 "related": related,
                 "served_by": served_by,
+                "model": used_model,
                 "steps": steps,
                 "cost": steps * COST_STEP,
             },

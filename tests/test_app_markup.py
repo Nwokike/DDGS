@@ -102,3 +102,123 @@ def test_every_icons_name_resolves_in_installed_flet():
             ):
                 missing.append(f"{path.name}:{node.lineno} {node.attr}")
     assert not missing, f"unknown icons: {missing}"
+
+
+def test_streaming_partials_always_paint():
+    """Streaming text and thinking must reach the client as they arrive.
+
+    emit() sends text_partial/thought with force=False. _render used to
+    call page.update() only when force was true, so the turn list was
+    rebuilt in memory but never painted and the reply looked stuck until
+    the next hard event.
+    """
+    import inspect
+    import sys
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    sys.path.insert(0, str(src))
+    from screens.chat_screen import ChatSession
+
+    source = inspect.getsource(ChatSession._render)
+    body = source.split("self._list.controls = controls", 1)[1]
+    guarded = "if force:" in body.split("self._pinned", 1)[0]
+    assert not guarded, "page.update() must not be gated behind force"
+
+
+def test_model_picker_applies_choice_before_persisting():
+    """Choosing a model must change state on the same tap, not after the
+    async storage write, or the dropdown appears to do nothing."""
+    import sys
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    sys.path.insert(0, str(src))
+    from components.model_picker import _select
+
+    calls = []
+
+    class Ctrl:
+        def save(self, key, value):
+            calls.append((key, value))
+
+    class Page:
+        def pop_dialog(self):
+            pass
+
+    from core.state import state
+
+    state.ai_model = "auto"
+    _select(Page(), Ctrl(), "ling-3.0-flash")
+    assert state.ai_model == "ling-3.0-flash"
+    assert calls == [("ai_model", "ling-3.0-flash")]
+
+
+def test_premium_is_a_separate_settings_card():
+    """Premium changes the free tier (ads + credit cap); it is not part of
+    configuring the Assistant feature."""
+    import sys
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    sys.path.insert(0, str(src))
+    from components.settings.sections_ai import (
+        build_ai_section,
+        build_premium_section,
+    )
+
+    class Controller:
+        billing = None
+
+        async def cancel_scheduled_scrape(self, url):
+            pass
+
+    class Page:
+        platform = ft.PagePlatform.ANDROID
+        width = 390
+        theme_mode = ft.ThemeMode.LIGHT
+        _ddgs_controller = Controller()
+
+        def run_task(self, handler, *a, **k):
+            pass
+
+        def show_dialog(self, dlg):
+            pass
+
+        def update(self):
+            pass
+
+    from core.state import state
+
+    state.is_premium = False
+    state.scheduled_scrapes = []
+    page = Page()
+
+    def title(card):
+        return card.content.controls[0].controls[1].value
+
+    async def save(key, value):
+        pass
+
+    assert title(build_ai_section(page, save)) == "Assistant"
+    assert title(build_premium_section(page)) == "DDGS Premium"
+
+
+def test_router_disclosure_lives_in_settings_not_the_chat_surface():
+    """The disclosure stays available, but not pasted under the composer."""
+    import sys
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src"
+    chat = (src / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "ROUTER_DISCLOSURE" not in chat
+    assert "if it's down" not in chat
+
+    sys.path.insert(0, str(src))
+    from services.ai_service import ROUTER_DISCLOSURE
+
+    assert "router" in ROUTER_DISCLOSURE.lower()
+    settings_ai = (src / "components" / "settings" / "sections_ai.py").read_text(
+        encoding="utf-8"
+    )
+    assert "ROUTER_DISCLOSURE" in settings_ai

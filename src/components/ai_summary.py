@@ -15,11 +15,6 @@ from core import tokens
 from core.state import state
 from core.theme import AppColors
 
-_DISCLOSURE = (
-    "Page text goes to your in-app Kiri router, or Kiri Gateway if it's down. "
-    "We instruct no training."
-)
-
 
 def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> None:
     """Open the summary sheet and stream an AI summary of `content`."""
@@ -71,8 +66,7 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
                                 on_click=lambda e: _close(),
                             ),
                         ],
-                        spacing=6,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        alignment=ft.MainAxisAlignment.END,
                     ),
                     ft.Text(
                         (title or "")[:120],
@@ -88,12 +82,6 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
                     ),
                     ft.Row(
                         [
-                            ft.Text(
-                                _DISCLOSURE,
-                                size=9,
-                                color=ft.Colors.with_opacity(0.5, ft.Colors.ON_SURFACE),
-                                expand=True,
-                            ),
                             ft.TextButton(
                                 "Ask Assistant about this page",
                                 icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
@@ -141,7 +129,7 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
             body.value = buffer["text"] or "(empty summary)"
         except ai_service.NotEnoughCredits as exc:
             body.value = (
-                f"Assistant summary unavailable ({exc.balance} left) — "
+                f"Assistant summary unavailable ({exc.balance} left). "
                 "close this and open the credit pill for options. "
                 "Manual reading and downloads are unaffected."
             )
