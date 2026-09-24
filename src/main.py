@@ -16,10 +16,15 @@ async def main(page: ft.Page):
     await controller.init()
 
     # Wire lifecycle hooks
-    page.on_disconnect = lambda e: page.run_task(controller.storage.flush)
+    # Flet 1.0 exits without running atexit/buffered writes — flush
+    # synchronously and stop the embedded Kiri router here. The disconnect
+    # hook must stay synchronous too: the event loop is already closing by
+    # then, so page.run_task would leave the coroutine un-awaited.
+    def _flush(e=None):
+        controller.storage.flush_now()
+
+    page.on_disconnect = _flush
     page.on_view_pop = controller.on_view_pop
-    # Flet 1.0 exits without running atexit/buffered writes — flush synchronously
-    # and stop the embedded Kiri router here.
     page.on_close = controller.on_app_close
 
 

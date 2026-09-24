@@ -109,9 +109,8 @@ def AppShell() -> Control:
 
             screen = HomeScreen(key=ft.ValueKey("home"))
 
-    # ── Ask-AI FAB — CollabShell pattern: flet renders the page-level FAB
-    # (themed, correctly elevated, no hand-rolled Stack) and a proper
-    # ft.Badge object carries the credit count. ────────────────────────────
+    # ── Ask Assistant FAB — CollabShell recipe: mini, white icon, brand
+    # fill, tooltip only. No badge, no per-credit rebuild. ────────────────
     def _sync_fab():
         from flet import context as flet_context
 
@@ -119,7 +118,10 @@ def AppShell() -> Control:
         if not page or not page.views:
             return
         visible = (
-            state.has_accepted_terms and state.ai_mode_enabled and not state.chat_open
+            state.has_accepted_terms
+            and state.ai_mode_enabled
+            and not state.chat_open
+            and state.credits_remaining > 0
         )
         try:
             if not visible:
@@ -127,37 +129,20 @@ def AppShell() -> Control:
                     page.views[0].floating_action_button = None
                     page.update()
                 return
-            credits = state.credits_remaining
+            if page.views[0].floating_action_button is not None:
+                return
             ctrl = getattr(page, "_ddgs_controller", None)
 
             def _open(e=None):
-                if state.credits_remaining <= 0:
-                    from components.wallet import show_wallet_dialog
-
-                    show_wallet_dialog(page)
-                elif ctrl:
+                if ctrl:
                     ctrl.open_chat()
 
-            badge_color = (
-                AppColors.SUCCESS
-                if credits > 20
-                else AppColors.WARNING
-                if credits >= 5
-                else AppColors.ERROR
-            )
             page.views[0].floating_action_button = ft.FloatingActionButton(
-                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                bgcolor=AppColors.PRIMARY
-                if credits > 0
-                else ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE),
-                badge=ft.Badge(
-                    label=str(credits),
-                    bgcolor=badge_color,
-                    text_color=ft.Colors.WHITE,
-                ),
-                tooltip="Ask Assistant"
-                if credits > 0
-                else "Out of assistant credits — tap for options",
+                icon=ft.Icons.CHAT_BUBBLE_ROUNDED,
+                foreground_color=ft.Colors.WHITE,
+                bgcolor=AppColors.PRIMARY,
+                mini=True,
+                tooltip="Ask Assistant",
                 on_click=_open,
             )
             page.update()

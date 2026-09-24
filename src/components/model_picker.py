@@ -117,8 +117,10 @@ def show_model_picker(page: ft.Page) -> None:
     list_col.height = min(400, max(56, 52 * len(list_col.controls) + 8))
 
     search = ft.SearchBar(
-        hint_text="Filter models",
-        dense=True,
+        bar_hint_text="Filter models",
+        bar_leading=ft.Icon(
+            ft.Icons.SEARCH_ROUNDED, size=18, color=ft.Colors.ON_SURFACE_VARIANT
+        ),
         on_change=_apply_filter,
     )
 

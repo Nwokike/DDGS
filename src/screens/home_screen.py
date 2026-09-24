@@ -644,28 +644,6 @@ def HomeScreen() -> Control:
                         ft.Row(
                             [
                                 CreditPill(),
-                                ft.Row(
-                                    [
-                                        ft.Text(
-                                            "Assistant",
-                                            size=tokens.FONT_XS,
-                                            weight=ft.FontWeight.W_700,
-                                            color=AppColors.PRIMARY
-                                            if state.ai_mode_enabled
-                                            else ft.Colors.ON_SURFACE_VARIANT,
-                                        ),
-                                        ft.Switch(
-                                            value=state.ai_mode_enabled,
-                                            tooltip="Assistant mode — shows the Ask Assistant button",
-                                            on_change=lambda e: controller.save(
-                                                "ai_mode", e.control.value
-                                            ),
-                                        ),
-                                    ],
-                                    spacing=2,
-                                    tight=True,
-                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                                ),
                                 ft.IconButton(
                                     icon=_get_theme_icon(),
                                     icon_size=20,

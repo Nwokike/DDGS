@@ -701,7 +701,7 @@ class ChatSession:
                 )
             )
 
-        if turn.get("partial") and not turn.get("text"):
+        if turn.get("partial") and not turn.get("text") and not turn.get("steps_rows"):
             kids.append(
                 ft.Row(
                     [
