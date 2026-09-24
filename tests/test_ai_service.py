@@ -83,3 +83,19 @@ def test_link_citations_in_range_and_out():
     )
     # out-of-range [9] stays literal
     assert link_citations("see [9]", urls) == "see [9]"
+
+
+def test_catalog_hint_formats():
+    from services.ai_service import _hint
+
+    h = _hint(
+        {
+            "id": "x",
+            "latency_ms": 120,
+            "rate_hint": {"label": "roughly 200 requests/hour"},
+            "status": "active",
+        }
+    )
+    assert "120ms" in h and "200 requests/hour" in h
+    assert "rate limited" in _hint({"id": "x", "status": "rate limited"})
+    assert "rotates" in _hint({"id": "auto", "status": "active"})

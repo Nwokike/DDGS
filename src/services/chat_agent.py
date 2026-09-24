@@ -393,7 +393,11 @@ async def run_turn(
                 raise ChatCancelled()
             iters += 1
             result = await ai_service.stream_llm(
-                messages, on_token, tools=tools, on_thought=on_thought
+                messages,
+                on_token,
+                tools=tools,
+                on_thought=on_thought,
+                model=getattr(state, "ai_model", "auto"),
             )
             served_by = result.get("served_by") or served_by
             finish = result.get("finish_reason") or ""

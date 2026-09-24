@@ -140,6 +140,7 @@ class AppState:
 
         # ── AI mode (DDGS 2.0) — chat via the Ask-AI FAB ──
         self.ai_mode_enabled: bool = True
+        self.ai_model: str = "auto"  # router model preference; auto rotates free models
         self.credits_remaining: int = 50  # corrected by CreditService.initialize()
         self.is_premium: bool = False
         self.ad_cooldown_end: float = 0.0

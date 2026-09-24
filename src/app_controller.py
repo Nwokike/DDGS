@@ -113,6 +113,8 @@ class AppController:
 
         # Scheduled crawls run while the app is open
         self.page.run_task(self._scrape_scheduler)
+        # Attach to the router and snapshot the active models for the picker
+        self.page.run_task(self._refresh_ai_catalog)
 
         # ── Mount declarative UI ──
         from app_shell import AppShell
@@ -240,6 +242,7 @@ class AppController:
             state.search_history = await storage.get_history() or []
             state.has_accepted_terms = await storage.get_onboarding_done()
             state.ai_mode_enabled = await storage.get_ai_mode()
+            state.ai_model = await storage.get_ai_model()
             state.is_premium = await storage.get_is_premium()
             import json as _json
 
@@ -302,6 +305,7 @@ class AppController:
             "video_quality": (self.storage.set_video_quality, "video_quality"),
             "onboarding_done": (self.storage.set_onboarding_done, "has_accepted_terms"),
             "ai_mode": (self.storage.set_ai_mode, "ai_mode_enabled"),
+            "ai_model": (self.storage.set_ai_model, "ai_model"),
             # Was never registered before 2.0 — Clear History was a silent no-op.
             "history": (self.storage.set_history, "search_history"),
         }
@@ -557,7 +561,9 @@ class AppController:
 
         messages = ai_service.build_overview_messages(query, sources)
         try:
-            await ai_service.stream_chat(messages, COST_CHAT, on_token)
+            await ai_service.stream_chat(
+                messages, COST_CHAT, on_token, model=state.ai_model
+            )
             clean, related = ai_service.parse_related(buffer["text"])
             state.ai_overview = replace(
                 overview,
@@ -653,6 +659,15 @@ class AppController:
             elif p.status == PurchaseStatus.CANCELED:
                 logger.info("purchase canceled: %s", p.product_id)
 
+    async def _refresh_ai_catalog(self):
+        """Snapshot the router's active models (fills the model picker)."""
+        from services import ai_service
+
+        try:
+            await ai_service.refresh_catalog()
+        except Exception:
+            logger.exception("AI catalog snapshot failed")
+
     async def _scrape_scheduler(self):
         """Run due scheduled crawls every 60s while the app is open."""
         import asyncio
@@ -683,6 +698,11 @@ class AppController:
                 if due:
                     await _persist_schedule()
                     logger.info("scheduled crawls completed: %d", len(due))
+                if int(now // 60) % 5 == 0:
+                    # Keep picker hints (latency / rate limits) fresh
+                    from services import ai_service as _ai
+
+                    await _ai.refresh_catalog()
             except asyncio.CancelledError:
                 raise
             except Exception:

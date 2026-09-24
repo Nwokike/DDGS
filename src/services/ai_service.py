@@ -86,6 +86,45 @@ _router_lock = threading.Lock()
 _router_failed_until = 0.0
 _router_models: list[str] = []
 _router_models_at = 0.0
+_catalog: list[dict] = []  # snapshot of models ACTIVE at fetch/attach time
+
+
+def _hint(entry: dict) -> str:
+    """Human hint: latency + rate-limit info from the router catalog."""
+    parts: list[str] = []
+    latency = entry.get("latency_ms")
+    if isinstance(latency, int) and latency >= 0:
+        parts.append(f"{latency}ms" if latency < 1000 else f"{latency / 1000:.1f}s")
+    rate = entry.get("rate_hint") or {}
+    if isinstance(rate, dict) and rate.get("label"):
+        parts.append(str(rate["label"]))
+    status = str(entry.get("status") or "active")
+    if status == "rate limited":
+        parts.append("rate limited right now")
+    elif status == "failed":
+        parts.append("failing right now")
+    if entry.get("id") == "auto" and not parts:
+        parts.append("Free tier, rotates across available models")
+    return " · ".join(parts) or "free tier"
+
+
+def snapshot_models() -> list[dict]:
+    """Active chat-completion models (auto first, then by latency) with hints."""
+    return [
+        {
+            "id": m.get("id"),
+            "hint": _hint(m),
+            "status": m.get("status", "active"),
+        }
+        for m in _catalog
+    ]
+
+
+def model_hint(model_id: str) -> str:
+    for entry in _catalog:
+        if entry.get("id") == model_id:
+            return _hint(entry)
+    return ""
 
 
 async def _probe_existing_router() -> int | None:
@@ -222,10 +261,20 @@ def rank_models(data: list[dict]) -> list[str]:
     return out
 
 
-async def _fetch_candidates(client: httpx.AsyncClient, base: str) -> list[str]:
-    """Model candidates for this request (cached, `auto` first)."""
-    global _router_models, _router_models_at
-    if _router_models and time.monotonic() - _router_models_at < ROUTER_MODEL_TTL:
+async def _fetch_candidates(
+    client: httpx.AsyncClient, base: str, force: bool = False
+) -> list[str]:
+    """Model candidates for this request (cached, `auto` first).
+
+    Also snapshots the ACTIVE chat-completion models for the picker
+    (see snapshot_models).
+    """
+    global _router_models, _router_models_at, _catalog
+    if (
+        not force
+        and _router_models
+        and time.monotonic() - _router_models_at < ROUTER_MODEL_TTL
+    ):
         return _router_models[:ROUTER_CANDIDATES]
     try:
         resp = await client.get(f"{base}/models", timeout=10.0)
@@ -233,9 +282,39 @@ async def _fetch_candidates(client: httpx.AsyncClient, base: str) -> list[str]:
     except Exception as exc:
         logger.warning("AI router: model catalog failed: %r", exc)
         return []
+    _catalog = [
+        m
+        for m in data
+        if m.get("id")
+        and str(m.get("status") or "active") == "active"
+        and "chat.completion" in str(m.get("endpoint_type") or "")
+    ]
+    _catalog.sort(
+        key=lambda m: (
+            0 if str(m.get("id")).lower() == "auto" else 1,
+            m.get("latency_ms")
+            if isinstance(m.get("latency_ms"), int)
+            else 10**9,
+        )
+    )
     _router_models = rank_models(data)
     _router_models_at = time.monotonic()
     return _router_models[:ROUTER_CANDIDATES]
+
+
+async def refresh_catalog() -> list[dict]:
+    """Attach if needed, then pull a fresh active-model snapshot (picker)."""
+    try:
+        port = await ensure_router()
+        if port is None:
+            return snapshot_models()
+        async with httpx.AsyncClient(http2=False) as client:
+            await _fetch_candidates(
+                client, f"http://{ROUTER_HOST}:{port}/v1", force=True
+            )
+    except Exception as exc:
+        logger.warning("catalog refresh failed: %r", exc)
+    return snapshot_models()
 
 
 def invalidate_models() -> None:
@@ -358,6 +437,7 @@ async def _stream_router(
     on_token: Callable[[str], None],
     tools: list[dict] | None,
     on_thought: Callable[[str], None] | None = None,
+    model: str | None = None,
 ) -> dict:
     base = await _router_base()
     if base is None:
@@ -365,11 +445,18 @@ async def _stream_router(
     candidates = await _fetch_candidates(client, base)
     if not candidates:
         raise AIUnavailable("no router models available")
+    if model:
+        # Explicit user pick: try it, then fall back to auto once if it is
+        # rate-limited/missing — never blindly rotate off a chosen model.
+        picked = (
+            [model] + (["auto"] if model != "auto" and "auto" in candidates else [])
+        )
+        candidates = [c for c in picked if c] or candidates
 
     last_error: Exception | None = None
-    for model in candidates:
+    for candidate in candidates:
         payload: dict = {
-            "model": model,
+            "model": candidate,
             "messages": messages,
             "stream": True,
             "max_tokens": ANSWER_MAX_TOKENS,
@@ -419,7 +506,7 @@ async def _stream_router(
                     await resp.aread()
                     got_first = True
                     finish, tool_calls = await _stream_json_body(resp, _counting)
-            return {"finish_reason": finish, "tool_calls": tool_calls, "model": model}
+            return {"finish_reason": finish, "tool_calls": tool_calls, "model": candidate}
         except AIUnavailable:
             _mark_router_failed()
             raise
@@ -522,6 +609,7 @@ async def stream_llm(
     on_token: Callable[[str], None],
     tools: list[dict] | None = None,
     on_thought: Callable[[str], None] | None = None,
+    model: str | None = None,
 ) -> dict:
     """Raw router→gateway failover. NO credit handling (agent reserves per turn).
 
@@ -531,7 +619,7 @@ async def stream_llm(
     try:
         async with httpx.AsyncClient(http2=False) as client:
             result = await _stream_router(
-                client, messages, on_token, tools, on_thought
+                client, messages, on_token, tools, on_thought, model
             )
         result["served_by"] = "router"
         return result
@@ -548,7 +636,10 @@ async def stream_llm(
 
 
 async def stream_chat(
-    messages: list[dict], cost: int, on_token: Callable[[str], None]
+    messages: list[dict],
+    cost: int,
+    on_token: Callable[[str], None],
+    model: str | None = None,
 ) -> dict:
     """Single-shot credit-metered call (summaries). Returns {"served_by"}."""
     credits = getattr(state, "credit_service", None)
@@ -558,7 +649,7 @@ async def stream_chat(
     if tx_id is None:
         raise NotEnoughCredits(await credits.get_balance())
     try:
-        result = await stream_llm(messages, on_token)
+        result = await stream_llm(messages, on_token, model=model)
         await credits.commit(tx_id)
     except AIMidStream:
         # Tokens were delivered — charge fairly.

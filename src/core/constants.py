@@ -24,6 +24,7 @@ STORAGE_SEARCH_RESOLUTION = "search_resolution"
 STORAGE_SEARCH_DURATION = "search_duration"
 STORAGE_SEARCH_LICENSE = "search_license"
 STORAGE_SCHEDULED_SCRAPES = "scheduled_scrapes"
+STORAGE_AI_MODEL = "ai_model"
 
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
