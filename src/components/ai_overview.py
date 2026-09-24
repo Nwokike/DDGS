@@ -19,7 +19,10 @@ from core import theme, tokens
 from core.state import state
 from core.theme import AppColors
 
-_DISCLOSURE = "Sends your query + short result snippets to Kiri AI (router first). No history, no training."
+_DISCLOSURE = (
+    "Your query and short result snippets go to your in-app Kiri router, "
+    "or Kiri Gateway if it's down. We instruct no training."
+)
 
 
 def _domain(url: str) -> str:
@@ -74,7 +77,6 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
             ft.Container(expand=True),
             ft.TextButton(
                 "Ask Assistant",
-                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
                 on_click=lambda e: ctrl
                 and ctrl.open_chat(
                     {
@@ -176,7 +178,7 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
     elif ov.error == "unavailable":
         body.append(
             ft.Text(
-                "AI unavailable — showing classic results.",
+                "Assistant unavailable — showing classic results.",
                 size=tokens.FONT_XS,
                 color=ft.Colors.ON_SURFACE_VARIANT,
                 italic=True,

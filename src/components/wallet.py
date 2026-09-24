@@ -64,17 +64,11 @@ def show_wallet_dialog(page: ft.Page) -> None:
     is_mobile = page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
     is_premium = state.is_premium
 
-    hero_number = ft.Text(
+    balance_text = ft.Text(
         str(state.credits_remaining),
-        size=40,
+        size=tokens.FONT_XL,
         weight=ft.FontWeight.BOLD,
         color=_credit_color(state.credits_remaining),
-    )
-    cap_note = ft.Text(
-        f"of {200 if is_premium else DAILY_FREE_CREDITS} free daily · resets 00:00 UTC",
-        size=tokens.FONT_XS,
-        color=ft.Colors.ON_SURFACE_VARIANT,
-        text_align=ft.TextAlign.CENTER,
     )
     cooldown_label = ft.Text("", size=tokens.FONT_XS, text_align=ft.TextAlign.CENTER)
 
@@ -84,8 +78,23 @@ def show_wallet_dialog(page: ft.Page) -> None:
         else f"Simulate Ad (+{AD_TOPUP_CREDITS} Credits)"
     )
     watch_btn = ft.FilledButton(
-        topup_label if not is_premium else "Premium active — 200/day",
-        icon=ft.Icons.PLAY_CIRCLE_ROUNDED,
+        content=ft.Row(
+            [
+                ft.Icon(
+                    ft.Icons.PLAY_CIRCLE_ROUNDED,
+                    size=tokens.ICON_SM,
+                    color=ft.Colors.WHITE,
+                ),
+                ft.Text(
+                    topup_label if not is_premium else "Premium active, 200/day",
+                    size=tokens.FONT_SM,
+                    color=ft.Colors.WHITE,
+                ),
+            ],
+            spacing=6,
+            tight=True,
+        ),
+        bgcolor=AppColors.PRIMARY,
         disabled=is_premium,
     )
 
@@ -106,12 +115,36 @@ def show_wallet_dialog(page: ft.Page) -> None:
                 break
             if remaining > 0:
                 watch_btn.disabled = True
-                watch_btn.content = ft.Text(
-                    f"Cooldown ({remaining}s)", size=tokens.FONT_SM
+                watch_btn.content = ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.PLAY_CIRCLE_ROUNDED,
+                            size=tokens.ICON_SM,
+                            color=ft.Colors.WHITE,
+                        ),
+                        ft.Text(
+                            f"Cooldown ({remaining}s)",
+                            size=tokens.FONT_SM,
+                            color=ft.Colors.WHITE,
+                        ),
+                    ],
+                    spacing=6,
+                    tight=True,
                 )
             else:
                 watch_btn.disabled = False
-                watch_btn.content = ft.Text(topup_label, size=tokens.FONT_SM)
+                watch_btn.content = ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.PLAY_CIRCLE_ROUNDED,
+                            size=tokens.ICON_SM,
+                            color=ft.Colors.WHITE,
+                        ),
+                        ft.Text(topup_label, size=tokens.FONT_SM, color=ft.Colors.WHITE),
+                    ],
+                    spacing=6,
+                    tight=True,
+                )
             try:
                 watch_btn.update()
             except Exception:
@@ -123,11 +156,11 @@ def show_wallet_dialog(page: ft.Page) -> None:
     async def _on_watch_success():
         new_balance = await _credits().add_credits(AD_TOPUP_CREDITS)
         state.credits_remaining = new_balance
-        hero_number.value = str(new_balance)
-        hero_number.color = _credit_color(new_balance)
+        balance_text.value = str(new_balance)
+        balance_text.color = _credit_color(new_balance)
         cooldown_label.value = f"+{AD_TOPUP_CREDITS} credits added!"
         try:
-            hero_number.update()
+            balance_text.update()
             cooldown_label.update()
         except Exception:
             pass
@@ -159,58 +192,119 @@ def show_wallet_dialog(page: ft.Page) -> None:
 
     watch_btn.on_click = lambda e: page.run_task(_on_watch, e)
 
-    def _cost_line(label: str, cost: str) -> ft.Row:
-        return ft.Row(
-            [
-                ft.Text(label, size=tokens.FONT_XS, font_family="Outfit"),
-                ft.Text(
-                    cost,
-                    size=tokens.FONT_XS,
-                    color=AppColors.PRIMARY,
-                    weight=ft.FontWeight.W_600,
-                ),
-            ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+    def _row(
+        icon: ft.IconData,
+        title: str,
+        subtitle: str,
+        trailing: ft.Control,
+    ) -> ft.Container:
+        icon_box = ft.Container(
+            content=ft.Icon(icon, size=tokens.ICON_MD, color=ft.Colors.ON_SURFACE_VARIANT),
+            width=36,
+            height=36,
+            border_radius=10,
+            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+            alignment=ft.Alignment.CENTER,
         )
+        return ft.Container(
+            content=ft.Row(
+                [
+                    icon_box,
+                    ft.Column(
+                        [
+                            ft.Text(
+                                title,
+                                size=tokens.FONT_MD,
+                                weight=ft.FontWeight.W_500,
+                                font_family="Outfit",
+                            ),
+                            ft.Text(
+                                subtitle,
+                                size=tokens.FONT_XS,
+                                color=ft.Colors.with_opacity(
+                                    0.6, ft.Colors.ON_SURFACE
+                                ),
+                            ),
+                        ],
+                        spacing=2,
+                        expand=True,
+                    ),
+                    trailing,
+                ],
+                spacing=tokens.SPACE_MD,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.Padding(0, tokens.SPACE_XS, 0, tokens.SPACE_XS),
+        )
+
+    def _cost_row(label: str, cost: str) -> ft.Control:
+        if cost == "free":
+            return _row(
+                ft.Icons.MONEY_OFF_ROUNDED,
+                label,
+                "No credits used",
+                ft.Text(
+                    "Free",
+                    size=tokens.FONT_SM,
+                    weight=ft.FontWeight.W_600,
+                    color=AppColors.SUCCESS,
+                ),
+            )
+        return _row(
+            ft.Icons.BOLT_ROUNDED,
+            label,
+            "One assistant step",
+            ft.Text(
+                f"{cost} credit",
+                size=tokens.FONT_SM,
+                weight=ft.FontWeight.W_600,
+                color=AppColors.PRIMARY,
+            ),
+        )
+
+    rows: list[ft.Control] = [
+        _row(
+            ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+            "Assistant credits",
+            f"of {200 if is_premium else DAILY_FREE_CREDITS} free daily, resets 00:00 UTC",
+            balance_text,
+        ),
+        ft.Divider(
+            height=1,
+            thickness=1,
+            color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
+        ),
+        _cost_row("Chat reply, search, or page fetch", str(COST_STEP)),
+        ft.Divider(
+            height=1,
+            thickness=1,
+            color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
+        ),
+        _cost_row("Search overview and page summary", "free"),
+        ft.Divider(
+            height=1,
+            thickness=1,
+            color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
+        ),
+        _row(
+            ft.Icons.PLAY_CIRCLE_ROUNDED,
+            topup_label,
+            "A short ad adds credits. Unused ad credits carry over",
+            ft.Icon(
+                ft.Icons.PLAY_CIRCLE_ROUNDED,
+                size=tokens.ICON_SM,
+                color=AppColors.ACCENT,
+            ),
+        ),
+    ]
 
     content = ft.Column(
         [
-            ft.Row(
-                [
-                    ft.Icon(
-                        ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                        size=28,
-                        color=AppColors.ACCENT,
-                    ),
-                    ft.Text(
-                        "Assistant credits",
-                        size=tokens.FONT_MD,
-                        weight=ft.FontWeight.BOLD,
-                        font_family="Outfit",
-                    ),
-                ],
-                alignment=ft.MainAxisAlignment.CENTER,
-                spacing=8,
-            ),
-            ft.Row(
-                [hero_number, cap_note],
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
-            ft.Container(height=6),
-            _cost_line("Chat message (any tools it runs)", str(COST_STEP)),
-            _cost_line("Search overview / page summary", "free"),
-            ft.Container(height=4),
-            ft.Text(
-                "Search overviews and page summaries are free. Manual search, scraping and downloads never use credits.",
-                size=tokens.FONT_XS,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-                text_align=ft.TextAlign.CENTER,
-            ),
-            ft.Divider(height=12, thickness=1),
+            *rows,
             cooldown_label,
             watch_btn,
         ],
-        spacing=6,
+        spacing=tokens.SPACE_XS,
         tight=True,
         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
     )
@@ -218,7 +312,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
     dlg = ft.AlertDialog(
         title=ft.Text("Assistant credits", font_family="Outfit"),
         content=ft.Container(
-            content=content, width=320, padding=ft.Padding(4, 8, 4, 4)
+            content=content, width=340, padding=ft.Padding(4, 8, 4, 4)
         ),
         actions=[ft.TextButton("Close", on_click=_close)],
     )

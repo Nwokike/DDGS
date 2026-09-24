@@ -1,4 +1,4 @@
-"""✨ Assistant summary sheet — streams a page summary from reader/preview/detail.
+"""Assistant summary sheet — streams a page summary from reader/preview/detail.
 
 Lives outside the reactive component tree (BottomSheet via show_dialog), so it
 drives its Text control manually with >=0.2s page.update() throttling — the
@@ -15,7 +15,10 @@ from core import tokens
 from core.state import state
 from core.theme import AppColors
 
-_DISCLOSURE = "Sends this page's extracted text to Kiri AI. No history, no training."
+_DISCLOSURE = (
+    "Page text goes to your in-app Kiri router, or Kiri Gateway if it's down. "
+    "We instruct no training."
+)
 
 
 def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> None:
@@ -148,12 +151,12 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
             body.color = AppColors.WARNING
         except ai_service.AIUnavailable:
             body.value = (
-                "AI unavailable right now — the full page text above is untouched."
+                "Assistant unavailable right now. The full page text is untouched."
             )
             body.color = ft.Colors.ON_SURFACE_VARIANT
         except Exception:
             body.value = (
-                "AI unavailable right now — the full page text above is untouched."
+                "Assistant unavailable right now. The full page text is untouched."
             )
             body.color = ft.Colors.ON_SURFACE_VARIANT
         try:
