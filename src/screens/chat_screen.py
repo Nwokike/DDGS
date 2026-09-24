@@ -14,16 +14,19 @@ lives in services/chat_agent; this file owns presentation:
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 
 import flet as ft
 
-from components.model_picker import show_model_picker
+from components.model_picker import build_model_pill
 from components.results.downloader import launch_url
 from components.wallet import show_wallet_dialog
 from core import tokens
 from core.state import SearchResult, state
 from core.theme import AppColors
+
+logger = logging.getLogger(__name__)
 
 _CHAT = ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED
 
@@ -49,16 +52,64 @@ def _domain(url: str) -> str:
     return url[:40]
 
 
+def _turns_from_messages(messages: list[dict]) -> list[dict]:
+    """Rebuild renderable turns from a saved conversation.
+
+    Saved messages are the flat role/content pairs the agent consumes, so
+    the visual extras (steps, cards, receipt) are not in them. Reopened
+    chats therefore show the conversation itself, which is the honest
+    rendering: we do not have the tool-step detail for an old turn.
+    """
+    turns: list[dict] = []
+    for message in messages or []:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "")
+        text = message.get("content")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        if role == "user":
+            turns.append({"role": "user", "text": text})
+        elif role == "assistant":
+            turns.append(
+                {
+                    "role": "assistant",
+                    "text": text,
+                    "thought": "",
+                    "steps": 0,
+                    "cost": 0,
+                    "partial": False,
+                    "steps_rows": [],
+                    "cards": [],
+                    "related": [],
+                    "served_by": "",
+                    "model": "",
+                    "error": None,
+                    "stopped": False,
+                    "receipt": "",
+                }
+            )
+    return turns
+
+
 class ChatSession:
-    """Owns one conversation: local model, rendering, agent turn, approvals."""
+    """Owns one conversation: local model, rendering, agent turn, approvals.
+
+    The session is bound to a conversation id. Turns are rendered from
+    `turns` for the live view, while `agent_history` (the flat role/content
+    list the agent consumes) is what actually gets persisted, so a reopened
+    chat continues with real context instead of starting cold.
+    """
 
     def __init__(self, page: ft.Page, ctx: dict | None = None):
+        from services import conversation_service as conversations
+
         self.page = page
         self.ctx = ctx or {}
-        self.turns: list[dict] = []
-        self.agent_history: list[dict] = list(
-            getattr(state, "assistant_history", []) or []
-        )
+        self.conversation_id: str = conversations.ensure_active()
+        saved = conversations.load_conversation(self.conversation_id) or {}
+        self.turns: list[dict] = _turns_from_messages(saved.get("messages") or [])
+        self.agent_history: list[dict] = list(saved.get("messages") or [])
         self.pending_user = ""
         self.busy = False
         self.cancel = asyncio.Event()
@@ -118,30 +169,9 @@ class ChatSession:
             tooltip="Assistant credits, tap for details",
             on_click=lambda e: show_wallet_dialog(page),
         )
-        self.model_chip = ft.Container(
-            content=ft.Row(
-                [
-                    ft.Text(
-                        state.ai_model,
-                        size=tokens.FONT_XS,
-                        color=AppColors.PRIMARY,
-                    ),
-                    ft.Icon(
-                        ft.Icons.EXPAND_MORE_ROUNDED,
-                        size=12,
-                        color=AppColors.PRIMARY,
-                    ),
-                ],
-                spacing=2,
-                tight=True,
-            ),
-            padding=ft.Padding(7, 3, 7, 3),
-            border_radius=tokens.RADIUS_PILL,
-            bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY),
-            ink=True,
-            tooltip="Assistant model",
-            on_click=lambda e: show_model_picker(page),
-        )
+        # Live pill: its label tracks the router lifecycle (starting /
+        # ready / stopped) and the selected model, rebuilt on every render.
+        self.model_chip = build_model_pill(page)
 
         appbar = ft.AppBar(
             leading=ft.IconButton(
@@ -164,12 +194,7 @@ class ChatSession:
             actions=[
                 self.model_chip,
                 self.credits_chip,
-                ft.IconButton(
-                    icon=ft.Icons.DELETE_SWEEP_OUTLINED,
-                    icon_size=18,
-                    tooltip="Clear chat",
-                    on_click=lambda e: self._clear_chat(),
-                ),
+                self._history_menu(),
                 ft.Container(width=6),
             ],
             bgcolor=ft.Colors.TRANSPARENT,
@@ -284,16 +309,9 @@ class ChatSession:
             return
         self.turns = []
         self.agent_history = []
-        state.assistant_history = []
         self._persist_history()
         self._render(force=True)
-        snack = ft.SnackBar(ft.Text("Chat cleared"))
-        snack.open = True
-        self.page.show_dialog(snack)
-        try:
-            self.page.update()
-        except Exception:
-            pass
+        self._snack("Chat cleared")
 
     def _delete_turn(self, index: int) -> None:
         if 0 <= index < len(self.turns):
@@ -302,16 +320,320 @@ class ChatSession:
             self._render(force=True)
 
     def _persist_history(self) -> None:
-        text = self.agent_history[-16:]
-        state.assistant_history = text
-        storage = _storage()
-        if storage:
-            try:
-                import json
+        """Write this conversation to disk and refresh the history menu.
 
-                self.page.run_task(storage.set_assistant_history, json.dumps(text))
+        The 16-message cap that used to live here was the *agent context*
+        window, not a storage limit. A saved conversation keeps every
+        message (up to CONVERSATION_MESSAGE_CAP, so one very long chat
+        cannot grow without bound); `chat_agent` already slices what it
+        sends to the model, so truncating on save was throwing away the
+        user's own history.
+        """
+        from services import conversation_service as conversations
+
+        state.assistant_history = list(self.agent_history)
+        conversation_id = self.conversation_id
+        messages = list(self.agent_history)[-conversations.CONVERSATION_MESSAGE_CAP :]
+
+        async def _save() -> None:
+            try:
+                # All disk work off the UI thread: this runs on every turn.
+                before = await asyncio.to_thread(conversations.list_conversations)
+                saved = await asyncio.to_thread(
+                    conversations.save_conversation, conversation_id, messages
+                )
+                if not saved:
+                    self._snack("This chat could not be saved")
+                    return
+                rows = conversations.refresh_state()
+                pruned = max(0, len(before) + 1 - len(rows))
+                if pruned:
+                    self._snack(
+                        f"Kept your {conversations.MAX_CONVERSATIONS} most recent "
+                        f"chats and removed {pruned} older "
+                        f"{'one' if pruned == 1 else 'ones'}"
+                    )
             except Exception:
-                pass
+                logger.exception("conversation save failed")
+
+        self.page.run_task(_save)
+
+    def _snack(self, message: str) -> None:
+        snack = ft.SnackBar(ft.Text(message))
+        snack.open = True
+        self.page.show_dialog(snack)
+        try:
+            self.page.update()
+        except Exception:
+            pass
+
+    # ── Conversation switching ──────────────────────────────────────────
+    def new_conversation(self, *, keep_current: bool = True) -> None:
+        """Start an empty chat.
+
+        `keep_current=False` is for the delete path: the chat we are in has
+        just been removed, so persisting it again would write the deleted
+        file straight back to disk.
+        """
+        from services import conversation_service as conversations
+
+        if keep_current:
+            self._persist_history()
+        self.conversation_id = conversations.new_conversation_id()
+        state.active_conversation = self.conversation_id
+        self.turns = []
+        self.agent_history = []
+        self._render(force=True)
+
+    def switch_conversation(self, conversation_id: str) -> None:
+        """Open a saved chat in this session."""
+        from services import conversation_service as conversations
+
+        if conversation_id == self.conversation_id:
+            return
+        if self.busy:
+            self._snack("Wait for the current reply to finish")
+            return
+        self._persist_history()
+        loaded = conversations.load_conversation(conversation_id)
+        if loaded is None:
+            self._snack("That chat could not be opened")
+            return
+        self.conversation_id = conversation_id
+        state.active_conversation = conversation_id
+        self.turns = _turns_from_messages(loaded.get("messages") or [])
+        self.agent_history = list(loaded.get("messages") or [])
+        self._render(force=True)
+
+    def delete_conversation(self, conversation_id: str) -> None:
+        from services import conversation_service as conversations
+
+        was_active = conversation_id == self.conversation_id
+        if not conversations.delete_conversation(conversation_id):
+            self._snack("That chat could not be deleted")
+            return
+        conversations.refresh_state()
+        if was_active:
+            rows = conversations.list_conversations()
+            if rows:
+                # keep_current=False: this chat is gone, so saving it again
+                # would recreate the file the user just deleted.
+                self.conversation_id = rows[0]["id"]
+                state.active_conversation = rows[0]["id"]
+                self.switch_conversation(rows[0]["id"])
+            else:
+                self.new_conversation(keep_current=False)
+        self._snack("Chat deleted")
+
+    def delete_all_conversations(self) -> None:
+        from services import conversation_service as conversations
+
+        deleted, failed = conversations.delete_all()
+        conversations.refresh_state()
+        self.new_conversation(keep_current=False)
+        if failed:
+            self._snack(f"Deleted {deleted} chats, {failed} could not be removed")
+        else:
+            self._snack("All chats deleted")
+
+    def _history_menu(self) -> ft.PopupMenuButton:
+        """Hamburger menu: recent chats, new chat, delete actions.
+
+        Built fresh on every open so the list always reflects what is on
+        disk, not a snapshot taken when the session was created.
+        """
+        from services import conversation_service as conversations
+
+        rows = conversations.list_conversations()
+        items: list[ft.PopupMenuItem] = [
+            ft.PopupMenuItem(
+                content=ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.ADD_ROUNDED,
+                            size=tokens.ICON_SM,
+                            color=AppColors.PRIMARY,
+                        ),
+                        ft.Text(
+                            "New chat",
+                            size=tokens.FONT_SM,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                on_click=lambda e: self.new_conversation(),
+            ),
+        ]
+
+        if rows:
+            items.append(
+                ft.PopupMenuItem(disabled=True, content=ft.Container(height=1))
+            )
+            items.append(
+                ft.PopupMenuItem(
+                    disabled=True,
+                    content=ft.Text(
+                        "RECENT CHATS",
+                        size=tokens.FONT_XS,
+                        weight=ft.FontWeight.W_700,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                )
+            )
+        for row in rows[:12]:
+            conversation_id = row["id"]
+            is_active = conversation_id == self.conversation_id
+            items.append(
+                ft.PopupMenuItem(
+                    content=ft.Row(
+                        [
+                            ft.Icon(
+                                ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED
+                                if is_active
+                                else ft.Icons.CHAT_BUBBLE_OUTLINE,
+                                size=tokens.ICON_SM,
+                                color=AppColors.PRIMARY
+                                if is_active
+                                else ft.Colors.ON_SURFACE_VARIANT,
+                            ),
+                            ft.Column(
+                                [
+                                    ft.Text(
+                                        row.get("title") or "Untitled",
+                                        size=tokens.FONT_SM,
+                                        weight=ft.FontWeight.W_600
+                                        if is_active
+                                        else ft.FontWeight.W_400,
+                                        color=AppColors.PRIMARY
+                                        if is_active
+                                        else ft.Colors.ON_SURFACE,
+                                        max_lines=1,
+                                        overflow=ft.TextOverflow.ELLIPSIS,
+                                    ),
+                                    ft.Text(
+                                        conversations.summarize(row),
+                                        size=tokens.FONT_XS,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
+                                    ),
+                                ],
+                                spacing=1,
+                                tight=True,
+                                expand=True,
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                                icon_size=tokens.ICON_SM,
+                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                                tooltip="Delete this chat",
+                                on_click=lambda e, cid=conversation_id: (
+                                    self._confirm_delete_one(cid)
+                                ),
+                            ),
+                        ],
+                        spacing=8,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    on_click=lambda e, cid=conversation_id: self.switch_conversation(
+                        cid
+                    ),
+                )
+            )
+
+        items.append(ft.PopupMenuItem(disabled=True, content=ft.Container(height=1)))
+        items.append(
+            ft.PopupMenuItem(
+                content=ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.DELETE_SWEEP_OUTLINED,
+                            size=tokens.ICON_SM,
+                            color=ft.Colors.ERROR,
+                        ),
+                        ft.Text(
+                            "Delete all chats",
+                            size=tokens.FONT_SM,
+                            color=ft.Colors.ERROR,
+                        ),
+                    ],
+                    spacing=8,
+                ),
+                on_click=lambda e: self._confirm_delete_all(),
+            )
+        )
+
+        return ft.PopupMenuButton(
+            tooltip="Chat history",
+            icon=ft.Icons.MENU_ROUNDED,
+            icon_color=AppColors.PRIMARY,
+            items=items,
+        )
+
+    def _confirm_delete_one(self, conversation_id: str) -> None:
+        from services import conversation_service as conversations
+
+        row = next(
+            (
+                r
+                for r in conversations.list_conversations()
+                if r["id"] == conversation_id
+            ),
+            None,
+        )
+        title = (row or {}).get("title") or "this chat"
+
+        def _do_delete(e=None):
+            self.page.pop_dialog()
+            self.delete_conversation(conversation_id)
+
+        self.page.show_dialog(
+            ft.AlertDialog(
+                title=ft.Text("Delete chat?", font_family="Outfit"),
+                content=ft.Text(
+                    f'"{title}" will be removed from this device. '
+                    "This cannot be undone."
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "Delete",
+                        on_click=_do_delete,
+                        style=ft.ButtonStyle(
+                            bgcolor=AppColors.ERROR, color=ft.Colors.WHITE
+                        ),
+                    ),
+                ],
+            )
+        )
+
+    def _confirm_delete_all(self) -> None:
+        from services import conversation_service as conversations
+
+        count = len(conversations.list_conversations())
+
+        def _do_delete(e=None):
+            self.page.pop_dialog()
+            self.delete_all_conversations()
+
+        self.page.show_dialog(
+            ft.AlertDialog(
+                title=ft.Text("Delete all chats?", font_family="Outfit"),
+                content=ft.Text(
+                    f"All {count} saved chats will be removed from this device. "
+                    "This cannot be undone."
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "Delete all",
+                        on_click=_do_delete,
+                        style=ft.ButtonStyle(
+                            bgcolor=AppColors.ERROR, color=ft.Colors.WHITE
+                        ),
+                    ),
+                ],
+            )
+        )
 
     def _set_busy_ui(self, busy: bool) -> None:
         self.send_btn.visible = not busy
@@ -464,13 +786,16 @@ class ChatSession:
             pass
 
     def refresh_model_chip(self) -> None:
-        """Re-read state.ai_model into the header chip.
+        """Rebuild the header pill so it tracks live router state.
 
-        The chip is built once when the session is created, so a model
-        chosen in Settings (or here) left it showing the old name.
+        The chip is a static control inside an imperative View, so it does
+        not re-render itself when the observable router status changes. It
+        is replaced on each render and whenever the chat is opened.
         """
         try:
-            self.model_chip.content.controls[0].value = state.ai_model
+            new_chip = build_model_pill(self.page)
+            self.model_chip.content = new_chip.content
+            self.model_chip.bgcolor = new_chip.bgcolor
             self.model_chip.update()
         except Exception:
             pass
@@ -498,6 +823,8 @@ class ChatSession:
         if state.scheduled_scrapes:
             controls.append(self._render_schedules())
         self._list.controls = controls
+        # Cheap, and keeps the pill honest as the router comes up.
+        self.refresh_model_chip()
         try:
             self.page.update()
         except Exception:
@@ -1000,11 +1327,6 @@ def _credits_color(credits: int) -> str:
     if credits >= 5:
         return AppColors.WARNING
     return AppColors.ERROR
-
-
-def _storage():
-    credits = getattr(state, "credit_service", None)
-    return getattr(credits, "_storage", None) if credits else None
 
 
 def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:

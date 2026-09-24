@@ -68,6 +68,7 @@ class ControllerMethods:
     """
 
     start_search: Callable[[str, str], Awaitable[None]] = _noop_search
+    refresh_search: Callable[[str, str], Awaitable[None]] = _noop_search
     run_extract: Callable[[str], Awaitable[None]] = _noop_extract
     cancel_search: Callable[[], None] = _noop_sync
     go_home: Callable[[], Awaitable[None]] = _noop_async

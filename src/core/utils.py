@@ -9,6 +9,35 @@ import tempfile
 import time
 from collections.abc import Callable
 from functools import wraps
+from logging.handlers import RotatingFileHandler
+
+# The log file used to grow without bound: one new file per run, kept
+# forever. 2 MB x 3 backups per run plus a 14-day sweep keeps the logs
+# directory useful for debugging without letting it fill the device.
+LOG_MAX_BYTES = 2 * 1024 * 1024
+LOG_BACKUP_COUNT = 3
+LOG_RETENTION_DAYS = 14
+
+
+def prune_old_logs(folder: str, days: int = LOG_RETENTION_DAYS) -> int:
+    """Delete log files last written more than `days` ago. Returns count."""
+    cutoff = time.time() - days * 86400
+    removed = 0
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return 0
+    for name in names:
+        if not name.endswith(".log"):
+            continue
+        path = os.path.join(folder, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 class InMemoryLogHandler(logging.Handler):
@@ -67,8 +96,15 @@ def setup_logging():
                 f.write("test")
             os.remove(test_path)
 
+            prune_old_logs(folder)
+
             # Writable folder found!
-            file_handler = logging.FileHandler(log_file, encoding="utf-8")
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=LOG_MAX_BYTES,
+                backupCount=LOG_BACKUP_COUNT,
+                encoding="utf-8",
+            )
             log_file_path = log_file
             break
         except (PermissionError, OSError):

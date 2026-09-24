@@ -138,7 +138,7 @@ class AppState:
         self.search_count: int = 0
         self.last_interstitial_ts: float = 0.0  # central 90s gap guard
 
-        # ── AI mode (DDGS 2.0) — chat via the Ask-AI FAB ──
+        # ── AI mode (DDGS 2.0) — chat via the Ask Assistant FAB ──
         self.ai_mode_enabled: bool = True
         self.ai_model: str = "auto"  # router model preference; auto rotates free models
         self.credits_remaining: int = 50  # corrected by CreditService.initialize()
@@ -148,7 +148,17 @@ class AppState:
         self.ai_overview: AiOverview | None = None
         self.ai_overview_expanded: bool = False
         self.scheduled_scrapes: list = []  # [{url, interval_min, next_run, last_run, pages_saved}]
-        self.assistant_history: list = []  # shared conversation (capped)
+        self.assistant_history: list = []  # active conversation messages
+        # Router lifecycle, mirroring LM Router's gateway states so the
+        # model picker can say what is actually happening.
+        self.ai_router_status: str = "starting"  # starting|ready|stopped|unavailable
+        self.ai_router_port: int | None = None
+        # True while the results on screen came from the cache and a live
+        # search is still running behind them.
+        self.results_from_cache: bool = False
+        # Conversations (chat history): summary rows + the active id.
+        self.conversations: list = []
+        self.active_conversation: str = ""
 
         # ── Services (set by AppController) ──
         self.ad_service = None

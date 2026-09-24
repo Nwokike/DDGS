@@ -118,10 +118,12 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
     def _save(key: str, value) -> None:
         page.run_task(save_fn, key, value)
 
-    from components.model_picker import show_model_picker
+    from components.model_picker import (
+        model_picker_state,
+        model_status_subtitle,
+        show_model_picker,
+    )
     from services import ai_service as _ai
-
-    model_hint = _ai.model_hint(state.ai_model) or "active models at attach"
 
     rows: list[ft.Control] = []
 
@@ -142,11 +144,18 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
     rows.append(_divider())
 
     # ── Assistant model ─────────────────────────────────────────────────
+    # Subtitle comes from the same state the chat pill uses, so both
+    # surfaces report the router identically (starting / ready / stopped).
+    _picker = model_picker_state()
     rows.append(
         _setting_row(
             ft.Icons.MEMORY_ROUNDED,
             "Assistant model",
-            f"{state.ai_model} · {model_hint}",
+            (
+                f"{_picker.label} · {model_status_subtitle()}"
+                if _picker.active
+                else model_status_subtitle()
+            ),
             ft.TextButton(
                 "Change",
                 on_click=lambda e: show_model_picker(page),

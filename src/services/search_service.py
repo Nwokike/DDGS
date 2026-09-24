@@ -278,9 +278,25 @@ class SearchService:
         return progress
 
     async def extract_url(
-        self, url: str, fmt: str = "text_markdown"
+        self, url: str, fmt: str = "text_markdown", force: bool = False
     ) -> tuple[dict | None, str | None]:
-        """Extract content from a URL in any format. Returns (result_dict, error_string)."""
+        """Extract content from a URL in any format. Returns (result_dict, error_string).
+
+        Served from the 24h page cache when possible, so reopening a result
+        is instant and works with no connection. `force` skips the cache for
+        an explicit user refresh.
+        """
+        from services.cache_service import cache_service
+
+        if not force:
+            try:
+                cached = await cache_service.get_page(url, fmt)
+                if isinstance(cached, dict) and cached:
+                    logger.info("%s Page cache hit: %s", LOG_TAG, url[:80])
+                    return cached, None
+            except Exception as exc:
+                logger.warning("page cache read failed: %s", exc)
+
         logger.info(f"[{LOG_TAG}] Extracting: {url} fmt={fmt}")
         start = time.perf_counter()
         try:
@@ -289,6 +305,11 @@ class SearchService:
             elapsed = time.perf_counter() - start
             log_performance("extract", elapsed, url=url, fmt=fmt)
             logger.info(f"[{LOG_TAG}] Extract success: {type(result)}")
+            if isinstance(result, dict) and result:
+                try:
+                    await cache_service.put_page(url, fmt, result)
+                except Exception as exc:
+                    logger.warning("page cache write failed: %s", exc)
             return result, None
         except (
             DDGSException,
