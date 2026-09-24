@@ -92,14 +92,12 @@ def SettingsScreen() -> Control:
         build_extraction_section,
         build_performance_section,
     )
-    from components.settings.sections_ai import (
-        build_ai_section,
-        build_premium_section,
-    )
+    from components.settings.sections_ai import build_ai_section
     from components.settings.sections_general import (
         build_search_rules_section,
         build_theme_section,
     )
+    from components.settings.sections_premium import build_premium_section
 
     page = _get_page()
 

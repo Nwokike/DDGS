@@ -162,10 +162,8 @@ def test_premium_is_a_separate_settings_card():
 
     src = Path(__file__).resolve().parents[1] / "src"
     sys.path.insert(0, str(src))
-    from components.settings.sections_ai import (
-        build_ai_section,
-        build_premium_section,
-    )
+    from components.settings.sections_ai import build_ai_section
+    from components.settings.sections_premium import build_premium_section
 
     class Controller:
         billing = None

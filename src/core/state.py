@@ -143,8 +143,20 @@ class AppState:
         self.ai_model: str = "auto"  # router model preference; auto rotates free models
         self.credits_remaining: int = 50  # corrected by CreditService.initialize()
         self.is_premium: bool = False
+        # Which channel granted Premium, and whether each says yes. The
+        # is_premium flag above is derived from these by
+        # services/premium_service, so a refund can actually take it back.
+        self.play_premium_active: bool = False
+        self.license_premium_active: bool = False
+        self.premium_source: str = ""
+        self.license_status: str = ""
+        self.license_product: str = ""
+        self.license_recovery_id: str = ""
         self.ad_cooldown_end: float = 0.0
         self.chat_open: bool = False
+        # True when the Assistant is retained but another screen is on top.
+        # The FAB becomes a restore button in this state.
+        self.chat_minimized: bool = False
         self.ai_overview: AiOverview | None = None
         self.ai_overview_expanded: bool = False
         self.scheduled_scrapes: list = []  # [{url, interval_min, next_run, last_run, pages_saved}]

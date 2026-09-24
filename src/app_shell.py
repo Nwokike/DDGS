@@ -110,18 +110,21 @@ def AppShell() -> Control:
             screen = HomeScreen(key=ft.ValueKey("home"))
 
     # ── Ask Assistant FAB — CollabShell recipe: mini, white icon, brand
-    # fill, tooltip only. No badge, no per-credit rebuild. ────────────────
+    # fill, tooltip only. No badge, no per-credit rebuild. While the
+    # Assistant is minimized this same button restores it, so it stays
+    # visible even at zero credits. ────────────────────────────────────
     def _sync_fab():
         from flet import context as flet_context
 
         page = flet_context.page
         if not page or not page.views:
             return
+        restoring = state.chat_minimized
         visible = (
             state.has_accepted_terms
             and state.ai_mode_enabled
             and not state.chat_open
-            and state.credits_remaining > 0
+            and (state.credits_remaining > 0 or restoring)
         )
         try:
             if not visible:
@@ -129,7 +132,14 @@ def AppShell() -> Control:
                     page.views[0].floating_action_button = None
                     page.update()
                 return
-            if page.views[0].floating_action_button is not None:
+            existing = page.views[0].floating_action_button
+            if existing is not None:
+                # Only the meaning changes between "new chat" and "restore",
+                # so relabel in place rather than rebuilding the button.
+                wanted = "Back to Assistant" if restoring else "Ask Assistant"
+                if existing.tooltip != wanted:
+                    existing.tooltip = wanted
+                    page.update()
                 return
             ctrl = getattr(page, "_ddgs_controller", None)
 
@@ -142,7 +152,7 @@ def AppShell() -> Control:
                 foreground_color=ft.Colors.WHITE,
                 bgcolor=AppColors.PRIMARY,
                 mini=True,
-                tooltip="Ask Assistant",
+                tooltip="Back to Assistant" if restoring else "Ask Assistant",
                 on_click=_open,
             )
             page.update()
@@ -166,6 +176,7 @@ def AppShell() -> Control:
             state.has_accepted_terms,
             state.ai_mode_enabled,
             state.chat_open,
+            state.chat_minimized,
             state.credits_remaining,
         ],
         cleanup=_clear_fab,

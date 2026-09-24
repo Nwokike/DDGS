@@ -26,6 +26,14 @@ from core.constants import (
     STORAGE_IMAGE_SIZE,
     STORAGE_IMAGE_TYPE,
     STORAGE_IS_PREMIUM,
+    STORAGE_LICENSE_EMAIL,
+    STORAGE_LICENSE_NAME,
+    STORAGE_LICENSE_PAID_THROUGH,
+    STORAGE_LICENSE_PHONE,
+    STORAGE_LICENSE_PRODUCT,
+    STORAGE_LICENSE_RECOVERY_ID,
+    STORAGE_LICENSE_STATUS,
+    STORAGE_LICENSE_TOKEN,
     STORAGE_MAX_RESULTS,
     STORAGE_ONBOARDING_DONE,
     STORAGE_PAGE,
@@ -404,3 +412,46 @@ class StorageService:
 
     async def set_is_premium(self, v: bool) -> bool:
         return await self.set(STORAGE_IS_PREMIUM, v)
+
+    # ── Kiri License (direct/web channel) ─────────────────────────────
+    async def get_license_record(self) -> dict[str, Any]:
+        """Everything the license channel needs, in one read."""
+        return {
+            "recovery_id": str(await self.get(STORAGE_LICENSE_RECOVERY_ID, "") or ""),
+            "token": str(await self.get(STORAGE_LICENSE_TOKEN, "") or ""),
+            "status": str(await self.get(STORAGE_LICENSE_STATUS, "") or ""),
+            "product": str(await self.get(STORAGE_LICENSE_PRODUCT, "") or ""),
+            "paid_through": await self.get(STORAGE_LICENSE_PAID_THROUGH, None),
+            "email": str(await self.get(STORAGE_LICENSE_EMAIL, "") or ""),
+            "name": str(await self.get(STORAGE_LICENSE_NAME, "") or ""),
+            "phone": str(await self.get(STORAGE_LICENSE_PHONE, "") or ""),
+        }
+
+    async def set_license_record(self, **fields: Any) -> bool:
+        """Write only the fields supplied; others are left untouched."""
+        allowed = {
+            "recovery_id": STORAGE_LICENSE_RECOVERY_ID,
+            "token": STORAGE_LICENSE_TOKEN,
+            "status": STORAGE_LICENSE_STATUS,
+            "product": STORAGE_LICENSE_PRODUCT,
+            "paid_through": STORAGE_LICENSE_PAID_THROUGH,
+            "email": STORAGE_LICENSE_EMAIL,
+            "name": STORAGE_LICENSE_NAME,
+            "phone": STORAGE_LICENSE_PHONE,
+        }
+        ok = True
+        for key, value in fields.items():
+            storage_key = allowed.get(key)
+            if storage_key is None:
+                continue
+            ok = await self.set(storage_key, value) and ok
+        return ok
+
+    async def clear_license_record(self) -> bool:
+        return await self.set_license_record(
+            recovery_id="",
+            token="",
+            status="",
+            product="",
+            paid_through=None,
+        )

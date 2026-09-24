@@ -294,15 +294,37 @@ class ChatSession:
             self._confirm[0].set()
 
     def close(self) -> None:
+        """Minimize the Assistant. The session is retained, never destroyed.
+
+        Popping the view is not the same as discarding the conversation:
+        the ChatSession object stays on the page, so the FAB can bring back
+        the exact same turns, scroll position and pending approval.
+        """
         self.cancel.set()
         self._persist_history()
         try:
             if self.page.views and self.page.views[-1] is self.view:
                 self.page.views.pop()
-                state.chat_open = False
-                self.page.update()
+            state.chat_open = False
+            state.chat_minimized = True
+            self.page.update()
         except Exception:
             state.chat_open = False
+            state.chat_minimized = True
+
+    def restore(self) -> None:
+        """Re-attach this retained session to the view stack."""
+        state.chat_open = True
+        state.chat_minimized = False
+        if self.view not in self.page.views:
+            self.page.views.append(self.view)
+        self.refresh_model_chip()
+        try:
+            self.page.update()
+        except Exception:
+            pass
+        if self._pinned:
+            self.page.run_task(self._scroll_to_bottom)
 
     def _clear_chat(self) -> None:
         if not self.turns:
@@ -437,11 +459,33 @@ class ChatSession:
             self._snack("All chats deleted")
 
     def _history_menu(self) -> ft.PopupMenuButton:
-        """Hamburger menu: recent chats, new chat, delete actions.
+        """The hamburger. Items are rebuilt on every open, never cached.
 
-        Built fresh on every open so the list always reflects what is on
-        disk, not a snapshot taken when the session was created.
+        The items used to be built once when the session was created, so a
+        chat deleted in the menu kept showing until the whole screen was
+        refreshed. on_open re-reads the list from disk each time.
         """
+        self._history_button = ft.PopupMenuButton(
+            tooltip="Chat history",
+            icon=ft.Icons.MENU_ROUNDED,
+            icon_color=AppColors.PRIMARY,
+            items=self._history_items(),
+            on_open=lambda e: self._refresh_history_menu(),
+        )
+        return self._history_button
+
+    def _refresh_history_menu(self) -> None:
+        """Re-read the conversation list and swap the menu contents."""
+        try:
+            button = getattr(self, "_history_button", None)
+            if button is None:
+                return
+            button.items = self._history_items()
+            button.update()
+        except Exception:
+            logger.exception("history menu refresh failed")
+
+    def _history_items(self) -> list[ft.PopupMenuItem]:
         from services import conversation_service as conversations
 
         rows = conversations.list_conversations()
@@ -527,7 +571,7 @@ class ChatSession:
                                 icon_color=ft.Colors.ON_SURFACE_VARIANT,
                                 tooltip="Delete this chat",
                                 on_click=lambda e, cid=conversation_id: (
-                                    self._confirm_delete_one(cid)
+                                    self._on_delete_button(e, cid)
                                 ),
                             ),
                         ],
@@ -562,12 +606,21 @@ class ChatSession:
             )
         )
 
-        return ft.PopupMenuButton(
-            tooltip="Chat history",
-            icon=ft.Icons.MENU_ROUNDED,
-            icon_color=AppColors.PRIMARY,
-            items=items,
-        )
+        return items
+
+    def _on_delete_button(self, e, conversation_id: str) -> None:
+        """Delete from a menu row without also opening that row's chat.
+
+        The delete IconButton sits inside a clickable PopupMenuItem, so
+        without stopping the event the tap both asked for a delete and
+        switched conversations.
+        """
+        try:
+            if hasattr(e, "control"):
+                e.control.disabled = True
+        except Exception:
+            pass
+        self._confirm_delete_one(conversation_id)
 
     def _confirm_delete_one(self, conversation_id: str) -> None:
         from services import conversation_service as conversations
@@ -1330,18 +1383,16 @@ def _credits_color(credits: int) -> str:
 
 
 def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
-    """Open (or re-expand) the assistant. Reuses the retained session."""
+    """Open or re-expand the Assistant, reusing the retained session.
+
+    A minimized session is restored rather than rebuilt, so the user lands
+    back on the exact conversation they left, not a fresh one.
+    """
     if state.chat_open:
         return
     existing = getattr(page, "_chat_session", None)
     if isinstance(existing, ChatSession):
-        state.chat_open = True
-        existing.refresh_model_chip()
-        page.views.append(existing.view)
-        try:
-            page.update()
-        except Exception:
-            pass
+        existing.restore()
         if ctx and ctx.get("auto"):
             if ctx.get("url"):
                 existing.send(f"Describe this page for me: {ctx['url']}")
@@ -1351,6 +1402,7 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
     session = ChatSession(page, ctx)
     page._chat_session = session
     state.chat_open = True
+    state.chat_minimized = False
     page.views.append(session.view)
     try:
         page.update()
