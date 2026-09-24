@@ -438,6 +438,20 @@ class ChatSession:
             expand=True,
         )
 
+    def _open_result(self, r, kind: str) -> None:
+        """Open an AI-found result exactly like tapping a normal result card —
+        the same detail sheet with View Page Content, Download, Open/Copy/Share."""
+        from components.results.detail_sheet import _show_result_sheet
+
+        search_type = {
+            "web": "text",
+            "images": "images",
+            "videos": "videos",
+            "news": "news",
+            "books": "books",
+        }.get(kind, "text")
+        _show_result_sheet(self.page, r, search_type)
+
     def _open_in_app(self, url: str) -> None:
         """Open like the rest of DDGS: in-app extracted preview (which itself
         offers Open in browser, full reader, and save). Falls back to browser."""
@@ -640,7 +654,7 @@ class ChatSession:
             thumb = (r.thumbnail or r.image_url or "") if r else ""
             rows.append(
                 ft.GestureDetector(
-                    on_tap=lambda e, u=r.url: self._open_in_app(u),
+                    on_tap=lambda e, r=r, k=kind: self._open_result(r, k),
                     content=ft.Row(
                         [
                             (

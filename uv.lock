@@ -66,6 +66,7 @@ dependencies = [
     { name = "flet-ads" },
     { name = "flet-billing" },
     { name = "httpx" },
+    { name = "lxml" },
 ]
 
 [package.dev-dependencies]
@@ -81,6 +82,7 @@ requires-dist = [
     { name = "flet-ads", specifier = ">=1.0.1" },
     { name = "flet-billing", specifier = ">=0.1.1" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "lxml", specifier = ">=6.1.3" },
 ]
 
 [package.metadata.requires-dev]

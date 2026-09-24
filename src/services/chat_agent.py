@@ -32,7 +32,7 @@ from core.constants import (
     COST_CHAT,
 )
 from core.state import state
-from services import ai_service
+from services import agent_files, ai_service
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +57,11 @@ SYSTEM_PROMPT = (
     "a final line exactly in this form:\n"
     "RELATED: query one | query two | query three\n"
     "(three short alternative search queries). "
+    "You can also act for the user: save_page keeps a page as Markdown/HTML/text, "
+    "download_media downloads a video (YouTube supported) or image, scrape_site "
+    "crawls a site and saves every page, and schedule_scrape/cancel_scrape manage "
+    "recurring crawls (they run while the app is open). Use them when the user asks. "
+    "After saving or downloading, tell them the exact file paths. "
     "If no tool is needed (greetings, math, opinions), just answer."
 )
 
@@ -122,6 +127,58 @@ def build_tools() -> list[dict]:
             {"url": {"type": "string"}},
             ["url"],
         ),
+        _fn(
+            "save_page",
+            "Save one page to the device as a file (Downloads/DDGS). "
+            "format: markdown | html | text. Use when the user asks to keep, "
+            "save, or archive a page.",
+            {
+                "url": {"type": "string"},
+                "format": {"type": "string", "enum": ["markdown", "html", "text"]},
+            },
+            ["url"],
+        ),
+        _fn(
+            "download_media",
+            "Download a video (YouTube is resolved automatically) or an "
+            "image/direct media file to the device (Downloads/DDGS).",
+            {
+                "url": {"type": "string"},
+                "quality": {
+                    "type": "string",
+                    "enum": ["best", "1080p", "720p", "480p", "360p"],
+                },
+            },
+            ["url"],
+        ),
+        _fn(
+            "scrape_site",
+            "Crawl a site: fetch the URL, follow same-site links, and save "
+            "every page as files (Downloads/DDGS). Use when the user asks to "
+            "scrape/crawl an entire site or save all pages under it.",
+            {
+                "url": {"type": "string"},
+                "max_pages": {"type": "integer", "minimum": 1, "maximum": 8},
+                "format": {"type": "string", "enum": ["markdown", "html", "text"]},
+            },
+            ["url"],
+        ),
+        _fn(
+            "schedule_scrape",
+            "Schedule a recurring crawl of a site (e.g. every hour). Runs "
+            "while the app is open. Returns the next run time.",
+            {
+                "url": {"type": "string"},
+                "interval_minutes": {"type": "integer", "minimum": 15, "maximum": 1440},
+            },
+            ["url", "interval_minutes"],
+        ),
+        _fn(
+            "cancel_scrape",
+            "Cancel a scheduled crawl by URL.",
+            {"url": {"type": "string"}},
+            ["url"],
+        ),
     ]
 
 
@@ -142,7 +199,67 @@ def pretty_label(name: str, args: dict) -> str:
     if name == "fetch_page":
         host = url.split("/")[2] if "//" in url else url
         return f"Fetching {host[:50]}…"
+    if name == "save_page":
+        fmt = str(args.get("format") or "markdown")
+        host = url.split("/")[2] if "//" in url else url
+        return f"Saving {host[:40]} as {fmt}…"
+    if name == "download_media":
+        host = url.split("/")[2] if "//" in url else url
+        return f"Downloading media from {host[:40]}…"
+    if name == "scrape_site":
+        host = url.split("/")[2] if "//" in url else url
+        return f"Crawling {host[:40]} and saving pages…"
+    if name == "schedule_scrape":
+        host = url.split("/")[2] if "//" in url else url
+        return f"Scheduling a crawl of {host[:40]}…"
+    if name == "cancel_scrape":
+        return "Canceling scheduled crawl…"
     return f"Working ({name})…"
+
+
+def _fmt(args: dict) -> str:
+    return {
+        "markdown": "text_markdown",
+        "html": "text",
+        "text": "text_plain",
+    }.get(str(args.get("format") or "markdown"), "text_markdown")
+
+
+def _storage():
+    credits = getattr(state, "credit_service", None)
+    return getattr(credits, "_storage", None) if credits else None
+
+
+async def _persist_schedule() -> None:
+    storage = _storage()
+    if storage:
+        await storage.set_scheduled_scrapes(json.dumps(state.scheduled_scrapes))
+
+
+def _schedule(url: str, interval_minutes: int) -> dict:
+    if not url.startswith(("http://", "https://")):
+        raise ValueError("url must be http(s)")
+    interval_minutes = max(15, min(int(interval_minutes or 60), 1440))
+    state.scheduled_scrapes = [
+        t for t in state.scheduled_scrapes if t.get("url") != url
+    ]
+    entry = {
+        "url": url,
+        "interval_minutes": interval_minutes,
+        "next_run": time.time() + interval_minutes * 60,
+        "last_run": None,
+        "pages_saved": 0,
+    }
+    state.scheduled_scrapes = [*state.scheduled_scrapes, entry]
+    return {"scheduled": entry, "note": "Runs while the app is open"}
+
+
+def _cancel_schedule(url: str) -> dict:
+    before = len(state.scheduled_scrapes)
+    state.scheduled_scrapes = [
+        t for t in state.scheduled_scrapes if t.get("url") != url
+    ]
+    return {"cancelled": url, "removed": before - len(state.scheduled_scrapes)}
 
 
 class ChatCancelled(Exception):
@@ -191,6 +308,40 @@ async def _dispatch(name: str, args: dict):
         if not res:
             raise RuntimeError(err or "fetch failed")
         return {"url": url, "content": str(res.get("content") or "")[:3000]}, []
+    if name == "save_page":
+        url = str(args.get("url") or "")
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("url must be http(s)")
+        fmt = _fmt(args)
+        path = await asyncio.wait_for(
+            agent_files.save_page(url, fmt=fmt), agent_files.FETCH_TIMEOUT * 2
+        )
+        return {"url": url, "saved_to": path}, []
+    if name == "download_media":
+        url = str(args.get("url") or "")
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("url must be http(s)")
+        path = await agent_files.download_media(
+            url, quality=str(args.get("quality") or "best")
+        )
+        return {"url": url, "saved_to": path}, []
+    if name == "scrape_site":
+        url = str(args.get("url") or "")
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("url must be http(s)")
+        report = await agent_files.scrape_site(
+            url, max_pages=int(args.get("max_pages") or 5), fmt=_fmt(args), svc=_svc()
+        )
+        return report, []
+    if name == "schedule_scrape":
+        return (
+            _schedule(
+                str(args.get("url") or ""), int(args.get("interval_minutes") or 60)
+            ),
+            [],
+        )
+    if name == "cancel_scrape":
+        return _cancel_schedule(str(args.get("url") or "")), []
     raise ValueError(f"unknown tool: {name}")
 
 
@@ -301,6 +452,8 @@ async def run_turn(
                                 if r.url and r.url not in seen_urls:
                                     seen_urls.append(r.url)
                     tools_used += 1
+                    if name in ("schedule_scrape", "cancel_scrape"):
+                        await _persist_schedule()
                     messages.append(
                         {
                             "role": "tool",
