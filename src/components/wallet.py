@@ -14,6 +14,7 @@ from core.constants import (
     AD_TOPUP_CREDITS,
     COST_STEP,
     DAILY_FREE_CREDITS,
+    credit_word,
 )
 from core.state import state
 from core.theme import AppColors
@@ -284,7 +285,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
             thickness=1,
             color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
         ),
-        _cost_row("Chat reply, search, or page fetch", str(COST_STEP)),
+        _cost_row("Chat reply, search, or page fetch", credit_word(COST_STEP)),
         ft.Divider(
             height=1,
             thickness=1,
