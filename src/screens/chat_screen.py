@@ -168,11 +168,43 @@ class ChatSession:
             tooltip="Send",
             on_click=lambda e: self._send_from_field(),
         )
-        self.stop_btn = ft.IconButton(
-            icon=ft.Icons.STOP_ROUNDED,
-            icon_color=AppColors.ERROR,
+        # A spinner around the stop glyph. Before this, a long first-token
+        # wait left a static red square and the only sign the app was alive
+        # was that square — the user could not tell "working" from "stuck".
+        # A progress ring turns the same button into both a status and a
+        # control, which is where they belong on a phone.
+        stop_glyph = ft.Container(
+            content=ft.Stack(
+                [
+                    ft.ProgressRing(
+                        width=22,
+                        height=22,
+                        stroke_width=3,
+                        color=AppColors.ERROR,
+                        bgcolor=ft.Colors.with_opacity(0.18, AppColors.ERROR),
+                    ),
+                    ft.Container(
+                        content=ft.Icon(
+                            ft.Icons.STOP_ROUNDED,
+                            size=11,
+                            color=AppColors.ERROR,
+                        ),
+                        width=22,
+                        height=22,
+                        alignment=ft.Alignment.CENTER,
+                    ),
+                ]
+            ),
+            width=44,
+            height=44,
+            alignment=ft.Alignment.CENTER,
+        )
+        self.stop_btn = ft.Container(
+            content=stop_glyph,
             tooltip="Stop",
             visible=False,
+            ink=True,
+            border_radius=ft.BorderRadius.all(22),
             on_click=lambda e: self.stop(),
         )
         self.field.on_submit = lambda e: self._send_from_field()
@@ -1571,7 +1603,12 @@ class ChatSession:
                     ft.Icons.CHECK_CIRCLE_ROUNDED, size=14, color=AppColors.SUCCESS
                 )
             label = row["label"]
-            if row["state"] == "done" and row.get("count"):
+            outcome = str(row.get("outcome") or "").strip()
+            if row["state"] == "done" and outcome:
+                # The consequence of a write tool: the saved filename, the
+                # page count, how many schedules were cancelled.
+                label = f"{label.removesuffix('…')}: {outcome}"
+            elif row["state"] == "done" and row.get("count"):
                 label = label.removesuffix("…")
                 label += f": {row['count']} results"
             if row["state"] == "error":

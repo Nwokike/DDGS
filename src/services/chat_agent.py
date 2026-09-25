@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from collections.abc import Callable
 from typing import Any
@@ -441,6 +442,38 @@ def approval_detail(name: str, args: dict) -> str:
     return " · ".join(parts)
 
 
+def tool_outcome(name: str, out: object) -> str:
+    """A short, human-readable consequence of a write tool.
+
+    Write tools return a report dict instead of a result list, so
+    `count = len(results)` was always 0 and the UI rendered a bare green
+    tick with no evidence anything happened — no file, no page count, no
+    path. The system prompt tells the model to report exact paths; this
+    puts the same fact in the step row where the user can see it without
+    reading the model's prose.
+    """
+    if not isinstance(out, dict):
+        return ""
+    if out.get("saved_to"):
+        return f"saved to {os.path.basename(str(out['saved_to']))}"
+    saved = out.get("saved")
+    if isinstance(saved, list):
+        text = f"{len(saved)} page{'' if len(saved) == 1 else 's'} saved"
+        failed = out.get("failed")
+        if isinstance(failed, list) and failed:
+            text += f", {len(failed)} failed"
+        return text
+    removed = out.get("removed")
+    if isinstance(removed, int):
+        if removed <= 0:
+            return "nothing to cancel"
+        return f"{removed} removed"
+    scheduled = out.get("scheduled")
+    if isinstance(scheduled, dict):
+        return f"every {scheduled.get('interval_minutes')} minutes"
+    return ""
+
+
 async def run_turn(
     user_text: str,
     history: list[dict],
@@ -475,7 +508,10 @@ async def run_turn(
         )
 
     messages: list[dict] = (
-        [{"role": "system", "content": SYSTEM_PROMPT}]
+        # The clock line matters here more than anywhere: the model's
+        # training data ends before today, so "this week" without a date
+        # was answered from its knowledge cutoff.
+        [{"role": "system", "content": ai_service.with_clock(SYSTEM_PROMPT)}]
         + history[-AGENT_HISTORY_MESSAGES:]
         + [{"role": "user", "content": user_text[:2000]}]
     )
@@ -603,6 +639,7 @@ async def run_turn(
                                 "label": label,
                                 "id": tc.get("id", ""),
                                 "count": len(results),
+                                "outcome": tool_outcome(name, model_out),
                             },
                         )
                         if results:

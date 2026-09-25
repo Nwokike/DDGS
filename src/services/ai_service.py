@@ -29,6 +29,7 @@ import re
 import threading
 import time
 from collections.abc import Callable
+from datetime import datetime
 
 import httpx
 
@@ -918,6 +919,34 @@ async def stream_chat(
 # ── Prompt builders + response parsing ────────────────────────────────────
 
 
+def _clock_line() -> str:
+    """What day it is, as a human would say it.
+
+    The model's training data ends well before today, so a prompt asking
+    what happened "this week" was answered from its knowledge cutoff and
+    confidently returned last year's news. LM Router solves this the same
+    way; one line at the top of the system prompt removes the whole class
+    of stale-date answers.
+    """
+    moment = datetime.now().astimezone()
+    offset = moment.strftime("%z")
+    if len(offset) == 5:  # +0100 -> +01:00
+        offset = f"{offset[:3]}:{offset[3:]}"
+    zone = moment.tzname() or "local"
+    return (
+        f"Current date and time: {moment.strftime('%Y-%m-%d %H:%M:%S')} "
+        f"({offset} {zone}, {moment.strftime('%A')}). "
+        "Treat 'today', 'this week' and 'recently' relative to THIS "
+        "timestamp, never your training data."
+    )
+
+
+def with_clock(system_prompt: str) -> str:
+    """Prepend the clock line to a system prompt."""
+    base = (system_prompt or "").strip()
+    return _clock_line() + "\n\n" + base
+
+
 def build_overview_messages(query: str, sources: list[dict]) -> list[dict]:
     """Passive answer-over-snippets prompt for the search-results overview."""
     numbered = "\n".join(
@@ -931,7 +960,7 @@ def build_overview_messages(query: str, sources: list[dict]) -> list[dict]:
         "RELATED: query one | query two | query three"
     )
     return [
-        {"role": "system", "content": system},
+        {"role": "system", "content": with_clock(system)},
         {"role": "user", "content": f"Sources:\n{numbered}\n\nQuestion: {query}"},
     ]
 
@@ -944,7 +973,7 @@ def build_summary_messages(title: str, content: str) -> list[dict]:
     )
     body = content[:8000]
     return [
-        {"role": "system", "content": system},
+        {"role": "system", "content": with_clock(system)},
         {"role": "user", "content": f"Title: {title}\n\n{body}"},
     ]
 

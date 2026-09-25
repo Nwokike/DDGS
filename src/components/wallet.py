@@ -72,11 +72,10 @@ def show_wallet_dialog(page: ft.Page) -> None:
     )
     cooldown_label = ft.Text("", size=tokens.FONT_XS, text_align=ft.TextAlign.CENTER)
 
-    topup_label = (
-        f"Watch Ad (+{AD_TOPUP_CREDITS} Credits)"
-        if is_mobile
-        else f"Simulate Ad (+{AD_TOPUP_CREDITS} Credits)"
-    )
+    # The simulated ad is a development affordance, not a product feature:
+    # it pretended to play an ad on desktop, where no ad will ever exist.
+    # Desktop users are pointed at Premium instead.
+    topup_label = f"Watch Ad (+{AD_TOPUP_CREDITS} Credits)"
     watch_btn = ft.FilledButton(
         content=ft.Row(
             [
@@ -99,6 +98,17 @@ def show_wallet_dialog(page: ft.Page) -> None:
     )
 
     dialog_open = True
+
+    def _open_premium(e=None):
+        """Desktop has no ads to watch: send the user to the Premium card."""
+        _close()
+        ctrl = getattr(page, "_ddgs_controller", None)
+        if ctrl is not None:
+            ctrl.navigate_tab(2)
+            try:
+                page.update()
+            except Exception:
+                pass
 
     def _close(e=None):
         nonlocal dialog_open
@@ -298,11 +308,25 @@ def show_wallet_dialog(page: ft.Page) -> None:
         ),
     ]
 
+    if is_mobile and not is_premium:
+        actions: list[ft.Control] = [cooldown_label, watch_btn]
+    elif not is_premium:
+        # Desktop: no ad to watch, so offer the thing that actually works.
+        actions = [
+            ft.TextButton(
+                "Go Premium, remove ads and get 200 a day",
+                icon=ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
+                icon_color=AppColors.PRIMARY,
+                on_click=lambda e: _open_premium(),
+            )
+        ]
+    else:
+        actions = []
+
     content = ft.Column(
         [
             *rows,
-            cooldown_label,
-            watch_btn,
+            *actions,
         ],
         spacing=tokens.SPACE_XS,
         tight=True,
@@ -317,7 +341,9 @@ def show_wallet_dialog(page: ft.Page) -> None:
         actions=[ft.TextButton("Close", on_click=_close)],
     )
     page.show_dialog(dlg)
-    if not is_premium:
+    # The cooldown loop only has anything to update when the ad button is
+    # actually on screen.
+    if not is_premium and is_mobile:
         page.run_task(_countdown)
 
 
