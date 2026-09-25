@@ -1,44 +1,52 @@
-"""Settings -> DDGS Premium -- PLAY BUILD VARIANT.
+"""Settings → DDGS Premium.
 
-The `main` branch version of this file also sells Premium through the Kiri
-License Worker (Flutterwave: card, bank transfer, USDC) for direct APKs,
-desktop and web. Google Play policy forbids an external-checkout prompt in
-a Play-distributed app, so this branch ships only Play Billing. The client
-for the other channel is a stub in `services/license_service.py`, so there
-is no endpoint and no recovery-ID flow in this build at all.
+Premium is one entitlement with two possible channels:
 
-The entitlement itself is unchanged: `state.is_premium` stays the single
-flag that ads and the credit cap read, resolved by
-`services/premium_service.py` from whichever channel is present.
+  - **Kiri License** (card, bank transfer, USDC via Flutterwave) for direct
+    builds, desktop and web. This is what a Windows user has, because Play
+    Billing does not exist there.
+  - **Google Play Billing** for the Play-distributed build.
+
+The Play branch of this repository replaces this whole file with a
+Play-only variant and ships a stub `license_service`, so an external
+checkout button is not merely hidden in a Play build, it is absent from it.
+See the module docstring in src/services/license_service.py.
+
+Prices always come from the Worker's live /catalog rather than constants, so
+changing a price there needs no app release.
 """
 
 from __future__ import annotations
 
 import flet as ft
 
+from components.results.downloader import launch_url
 from core.constants import DAILY_FREE_CREDITS, PREMIUM_DAILY_CREDITS
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import (
     BORDER_RADIUS_MD,
     FONT_MD,
+    FONT_SM,
     FONT_XS,
     ICON_MD,
     ICON_SM,
     SPACE_XS,
     SPACE_XXS,
 )
+from services import license_service, premium_service
 
 _OPACITY_BACKDROP = 0.08
 _OPACITY_DIM = 0.6
 _ICON_BACKDROP = 36
 _ICON_BACKDROP_RADIUS = 10
 
-PLAY_PLANS = (
-    ("premium_monthly", "$3.99 / month", "Billed every month by Google Play"),
-    ("premium_yearly", "$24.99 / year", "Two months free versus monthly"),
-    ("premium_lifetime", "$49.99", "Pay once, keep it"),
-)
+_STATUS_COPY = {
+    "active": ("Premium active", "Everything Premium includes is switched on"),
+    "grace": ("Payment overdue", "Finish your payment to keep Premium"),
+    "expired": ("Premium expired", "Renew to switch Premium back on"),
+    "revoked": ("Premium refunded", "A refund turned Premium off"),
+}
 
 
 def _divider() -> ft.Divider:
@@ -62,7 +70,10 @@ def _setting_row(icon, title, subtitle, trailing, stacked=False) -> ft.Container
     text_col = ft.Column(
         controls=[
             ft.Text(
-                title, size=FONT_MD, weight=ft.FontWeight.W_500, font_family="Outfit"
+                title,
+                size=FONT_MD,
+                weight=ft.FontWeight.W_500,
+                font_family="Outfit",
             ),
             ft.Text(
                 subtitle,
@@ -94,14 +105,46 @@ def _setting_row(icon, title, subtitle, trailing, stacked=False) -> ft.Container
     return ft.Container(content=content, padding=ft.Padding(0, SPACE_XS, 0, SPACE_XS))
 
 
+def _field(label: str, value: str, *, password: bool = False) -> ft.TextField:
+    return ft.TextField(
+        label=label,
+        value=value,
+        dense=True,
+        password=password,
+        can_reveal_password=password,
+        border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
+        content_padding=ft.Padding(12, 12, 12, 12),
+    )
+
+
 def build_premium_section(page: ft.Page) -> ft.Container:
-    """Play-only Premium card: Play Billing, or a note on desktop."""
+    """The Premium card. Channel choice is a build-time policy, not a toggle."""
     controller = getattr(page, "_ddgs_controller", None)
     billing = getattr(controller, "billing", None) if controller else None
     narrow = bool(page.width and page.width < 560)
-    play_ok = bool(billing) and page.platform == ft.PagePlatform.ANDROID
+    # The build channel is stamped into the artifact, not chosen at runtime.
+    from core.build_channel import CHANNEL
+
+    license_ok = license_service.is_available(page)
+    # Play Billing is only ever offered in a direct build, and only once the
+    # store actually lists our products. On the Play AAB this stays False
+    # because CHANNEL is "play", so no purchase row can appear.
+    play_ok = (
+        CHANNEL != "play"
+        and bool(billing)
+        and page.platform == ft.PagePlatform.ANDROID
+    )
+
+    email_field = _field("Email", "")
+    name_field = _field("Name (optional)", "")
+    phone_field = _field("Phone (optional)", "")
+    recovery_field = _field("Recovery ID", state.license_recovery_id)
+
+    rows: list[ft.Control] = []
 
     def _snack(message: str, level: str = "info") -> None:
+        from core.theme import AppTheme  # noqa: F401  (kept for future theming)
+
         snack = ft.SnackBar(
             ft.Text(message),
             bgcolor={
@@ -117,7 +160,117 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         except Exception:
             pass
 
-    async def _buy(product_id: str) -> None:
+    async def _save_contact() -> None:
+        if controller is None or controller.storage is None:
+            return
+        await controller.storage.set_license_record(
+            email=email_field.value or "",
+            name=name_field.value or "",
+            phone=phone_field.value or "",
+        )
+
+    async def _copy_recovery() -> None:
+        recovery_id = recovery_field.value or state.license_recovery_id
+        if not recovery_id:
+            _snack("There is no recovery ID to copy yet", "warning")
+            return
+        try:
+            clipboard = ft.Clipboard()
+            page.services.append(clipboard)
+            await clipboard.set_data(recovery_id)
+            _snack("Recovery ID copied. Keep it somewhere safe.", "success")
+        except Exception as exc:
+            _snack(f"Could not copy automatically: {exc}", "error")
+
+    async def _checkout(product_id: str) -> None:
+        email = (email_field.value or "").strip()
+        if not license_service.valid_email(email):
+            _snack("Enter a valid email address to continue", "warning")
+            return
+        await _save_contact()
+        try:
+            result = await license_service.start_checkout(
+                product_id,
+                email=email,
+                name=name_field.value or "",
+                phone=phone_field.value or "",
+            )
+        except license_service.LicenseUnavailable as exc:
+            _snack(str(exc), "error")
+            return
+        except license_service.LicenseError as exc:
+            _snack(f"Could not start the payment: {exc}", "error")
+            return
+        recovery_field.value = result["recovery_id"]
+        state.license_recovery_id = result["recovery_id"]
+        if controller is not None and controller.storage is not None:
+            await controller.storage.set_license_record(
+                recovery_id=result["recovery_id"]
+            )
+        url = result.get("checkout_url") or ""
+        if url:
+            await launch_url(url, page)
+        _snack(
+            "Finish the payment in your browser, then tap Check status.",
+            "success",
+        )
+
+    async def _restore() -> None:
+        recovery_id = (recovery_field.value or "").strip()
+        if not recovery_id:
+            _snack("Paste the recovery ID from your receipt first", "warning")
+            return
+        try:
+            entitlement = await premium_service.restore_license(recovery_id)
+        except license_service.LicenseUnavailable as exc:
+            _snack(str(exc), "error")
+            return
+        except license_service.LicenseError as exc:
+            _snack(f"Restore failed: {exc}", "error")
+            return
+        if entitlement.grants_access:
+            _snack("Premium restored. Thank you.", "success")
+            if controller is not None:
+                await controller._grant_premium_benefits()
+                await controller._sync_premium_storage()
+        else:
+            _snack(f"That licence is {entitlement.status}", "warning")
+
+    async def _check_status() -> None:
+        if not state.license_recovery_id:
+            _snack("Buy Premium first, then check the status", "warning")
+            return
+        await premium_service.refresh_from_server()
+        if controller is not None:
+            await controller._sync_premium_storage()
+        if state.license_status in ("active", "grace"):
+            _snack("Payment confirmed. Premium is on.", "success")
+        else:
+            _snack(f"Payment status: {state.license_status}", "warning")
+
+    async def _opt_in_direct(enabled: bool) -> None:
+        """Turn the direct channel on or off and remember the choice.
+
+        A direct APK user reaches this only after telling us Play payment
+        is not working for them, which is the build where it can fail for
+        reasons that are not ours.
+        """
+        license_service.set_available(page, enabled)
+        if controller is not None and controller.storage is not None:
+            try:
+                await license_service.save_opt_in(
+                    controller.storage, enabled
+                )
+            except Exception as exc:
+                _snack(f"Could not save that choice: {exc}", "error")
+        _snack(
+            "Direct checkout enabled. Pull in from the direct APK."
+            if enabled
+            else "Direct checkout turned off.",
+            "success",
+        )
+
+    async def _play_buy(product_id: str) -> None:
         if billing is None:
             return
         try:
@@ -133,15 +286,19 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         except Exception as exc:
             _snack(f"Billing error: {exc}", "error")
 
-    rows: list[ft.Control] = []
-
+    # ── Status ──────────────────────────────────────────────────────────
     if state.is_premium:
+        title, subtitle = _STATUS_COPY.get(
+            state.license_status if state.license_premium_active else "active",
+            ("Premium active", "Everything Premium includes is switched on"),
+        )
+        if state.license_status in ("grace",):
+            title, subtitle = _STATUS_COPY["grace"]
         rows.append(
             _setting_row(
                 ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                "Premium active",
-                "No ads, and your daily Assistant credits are raised to "
-                f"{PREMIUM_DAILY_CREDITS}",
+                title,
+                subtitle,
                 ft.Icon(
                     ft.Icons.CHECK_CIRCLE_ROUNDED,
                     size=ICON_MD,
@@ -149,6 +306,21 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 ),
             )
         )
+        if state.premium_source:
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.SOURCE_ROUNDED,
+                    "Granted by",
+                    "Credit cap is now "
+                    f"{PREMIUM_DAILY_CREDITS} a day and ads are switched off",
+                    ft.Text(
+                        state.premium_source.split(":", 1)[-1] or "DDGS",
+                        size=FONT_SM,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                )
+            )
     else:
         rows.append(
             _setting_row(
@@ -165,8 +337,131 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             )
         )
 
-    if play_ok:
-        for product_id, label, blurb in PLAY_PLANS:
+    # ── License channel (direct, desktop, web) ───────────────────────────
+    if license_ok:
+        rows.append(_divider())
+        rows.append(
+            _setting_row(
+                ft.Icons.CREDIT_CARD_ROUNDED,
+                "Your details",
+                "Used only for the receipt. Card and bank transfer are "
+                "handled by our payment partner, never by DDGS",
+                ft.Icon(
+                    ft.Icons.LOCK_OUTLINE_ROUNDED,
+                    size=ICON_SM,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+            )
+        )
+        rows.append(
+            ft.Container(
+                content=ft.Column(
+                    [email_field, name_field, phone_field],
+                    spacing=SPACE_XS,
+                    tight=True,
+                ),
+                padding=ft.Padding(_ICON_BACKDROP + 16, 0, 0, SPACE_XS),
+            )
+        )
+
+        rows.append(_divider())
+        rows.append(
+            _setting_row(
+                ft.Icons.SHOPPING_CART_ROUNDED,
+                "Choose a plan",
+                "One-time payment or a plan that renews until you cancel",
+                ft.Icon(
+                    ft.Icons.PAYMENTS_ROUNDED,
+                    size=ICON_SM,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+            )
+        )
+        for product_id, blurb in (
+            ("monthly", "Renews monthly, cancel any time"),
+            ("yearly", "Two months free versus monthly"),
+            ("lifetime", "Pay once, keep it"),
+        ):
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.LOCAL_OFFER_ROUNDED,
+                    product_id.capitalize(),
+                    blurb,
+                    ft.FilledButton(
+                        "Choose",
+                        on_click=lambda e, pid=product_id: page.run_task(
+                            _checkout, pid
+                        ),
+                        style=ft.ButtonStyle(
+                            bgcolor=AppColors.PRIMARY,
+                            color=ft.Colors.WHITE,
+                            shape=ft.RoundedRectangleBorder(
+                                radius=BORDER_RADIUS_MD
+                            ),
+                        ),
+                    ),
+                    stacked=narrow,
+                )
+            )
+
+        rows.append(_divider())
+        rows.append(
+            _setting_row(
+                ft.Icons.KEY_ROUNDED,
+                "Your recovery ID",
+                "Save this. It is the only way to restore Premium after "
+                "clearing app data or moving to another device",
+                ft.TextButton(
+                    "Copy",
+                    icon=ft.Icons.CONTENT_COPY_ROUNDED,
+                    on_click=lambda e: page.run_task(_copy_recovery),
+                ),
+                stacked=narrow,
+            )
+        )
+        rows.append(
+            ft.Container(
+                content=ft.Column(
+                    [recovery_field],
+                    spacing=SPACE_XS,
+                    tight=True,
+                ),
+                padding=ft.Padding(_ICON_BACKDROP + 16, 0, 0, SPACE_XS),
+            )
+        )
+        rows.append(_divider())
+        rows.append(
+            _setting_row(
+                ft.Icons.RESTORE_ROUNDED,
+                "Restore or check status",
+                "Paste your recovery ID to restore, or confirm a payment you "
+                "just made",
+                ft.Row(
+                    [
+                        ft.TextButton(
+                            "Restore",
+                            on_click=lambda e: page.run_task(_restore),
+                        ),
+                        ft.TextButton(
+                            "Check status",
+                            on_click=lambda e: page.run_task(_check_status),
+                        ),
+                    ],
+                    spacing=4,
+                    tight=True,
+                ),
+                stacked=narrow,
+            )
+        )
+
+    # ── Play channel (Play-distributed builds only) ─────────────────────
+    if play_ok and not license_ok:
+        for product_id, label, blurb in (
+            ("premium_monthly", "$3.99 / month", "Billed every month by Google Play"),
+            ("premium_yearly", "$24.99 / year", "Two months free versus monthly"),
+            ("premium_lifetime", "$49.99", "Pay once, keep it"),
+        ):
             rows.append(_divider())
             rows.append(
                 _setting_row(
@@ -175,7 +470,9 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                     blurb,
                     ft.FilledButton(
                         "Subscribe" if "month" in product_id else "Buy",
-                        on_click=lambda e, pid=product_id: page.run_task(_buy, pid),
+                        on_click=lambda e, pid=product_id: page.run_task(
+                            _play_buy, pid
+                        ),
                         style=ft.ButtonStyle(
                             bgcolor=AppColors.PRIMARY,
                             color=ft.Colors.WHITE,
@@ -194,26 +491,61 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 ft.TextButton(
                     "Restore",
                     on_click=lambda e: page.run_task(
-                        controller.verify_purchases if controller else (lambda: None)
+                        controller.verify_purchases
+                        if controller
+                        else (lambda: None)
                     ),
                 ),
                 stacked=narrow,
             )
         )
-    else:
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.PHONE_ANDROID_ROUNDED,
-                "Premium on Android",
-                "Premium is sold through Google Play in this build",
-                ft.Text(
-                    "Android only",
-                    size=FONT_XS,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
+
+    # ── No purchase channel in this build ───────────────────────────────
+    if not license_ok and not play_ok:
+        # The Play AAB lands here. Say where Premium IS available, so the
+        # card is an honest explanation rather than a dead end, and offer
+        # no purchase control of any kind.
+        from core.build_channel import CHANNEL
+
+        if CHANNEL == "play":
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.OPEN_IN_NEW_ROUNDED,
+                    "Premium is not sold in this build",
+                    "This is the Google Play version, which is free with ads. "
+                    "Premium is sold on the direct APK, on desktop and on "
+                    "the web",
+                    ft.Text(
+                        "Free tier",
+                        size=FONT_XS,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                )
             )
-        )
+        else:
+            # A direct Android APK that has not opted in yet.
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.PAYMENTS_ROUNDED,
+                    "Google Play payment not working?",
+                    "Buy Premium here with a card, bank transfer or USDC "
+                    "instead of through Google Play",
+                    ft.OutlinedButton(
+                        "Enable",
+                        on_click=lambda e: page.run_task(_opt_in_direct, True),
+                        style=ft.ButtonStyle(
+                            color=AppColors.PRIMARY,
+                            side=ft.BorderSide(1, AppColors.PRIMARY),
+                            shape=ft.RoundedRectangleBorder(
+                                radius=BORDER_RADIUS_MD
+                            ),
+                        ),
+                    ),
+                    stacked=narrow,
+                )
+            )
 
     return AppStyles.section_card(
         "DDGS Premium",

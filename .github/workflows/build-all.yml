@@ -90,6 +90,22 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_BASE64" | base64 --decode > kiri_keystore.jks
+      - name: Stamp the Play channel (free-only build)
+        # The AAB uploaded to Google Play carries CHANNEL = "play": it sells
+        # nothing, shows no premium purchase UI, and makes no request to the
+        # licence Worker. Selling in-app digital goods there needs a Google
+        # Payments merchant profile, which no account available to us has yet.
+        # The direct APK, desktop and web builds keep CHANNEL = "direct" and
+        # offer Flutterwave. One line, decided before the build, so the
+        # policy is baked into the artifact rather than decided at runtime.
+        run: |
+          python - <<'PYEOF'
+          from pathlib import Path
+          p = Path("src/core/build_channel.py")
+          p.write_text(p.read_text(encoding="utf-8").replace(
+              'CHANNEL = "direct"', 'CHANNEL = "play"'), encoding="utf-8")
+          print(p.read_text(encoding="utf-8"))
+          PYEOF
       - name: Build AAB (Play Store)
         env:
           PIP_FIND_LINKS: ${{ github.workspace }}/wheels

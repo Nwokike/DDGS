@@ -124,14 +124,14 @@ async def load_from_storage(storage) -> None:
     logger.info("offline license status: %s", entitlement.status)
 
 
-async def refresh_from_server() -> None:
+async def refresh_from_server(page=None) -> None:
     """Ask the Worker for the authoritative answer, when we can.
 
     Any failure here is swallowed on purpose: an unreachable service must
     not cost the user their Premium, because the local token already
     covers them until it expires.
     """
-    if not license_service.is_available():
+    if not license_service.is_available(page):
         return
     recovery_id = getattr(state, "license_recovery_id", "")
     if not recovery_id:
