@@ -9,6 +9,7 @@ from __future__ import annotations
 import flet as ft
 
 from core.constants import (
+    COST_STEP,
     DAILY_FREE_CREDITS,
     PREMIUM_DAILY_CREDITS,
 )
@@ -180,14 +181,17 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
     rows.append(_divider())
 
     # ── Cost table ──────────────────────────────────────────────────────
+    # Generated from COST_STEP, never typed by hand. A literal "1 credit"
+    # here while the agent charges COST_STEP is how a paying user ends up
+    # silently overcharged.
     rows.append(
         _setting_row(
             ft.Icons.PRICE_CHECK_ROUNDED,
             "What credits are for",
-            "A chat reply, a search, or a page fetch costs 1 credit. "
-            "Search overviews and page summaries are free",
+            f"A chat reply, a search, or a page fetch costs {COST_STEP} "
+            "credits. Search overviews and page summaries are free",
             ft.Text(
-                "1 / step",
+                f"{COST_STEP} / step",
                 size=FONT_SM,
                 color=ft.Colors.ON_SURFACE_VARIANT,
             ),

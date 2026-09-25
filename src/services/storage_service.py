@@ -13,6 +13,7 @@ from typing import Any
 import flet as ft
 
 from core.constants import (
+    STORAGE_ACTIVE_CONVERSATION,
     STORAGE_AI_MODE,
     STORAGE_AI_MODEL,
     STORAGE_ASSISTANT_HISTORY,
@@ -400,6 +401,13 @@ class StorageService:
 
     async def set_assistant_history(self, v: str) -> bool:
         return await self.set(STORAGE_ASSISTANT_HISTORY, v or "[]")
+
+    async def get_active_conversation(self) -> str:
+        """Which chat was open last, so the app returns to it."""
+        return str(await self.get(STORAGE_ACTIVE_CONVERSATION, "") or "")
+
+    async def set_active_conversation(self, v: str) -> bool:
+        return await self.set(STORAGE_ACTIVE_CONVERSATION, str(v or ""))
 
     async def get_ai_model(self) -> str:
         return str(await self.get(STORAGE_AI_MODEL, "auto") or "auto")

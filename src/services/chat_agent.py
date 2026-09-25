@@ -561,7 +561,24 @@ async def run_turn(
         if cancel.is_set():
             raise ChatCancelled()
         if not final_text.strip():
-            raise ai_service.AIUnavailable("empty model response")
+            # The model was called and said nothing. Charging a user for an
+            # empty bubble is the kind of thing that makes a paywall feel
+            # dishonest, so an answer-less turn is not settled: settle 0,
+            # which rolls the whole hold back.
+            await settle_turn(credits, tx, 0)
+            logger.info(
+                "chat turn produced no answer after %d step(s); not charged", steps
+            )
+            emit(
+                "error",
+                {
+                    "kind": "empty",
+                    "model": used_model,
+                    "steps": 0,
+                    "cost": 0,
+                },
+            )
+            return
         clean, related = ai_service.parse_related(final_text)
         emit(
             "text_final",
@@ -596,6 +613,22 @@ async def run_turn(
                 "cost": steps * COST_STEP,
             },
         )
+    except ai_service.AIRateLimited as exc:
+        # Capped, not broken. Carry the model's own words and a concrete
+        # alternative so the UI can offer one tap instead of shrugging.
+        await settle_turn(credits, tx, steps)
+        logger.info("chat turn rate limited: %s", exc)
+        emit(
+            "error",
+            {
+                "kind": "rate_limited",
+                "message": exc.message,
+                "suggestion": exc.suggestion,
+                "partial": "".join(content_parts),
+                "steps": steps,
+                "cost": steps * COST_STEP,
+            },
+        )
     except ai_service.AIUnavailable as exc:
         await settle_turn(credits, tx, steps)
         logger.info("chat turn unavailable: %s", exc)
@@ -608,6 +641,22 @@ async def run_turn(
                 "cost": steps * COST_STEP,
             },
         )
+    except asyncio.CancelledError:
+        # Hard cancel (the Stop button). CancelledError is a BaseException,
+        # so it escapes `except Exception` entirely and would leave the
+        # reservation un-settled until the 240s auto-rollback fired. Settle
+        # what was actually delivered, then let the cancellation through.
+        await settle_turn(credits, tx, steps)
+        logger.info("chat turn cancelled after %d step(s)", steps)
+        emit(
+            "stopped",
+            {
+                "partial": "".join(content_parts),
+                "steps": steps,
+                "cost": steps * COST_STEP,
+            },
+        )
+        raise
     except Exception:
         await settle_turn(credits, tx, steps)
         logger.exception("chat turn failed")
