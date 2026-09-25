@@ -530,3 +530,204 @@ def test_stop_button_is_a_spinner_not_a_bare_icon():
     rings: list = []
     walk(session.stop_btn.content, rings)
     assert rings, "the stop button must contain a progress ring"
+
+
+# ── the model must be able to show a picture, not just describe it ───────
+def _fake_image_service(monkeypatch, results):
+    from core.state import SearchResult
+    from services import chat_agent
+
+    class Progress:
+        error = None
+
+    class Svc:
+        async def search(self, kind, query, ui=False):
+            return Progress()
+
+    Progress.results = [
+        SearchResult(
+            title="Sunset over the lagoon",
+            url="https://example.com/page",
+            snippet="a long page snippet that would crowd out the picture",
+            search_type="images",
+            thumbnail="https://cdn.example.com/thumb.jpg",
+            image_url="https://cdn.example.com/full.jpg",
+        )
+        if results
+        else None
+    ]
+    monkeypatch.setattr(chat_agent, "_svc", lambda: Svc())
+    return chat_agent
+
+
+def test_image_results_hand_the_model_a_direct_file(monkeypatch):
+    """The result `url` is the hosting page — useless for embedding."""
+    chat_agent = _fake_image_service(monkeypatch, True)
+    out, results = asyncio.run(
+        chat_agent._dispatch("search_images", {"query": "sunset", "count": 4})
+    )
+    assert results, "the UI cards still need the SearchResult list"
+    assert out[0]["image_url"] == "https://cdn.example.com/full.jpg"
+    assert out[0]["url"] == "https://example.com/page", "keep the source too"
+    assert len(out[0]["snippet"]) <= 80, "snippets must not crowd out the image"
+
+
+def test_image_tool_output_fits_the_tool_cap(monkeypatch):
+    """A truncated JSON blob is worse than a short one the model can read."""
+    from core.constants import TOOL_OUTPUT_CAP
+    from services import chat_agent
+
+    class Progress:
+        error = None
+
+    class Svc:
+        async def search(self, kind, query, ui=False):
+            return Progress()
+
+    from core.state import SearchResult
+
+    Progress.results = [
+        SearchResult(
+            title=f"Image {i} " + "x" * 80,
+            url=f"https://example.com/{i}",
+            snippet="s",
+            search_type="images",
+            image_url=f"https://cdn.example.com/{i}.jpg",
+        )
+        for i in range(8)
+    ]
+    monkeypatch.setattr(chat_agent, "_svc", lambda: Svc())
+    out, _ = asyncio.run(
+        chat_agent._dispatch("search_images", {"query": "sunset", "count": 8})
+    )
+    import json
+
+    blob = json.dumps(out, ensure_ascii=False)
+    assert len(blob) <= TOOL_OUTPUT_CAP, f"{len(blob)} chars would be cut off"
+    assert all("image_url" in item for item in out)
+
+
+def test_the_prompt_tells_the_model_to_embed_the_image():
+    from services import chat_agent
+
+    assert "![short description](image_url)" in chat_agent.SYSTEM_PROMPT
+    tools = {t["function"]["name"]: t for t in chat_agent.build_tools()}
+    assert "image_url" in tools["search_images"]["function"]["description"]
+
+
+# ── chat history is a modal, in the credits-dialog style ─────────────────
+def _open_history(tmp_path, monkeypatch, titles=()):
+    """Point storage at a scratch dir, build a session, open the history."""
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path))
+    monkeypatch.setenv("FLET_APP_STORAGE_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("FLET_APP_STORAGE_TEMP", str(tmp_path / "temp"))
+    conv_dir = tmp_path / "conversations"
+    conv_dir.mkdir(parents=True, exist_ok=True)
+    import json
+
+    for i, title in enumerate(titles):
+        (conv_dir / f"conv{i}.json").write_text(
+            json.dumps(
+                {
+                    "id": f"conv{i}",
+                    "title": title,
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "updated": 1700000000.0 + i,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    ChatSession, Page = _session_stub()
+    page = Page()
+    session = ChatSession(page)
+    if titles:
+        # Mark the first saved chat as the one on screen so the active
+        # marker has something to point at.
+        from core.state import state
+
+        state.active_conversation = "conv0"
+    page.dialogs.clear()
+    session._open_history_dialog()
+    assert page.dialogs, "the history must open"
+    return session, page, page.dialogs[-1]
+
+
+def _walk(control, found):
+    if control is None or isinstance(control, (str, int, float, bool)):
+        return
+    found.append(control)
+    for child in list(getattr(control, "controls", None) or []):
+        _walk(child, found)
+    for attr in ("content", "title", "actions"):
+        kid = getattr(control, attr, None)
+        if isinstance(kid, list):
+            for item in kid:
+                _walk(item, found)
+        else:
+            _walk(kid, found)
+
+
+def _action_labels(dlg) -> list[str]:
+    out = []
+    for action in dlg.actions or []:
+        label = getattr(action, "content", None)
+        out.append(label if isinstance(label, str) else str(label))
+    return out
+
+
+def test_history_opens_as_a_modal_like_the_credit_dialog(tmp_path, monkeypatch):
+    _, _, dlg = _open_history(tmp_path, monkeypatch, ["First chat"])
+    assert isinstance(dlg, ft.AlertDialog)
+    assert not isinstance(dlg, ft.BottomSheet), "the sheet is what was disliked"
+    assert dlg.title.value == "Chat history"
+    labels = _action_labels(dlg)
+    assert "Close" in labels
+    assert "Delete all chats" in labels, "destructive work lives in actions"
+    # A bounded list: 50 chats must not run off a phone screen.
+    assert dlg.content.height, "the list needs a bounded height"
+
+
+def test_history_rows_are_not_filled_dark_slabs(tmp_path, monkeypatch):
+    """The old list tinted the active row with a full-width colour block."""
+    _, _, dlg = _open_history(tmp_path, monkeypatch, ["Alpha", "Beta"])
+    found: list = []
+    _walk(dlg.content, found)
+    slabs = [
+        c
+        for c in found
+        if isinstance(c, ft.Container)
+        and getattr(c, "bgcolor", None)
+        and getattr(c, "width", None) is None
+    ]
+    assert not slabs, f"{len(slabs)} full-width tinted row(s) remain"
+    assert not any(isinstance(c, ft.ListTile) for c in found), (
+        "the ListTile stack is the dark list the user rejected"
+    )
+
+
+def test_history_marks_the_open_chat_and_reads_disk_every_time(
+    tmp_path, monkeypatch
+):
+    from services import conversation_service as conversations
+
+    session, page, dlg = _open_history(
+        tmp_path, monkeypatch, ["Alpha chat", "Beta chat"]
+    )
+    found: list = []
+    _walk(dlg.content, found)
+    checks = [
+        c
+        for c in found
+        if isinstance(c, ft.Icon)
+        and getattr(c, "icon", None) == ft.Icons.CHECK_CIRCLE_ROUNDED
+    ]
+    assert checks, "the open chat must be visible in the list"
+
+    # Reopening must re-read the folder, or a deleted chat lingers.
+    page.dialogs.clear()
+    session._open_history_dialog()
+    assert len(page.dialogs) == 1
+    titles = conversations.list_conversations()
+    assert len(titles) >= 2
+    assert {t["title"] for t in titles} >= {"Alpha chat", "Beta chat"}

@@ -775,12 +775,12 @@ class ChatSession:
             self._snack("All chats deleted")
 
     def _history_button_control(self) -> ft.IconButton:
-        """The hamburger. It opens a sheet rebuilt from disk every time.
+        """The hamburger. It opens a modal rebuilt from disk every time.
 
         A popup menu froze its items when the session was created, so a
-        deleted chat kept showing until the whole screen refreshed. A sheet
-        is also the right surface: 50 chats do not fit a dropdown, and a
-        truncated list means the older files you can still open are
+        deleted chat kept showing until the whole screen refreshed. A
+        modal is also the right surface: 50 chats do not fit a dropdown,
+        and a truncated list means the older files you can still open are
         invisible.
         """
         return ft.IconButton(
@@ -788,14 +788,90 @@ class ChatSession:
             icon_size=18,
             icon_color=AppColors.PRIMARY,
             tooltip="Chat history",
-            on_click=lambda e: self._open_history_sheet(),
+            on_click=lambda e: self._open_history_dialog(),
         )
 
-    def _open_history_sheet(self) -> None:
-        """Build and show the chat list, newest first, all of them."""
+    @staticmethod
+    def _history_row(
+        icon: ft.IconData,
+        title: str,
+        subtitle: str,
+        trailing: ft.Control | None,
+        *,
+        accent: bool = False,
+        on_click=None,
+    ) -> ft.Container:
+        """One line of the history modal, in the credits-dialog row style.
+
+        The old sheet tinted the active row with a filled block, which is
+        what made the list read as a stack of dark slabs. The active chat
+        is marked by colour and weight instead.
+        """
+        icon_box = ft.Container(
+            content=ft.Icon(
+                icon,
+                size=tokens.ICON_MD,
+                color=(
+                    ft.Colors.PRIMARY
+                    if accent
+                    else ft.Colors.ON_SURFACE_VARIANT
+                ),
+            ),
+            width=36,
+            height=36,
+            border_radius=10,
+            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
+            alignment=ft.Alignment.CENTER,
+        )
+        kids: list[ft.Control] = [
+            icon_box,
+            ft.Column(
+                [
+                    ft.Text(
+                        title,
+                        size=tokens.FONT_MD,
+                        weight=ft.FontWeight.W_600 if accent else ft.FontWeight.W_500,
+                        font_family="Outfit",
+                        color=ft.Colors.PRIMARY if accent else None,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                    ft.Text(
+                        subtitle,
+                        size=tokens.FONT_XS,
+                        color=ft.Colors.with_opacity(0.6, ft.Colors.ON_SURFACE),
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                ],
+                spacing=2,
+                expand=True,
+            ),
+        ]
+        if trailing is not None:
+            kids.append(trailing)
+        return ft.Container(
+            content=ft.Row(
+                kids,
+                spacing=tokens.SPACE_MD,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.Padding(0, tokens.SPACE_XS, 0, tokens.SPACE_XS),
+            on_click=on_click,
+            ink=on_click is not None,
+            border_radius=tokens.RADIUS_MD,
+        )
+
+    def _open_history_dialog(self) -> None:
+        """Build and show the chat list as a modal, newest first, all of them.
+
+        Rebuilt from disk on every open, and shaped like the credits
+        dialog so the app's modals look like one family.
+        """
         from services import conversation_service as conversations
 
         rows = conversations.list_conversations()
+        page_height = getattr(self.page, "height", None) or 700
 
         def _close(e=None):
             try:
@@ -821,34 +897,34 @@ class ChatSession:
 
             return _handler
 
-        tiles: list[ft.Control] = [
-            ft.ListTile(
-                leading=ft.Icon(
-                    ft.Icons.ADD_ROUNDED, color=ft.Colors.PRIMARY, size=tokens.ICON_MD
-                ),
-                title=ft.Text(
-                    "New chat",
-                    weight=ft.FontWeight.W_500,
-                    font_family="Outfit",
-                ),
-                subtitle=ft.Text(
-                    "Start a fresh conversation", size=tokens.FONT_XS
+        items: list[ft.Control] = [
+            self._history_row(
+                ft.Icons.ADD_ROUNDED,
+                "New chat",
+                "Start a fresh conversation",
+                ft.Icon(
+                    ft.Icons.CHEVRON_RIGHT_ROUNDED,
+                    size=tokens.ICON_SM,
+                    color=ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE_VARIANT),
                 ),
                 on_click=_new_chat,
-            )
+            ),
+            ft.Divider(
+                height=1,
+                thickness=1,
+                color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
+            ),
         ]
 
         if not rows:
-            tiles.append(
+            items.append(
                 ft.Container(
                     content=ft.Text(
                         "No saved chats yet.",
                         size=tokens.FONT_SM,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
-                    padding=ft.Padding(
-                        tokens.SPACE_LG, tokens.SPACE_MD, tokens.SPACE_LG, tokens.SPACE_MD
-                    ),
+                    padding=ft.Padding(4, tokens.SPACE_MD, 4, tokens.SPACE_MD),
                 )
             )
 
@@ -856,85 +932,64 @@ class ChatSession:
             conversation_id = str(row.get("id") or "")
             is_active = conversation_id == self.conversation_id
             title = str(row.get("title") or "New chat")
-            tiles.append(
-                ft.ListTile(
-                    leading=ft.Icon(
-                        ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                        size=tokens.ICON_MD,
-                        color=ft.Colors.PRIMARY if is_active else None,
+            items.append(
+                self._history_row(
+                    ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+                    title,
+                    conversations.summarize(row),
+                    ft.Row(
+                        [
+                            ft.Icon(
+                                ft.Icons.CHECK_CIRCLE_ROUNDED,
+                                size=tokens.ICON_SM,
+                                color=ft.Colors.PRIMARY,
+                            )
+                            if is_active
+                            else ft.IconButton(
+                                icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                                icon_size=tokens.ICON_SM,
+                                icon_color=AppColors.ERROR,
+                                tooltip="Delete this chat",
+                                on_click=_delete_chat(conversation_id),
+                            )
+                        ],
+                        spacing=0,
+                        tight=True,
                     ),
-                    title=ft.Text(
-                        title,
-                        weight=ft.FontWeight.W_600 if is_active else None,
-                        font_family="Outfit",
-                        max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
-                    subtitle=ft.Text(
-                        conversations.summarize(row),
-                        size=tokens.FONT_XS,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                    ),
-                    bgcolor=(
-                        ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY)
-                        if is_active
-                        else None
-                    ),
+                    accent=is_active,
                     on_click=_open_chat(conversation_id),
-                    trailing=ft.IconButton(
-                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
-                        icon_size=tokens.ICON_SM,
-                        icon_color=AppColors.ERROR,
-                        tooltip="Delete this chat",
-                        on_click=_delete_chat(conversation_id),
-                    ),
                 )
             )
 
-        tiles.append(
-            ft.Divider(height=1, color=ft.Colors.with_opacity(0.2, ft.Colors.OUTLINE))
-        )
-        tiles.append(
-            ft.ListTile(
-                leading=ft.Icon(
-                    ft.Icons.DELETE_SWEEP_OUTLINED,
-                    color=AppColors.ERROR,
-                    size=tokens.ICON_MD,
-                ),
-                title=ft.Text(
-                    "Delete all chats",
-                    color=AppColors.ERROR,
-                    font_family="Outfit",
-                ),
-                on_click=lambda e: (_close(), self._confirm_delete_all()),
-            )
-        )
-
-        # Scrollable with a bounded height: 50 tiles must not push the
-        # sheet off the screen on a phone.
+        # Scrollable with a bounded height: 50 rows must not push the
+        # modal off the screen on a phone.
         self.page.show_dialog(
-            ft.BottomSheet(
+            ft.AlertDialog(
+                title=ft.Text("Chat history", font_family="Outfit"),
                 content=ft.Container(
                     content=ft.Column(
-                        controls=tiles,
+                        controls=items,
                         spacing=0,
                         tight=True,
                         scroll=ft.ScrollMode.AUTO,
                     ),
-                    padding=ft.Padding(
-                        tokens.SPACE_SM,
-                        tokens.SPACE_MD,
-                        tokens.SPACE_SM,
-                        tokens.SPACE_MD,
-                    ),
-                    height=min(
-                        len(tiles) * 72 + 40,
-                        (getattr(self.page, "height", None) or 700) * 0.7,
-                    ),
+                    width=400,
+                    height=min(len(items) * 64 + 16, page_height * 0.6),
+                    padding=ft.Padding(4, 4, 4, 4),
                 ),
-                show_drag_handle=True,
+                actions=[
+                    ft.TextButton(
+                        "Delete all chats",
+                        icon=ft.Icons.DELETE_SWEEP_OUTLINED,
+                        icon_color=AppColors.ERROR,
+                        style=ft.ButtonStyle(color=AppColors.ERROR),
+                        on_click=lambda e: (_close(), self._confirm_delete_all()),
+                    ),
+                    ft.TextButton("Close", on_click=_close),
+                ],
             )
         )
+
     def _on_delete_button(self, e, conversation_id: str) -> None:
         """Delete from a menu row without also opening that row's chat.
 

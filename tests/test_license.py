@@ -433,6 +433,10 @@ def test_direct_build_offers_the_purchase_flow(monkeypatch):
     blob: list[str] = []
 
     def walk(control):
+        if isinstance(control, str):
+            # Flet 1.0 stores a button's label as `content`, a plain str.
+            blob.append(control)
+            return
         if isinstance(control, ft.Text) and control.value:
             blob.append(str(control.value))
         for child in getattr(control, "controls", None) or []:
@@ -444,8 +448,39 @@ def test_direct_build_offers_the_purchase_flow(monkeypatch):
 
     walk(card)
     rendered = " ".join(blob)
-    assert "recovery ID" in rendered, "a direct build needs the recovery flow"
+    # The recovery flow is the Restore row: KTV Player's design keeps the
+    # ID itself off the card until there is one to show.
+    assert "Restore purchases" in rendered, "a direct build needs the recovery flow"
     assert "Choose" in rendered, "a direct build must offer plans to buy"
+    assert "recovery ID" not in rendered, "an empty ID field is not a menu item"
+
+    # With an ID on file the card shows it, so the owner can copy it.
+    state.license_recovery_id = "KIRI-L-TEST-123"
+    try:
+        card2 = build_premium_section(Page())
+        blob2: list[str] = []
+        blob2.extend(blob)
+        blob2.clear()
+
+        def walk2(control):
+            if isinstance(control, str):
+                blob2.append(control)
+                return
+            if isinstance(control, ft.Text) and control.value:
+                blob2.append(str(control.value))
+            for child in getattr(control, "controls", None) or []:
+                walk2(child)
+            for attr in ("content", "leading", "trailing", "title", "icon"):
+                child = getattr(control, attr, None)
+                if child is not None and hasattr(child, "__class__"):
+                    walk2(child)
+
+        walk2(card2)
+        with_id = " ".join(blob2)
+        assert "Your recovery ID" in with_id
+        assert "KIRI-L-TEST-123" in with_id
+    finally:
+        state.license_recovery_id = ""
 
 
 def test_a_play_aab_is_stamped_free_only():
