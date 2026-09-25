@@ -240,6 +240,10 @@ def test_premium_plan_shows_a_price_or_a_neutral_label(monkeypatch):
     blob: list[str] = []
 
     def walk(control):
+        if isinstance(control, str):
+            # Flet 1.0 stores a button's label as `content`, a plain str.
+            blob.append(control)
+            return
         if isinstance(control, ft.Text) and control.value:
             blob.append(str(control.value))
         for child in getattr(control, "controls", None) or []:
@@ -259,6 +263,9 @@ def test_premium_plan_shows_a_price_or_a_neutral_label(monkeypatch):
     blob2.clear()
 
     def walk2(control):
+        if isinstance(control, str):
+            blob2.append(control)
+            return
         if isinstance(control, ft.Text) and control.value:
             blob2.append(str(control.value))
         for child in getattr(control, "controls", None) or []:

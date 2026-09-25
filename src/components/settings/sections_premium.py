@@ -14,6 +14,11 @@ See the module docstring in src/services/license_service.py.
 
 Prices always come from the Worker's live /catalog rather than constants, so
 changing a price there needs no app release.
+
+Shape: KTV Player's. The card is four rows — what Premium is, what a plan
+costs, your recovery ID, restore — and the typing happens in a dialog that
+only exists once you ask for it. A settings card that lists every field it
+will ever need is a form, not a menu.
 """
 
 from __future__ import annotations
@@ -51,6 +56,17 @@ _STATUS_COPY = {
     "expired": ("Premium expired", "Renew to switch Premium back on"),
     "revoked": ("Premium refunded", "A refund turned Premium off"),
 }
+
+# The plans, in the order a buyer compares them. The price next to each is
+# read from state.license_prices, never written here.
+_PLANS = (
+    ("monthly", "Renews monthly, cancel any time"),
+    ("yearly", "Two months free versus monthly"),
+    ("lifetime", "Pay once, keep it"),
+)
+
+# One catalog fetch per launch, not one per repaint of this card.
+_prices_attempted = False
 
 
 def _divider() -> ft.Divider:
@@ -109,16 +125,56 @@ def _setting_row(icon, title, subtitle, trailing, stacked=False) -> ft.Container
     return ft.Container(content=content, padding=ft.Padding(0, SPACE_XS, 0, SPACE_XS))
 
 
-def _field(label: str, value: str, *, password: bool = False) -> ft.TextField:
+def _field(label: str, value: str = "") -> ft.TextField:
     return ft.TextField(
         label=label,
         value=value,
         dense=True,
-        password=password,
-        can_reveal_password=password,
         border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
         content_padding=ft.Padding(12, 12, 12, 12),
     )
+
+
+def _buy_button(label: str, on_click) -> ft.FilledButton:
+    return ft.FilledButton(
+        label,
+        on_click=on_click,
+        style=ft.ButtonStyle(
+            bgcolor=AppColors.PRIMARY,
+            color=ft.Colors.WHITE,
+            shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
+        ),
+    )
+
+
+def _retry_prices(page: ft.Page, premium) -> None:
+    """Fetch the catalog once if startup could not reach the Worker.
+
+    Without this a single failed launch leaves the card with no prices
+    until the next restart, which reads as "you cannot buy this".
+    """
+    global _prices_attempted
+    if _prices_attempted or state.license_prices:
+        return
+    _prices_attempted = True
+
+    async def _load() -> None:
+        global _prices_attempted
+        try:
+            products = await premium.kiri_catalog(force=True)
+        except Exception:
+            _prices_attempted = False  # let a later build try again
+            return
+        prices = {
+            p.id: p.price_label for p in products if p.id and p.amount
+        }
+        if prices:
+            state.license_prices = prices
+
+    try:
+        page.run_task(_load)
+    except Exception:
+        pass
 
 
 def build_premium_section(page: ft.Page) -> ft.Container:
@@ -142,11 +198,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         and page.platform == ft.PagePlatform.ANDROID
     )
 
-    email_field = _field("Email", "")
-    name_field = _field("Name (optional)", "")
-    phone_field = _field("Phone (optional)", "")
-    recovery_field = _field("Recovery ID", state.license_recovery_id)
-
     rows: list[ft.Control] = []
 
     def _snack(message: str, level: str = "info") -> None:
@@ -168,7 +219,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             pass
 
     async def _copy_recovery() -> None:
-        recovery_id = recovery_field.value or state.license_recovery_id
+        recovery_id = state.license_recovery_id
         if not recovery_id:
             _snack("There is no recovery ID to copy yet", "warning")
             return
@@ -180,11 +231,72 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         except Exception as exc:
             _snack(f"Could not copy automatically: {exc}", "error")
 
-    async def _checkout(product_id: str) -> None:
+    def _ask_email(product_id: str) -> None:
+        """The form appears when you ask to buy, not before.
+
+        KTV Player collects exactly one required field — the email the
+        receipt goes to — and this card does the same, with name and phone
+        behind it because the Worker takes them but nobody is forced to
+        type them.
+        """
+        email_field = _field("Email for your receipt")
+        email_field.hint_text = "you@example.com"
+        email_field.keyboard_type = ft.KeyboardType.EMAIL
+        name_field = _field("Name (optional)")
+        phone_field = _field("Phone (optional)")
+        price = state.license_prices.get(product_id, "")
+        label = f"{product_id.capitalize()} {price}".rstrip()
+        page.show_dialog(
+            ft.AlertDialog(
+                title=ft.Text(f"Unlock DDGS Premium — {label}", font_family="Outfit"),
+                content=ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text(
+                                "Card, bank transfer and USDC are handled by our "
+                                "payment partner. DDGS never sees the card number.",
+                                size=FONT_XS,
+                                color=ft.Colors.with_opacity(
+                                    _OPACITY_DIM, ft.Colors.ON_SURFACE
+                                ),
+                            ),
+                            email_field,
+                            name_field,
+                            phone_field,
+                        ],
+                        spacing=SPACE_XS,
+                        tight=True,
+                    ),
+                    width=360,
+                    padding=ft.Padding(4, 8, 4, 4),
+                ),
+                actions=[
+                    ft.TextButton(
+                        "Cancel", on_click=lambda e: page.pop_dialog()
+                    ),
+                    ft.FilledButton(
+                        "Continue",
+                        on_click=lambda e: page.run_task(
+                            _checkout, product_id, email_field, name_field, phone_field
+                        ),
+                    ),
+                ],
+            )
+        )
+
+    async def _checkout(
+        product_id: str,
+        email_field: ft.TextField,
+        name_field: ft.TextField,
+        phone_field: ft.TextField,
+    ) -> None:
         email = (email_field.value or "").strip()
         if not EMAIL_RE.match(email):
             _snack("Enter a valid email address to continue", "warning")
             return
+        # Dismiss before the network call: a dialog left open over a slow
+        # request reads as a hang, and the button behind it does nothing.
+        page.pop_dialog()
         premium = getattr(controller, "premium", None)
         if premium is None:
             _snack("Premium is unavailable in this build", "error")
@@ -210,15 +322,56 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 return
         # Never assign to a control: this card is a rendered component, so
         # its controls are frozen. Write the observable instead and let the
-        # component repaint, which is how the recovery field gets its value.
+        # component repaint, which is how the recovery row gets its value.
         state.license_recovery_id = order.recovery_id
+        # Restoring is what issues the signed token: /status never returns
+        # one, so pointing a fresh buyer at "Check status" would confirm a
+        # payment and still leave Premium off. KTV Player sends them here.
         _snack(
-            "Finish the payment in your browser, then tap Check status.",
+            "Complete the payment in your browser, then tap Restore.",
             "success",
         )
 
-    async def _restore() -> None:
-        recovery_id = (recovery_field.value or "").strip().upper()
+    def _ask_recovery(e=None) -> None:
+        field = _field("Recovery ID", state.license_recovery_id)
+        field.hint_text = state.license_recovery_id or "KIRI-L-..."
+        page.show_dialog(
+            ft.AlertDialog(
+                title=ft.Text("Restore your license", font_family="Outfit"),
+                content=ft.Container(
+                    content=ft.Column(
+                        [
+                            field,
+                            ft.Text(
+                                "Your recovery ID is shown on the payment receipt. "
+                                "It is also stored on this device.",
+                                size=FONT_XS,
+                                color=ft.Colors.with_opacity(
+                                    _OPACITY_DIM, ft.Colors.ON_SURFACE
+                                ),
+                            ),
+                        ],
+                        tight=True,
+                        spacing=SPACE_XS,
+                    ),
+                    width=360,
+                    padding=ft.Padding(4, 8, 4, 4),
+                ),
+                actions=[
+                    ft.TextButton(
+                        "Cancel", on_click=lambda e: page.pop_dialog()
+                    ),
+                    ft.FilledButton(
+                        "Restore",
+                        on_click=lambda e: page.run_task(_restore, field),
+                    ),
+                ],
+            )
+        )
+
+    async def _restore(field: ft.TextField) -> None:
+        recovery_id = (field.value or "").strip().upper()
+        page.pop_dialog()
         if not recovery_id:
             _snack("Paste the recovery ID from your receipt first", "warning")
             return
@@ -229,8 +382,11 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         try:
             status = await premium.kiri_restore(recovery_id)
         except license_service.LicenseUnavailable as exc:
+            # A refusal (402/403/404) already dropped the unlock inside the
+            # client, so the message here is the server's own reason.
             _snack(str(exc), "error")
             return
+        state.license_recovery_id = recovery_id
         if controller is not None:
             await controller._grant_premium_benefits()
             await controller._sync_premium_storage()
@@ -238,33 +394,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             _snack("Premium restored. Thank you.", "success")
         else:
             _snack(f"That licence is {status.status}", "warning")
-
-    async def _check_status() -> None:
-        if not state.license_recovery_id:
-            _snack("Buy Premium first, then check the status", "warning")
-            return
-        premium = getattr(controller, "premium", None)
-        if premium is None:
-            _snack("Premium is unavailable in this build", "error")
-            return
-        try:
-            status = await premium.kiri_check_status()
-        except license_service.LicenseUnavailable as exc:
-            # A refusal (402/403/404) already dropped the unlock. Never
-            # claim "Payment confirmed" when no confirmation arrived.
-            _snack(str(exc), "error")
-            return
-        except Exception as exc:
-            _snack(f"Could not reach the payment service: {exc}", "error")
-            return
-        if controller is not None:
-            await controller._sync_premium_storage()
-        if status is None:
-            _snack("No saved licence to check yet", "warning")
-        elif status.unlocks:
-            _snack("Payment confirmed. Premium is on.", "success")
-        else:
-            _snack(f"Payment status: {status.status}", "warning")
 
     async def _play_buy(product_id: str) -> None:
         if billing is None:
@@ -281,6 +410,9 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 _snack("Purchase could not start.")
         except Exception as exc:
             _snack(f"Billing error: {exc}", "error")
+
+    if license_ok and not state.license_prices:
+        _retry_prices(page, premium)
 
     # ── Status ──────────────────────────────────────────────────────────
     if state.is_premium:
@@ -334,120 +466,68 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         )
 
     # ── License channel (direct, desktop, web) ───────────────────────────
-    if license_ok:
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.CREDIT_CARD_ROUNDED,
-                "Your details",
-                "Used only for the receipt. Card and bank transfer are "
-                "handled by our payment partner, never by DDGS",
-                ft.Icon(
-                    ft.Icons.LOCK_OUTLINE_ROUNDED,
-                    size=ICON_SM,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
-            )
-        )
-        rows.append(
-            ft.Container(
-                content=ft.Column(
-                    [email_field, name_field, phone_field],
-                    spacing=SPACE_XS,
-                    tight=True,
-                ),
-                padding=ft.Padding(_ICON_BACKDROP + 16, 0, 0, SPACE_XS),
-            )
-        )
-
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.SHOPPING_CART_ROUNDED,
-                "Choose a plan",
-                "One-time payment or a plan that renews until you cancel",
-                ft.Icon(
-                    ft.Icons.PAYMENTS_ROUNDED,
-                    size=ICON_SM,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
-            )
-        )
-        for product_id, blurb in (
-            ("monthly", "Renews monthly, cancel any time"),
-            ("yearly", "Two months free versus monthly"),
-            ("lifetime", "Pay once, keep it"),
-        ):
-            rows.append(_divider())
+    # Product rows, the recovery ID and Restore are the whole card; the
+    # typing lives in dialogs. Nothing is pre-expanded.
+    if license_ok and not state.is_premium:
+        for product_id, blurb in _PLANS:
             price = state.license_prices.get(product_id, "")
+            rows.append(_divider())
             rows.append(
                 _setting_row(
-                    ft.Icons.LOCAL_OFFER_ROUNDED,
-                    f"{product_id.capitalize()} {price}".rstrip() if price
-                    else product_id.capitalize(),
+                    ft.Icons.LOCK_OPEN_ROUNDED
+                    if product_id == "lifetime"
+                    else ft.Icons.AUTORENEW_ROUNDED,
+                    product_id.capitalize(),
                     blurb,
-                    ft.FilledButton(
+                    _buy_button(
                         price or "Choose",
-                        on_click=lambda e, pid=product_id: page.run_task(
-                            _checkout, pid
-                        ),
-                        style=ft.ButtonStyle(
-                            bgcolor=AppColors.PRIMARY,
-                            color=ft.Colors.WHITE,
-                            shape=ft.RoundedRectangleBorder(
-                                radius=BORDER_RADIUS_MD
-                            ),
-                        ),
+                        lambda e, pid=product_id: _ask_email(pid),
+                    ),
+                    stacked=narrow,
+                )
+            )
+        if not state.license_prices:
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.CLOUD_OFF_ROUNDED,
+                    "Unlock options unavailable",
+                    "Could not reach the license service — check your "
+                    "connection",
+                    ft.Icon(
+                        ft.Icons.CLOUD_OFF_ROUNDED,
+                        size=ICON_SM,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                )
+            )
+
+        if state.license_recovery_id:
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.KEY_ROUNDED,
+                    "Your recovery ID",
+                    state.license_recovery_id,
+                    ft.OutlinedButton(
+                        "Copy",
+                        icon=ft.Icons.CONTENT_COPY_ROUNDED,
+                        on_click=lambda e: page.run_task(_copy_recovery),
                     ),
                     stacked=narrow,
                 )
             )
 
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.KEY_ROUNDED,
-                "Your recovery ID",
-                "Save this. It is the only way to restore Premium after "
-                "clearing app data or moving to another device",
-                ft.TextButton(
-                    "Copy",
-                    icon=ft.Icons.CONTENT_COPY_ROUNDED,
-                    on_click=lambda e: page.run_task(_copy_recovery),
-                ),
-                stacked=narrow,
-            )
-        )
-        rows.append(
-            ft.Container(
-                content=ft.Column(
-                    [recovery_field],
-                    spacing=SPACE_XS,
-                    tight=True,
-                ),
-                padding=ft.Padding(_ICON_BACKDROP + 16, 0, 0, SPACE_XS),
-            )
-        )
+    if license_ok:
         rows.append(_divider())
         rows.append(
             _setting_row(
                 ft.Icons.RESTORE_ROUNDED,
-                "Restore or check status",
-                "Paste your recovery ID to restore, or confirm a payment you "
-                "just made",
-                ft.Row(
-                    [
-                        ft.TextButton(
-                            "Restore",
-                            on_click=lambda e: page.run_task(_restore),
-                        ),
-                        ft.TextButton(
-                            "Check status",
-                            on_click=lambda e: page.run_task(_check_status),
-                        ),
-                    ],
-                    spacing=4,
-                    tight=True,
+                "Restore purchases",
+                "Re-check ownership (new device / reinstall / after paying)",
+                ft.OutlinedButton(
+                    "Restore",
+                    on_click=_ask_recovery,
                 ),
                 stacked=narrow,
             )
@@ -466,16 +546,9 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                     ft.Icons.LOCAL_OFFER_ROUNDED,
                     label,
                     blurb,
-                    ft.FilledButton(
+                    _buy_button(
                         "Subscribe" if "month" in product_id else "Buy",
-                        on_click=lambda e, pid=product_id: page.run_task(
-                            _play_buy, pid
-                        ),
-                        style=ft.ButtonStyle(
-                            bgcolor=AppColors.PRIMARY,
-                            color=ft.Colors.WHITE,
-                            shape=ft.RoundedRectangleBorder(radius=BORDER_RADIUS_MD),
-                        ),
+                        lambda e, pid=product_id: page.run_task(_play_buy, pid),
                     ),
                     stacked=narrow,
                 )

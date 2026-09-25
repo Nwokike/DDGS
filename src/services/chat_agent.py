@@ -85,6 +85,9 @@ SYSTEM_PROMPT = (
     "After saving or downloading, tell them the exact file paths. "
     "If a tool returns an error or 'No results found', retry ONCE with a "
     "broader query or a different search tool, then answer with what you have. "
+    "When search_images returns image_url values, show the single best match "
+    "in your reply as ![short description](image_url) so the user sees the "
+    "picture, not just a description of it — one image, not a gallery. "
     "If no tool is needed (greetings, math, opinions), just answer."
 )
 
@@ -121,7 +124,9 @@ def build_tools() -> list[dict]:
         ),
         _fn(
             "search_images",
-            "Search images. Returns thumbnail/image results.",
+            "Search images. Returns image_url (the direct picture file) plus "
+            "the page url. Show one to the user by embedding it in your "
+            "markdown reply as ![description](image_url).",
             {**query_prop, "count": count_prop["count"]},
             ["query"],
         ),
@@ -312,6 +317,20 @@ async def _dispatch(name: str, args: dict):
         if progress.error and not progress.results:
             raise RuntimeError(str(progress.error)[:200])
         results = (progress.results or [])[:count]
+        if name == "search_images":
+            # An image result's `url` is the page that hosts the picture, not
+            # the picture. Hand the model the direct file as well, or it can
+            # only describe the image and never show it.
+            model_out = []
+            for r in results:
+                direct = r.image_url or r.thumbnail or ""
+                item = {"title": r.title, "url": r.url}
+                if direct:
+                    item["image_url"] = direct
+                if r.snippet:
+                    item["snippet"] = r.snippet[:80]
+                model_out.append(item)
+            return model_out, list(results)
         model_out = [
             {
                 "title": r.title,
@@ -369,7 +388,7 @@ async def _dispatch(name: str, args: dict):
 
 
 async def settle_turn(credits, tx_id: str | None, steps: int) -> int:
-    """Charge 2 credits per delivered step (2 * steps). Never breaks the user's
+    """Charge COST_STEP credits per delivered step (COST_STEP * steps). Never breaks the user's
     work: a finished/partial message is always settled (overdraft clamps at
     zero); zero delivered steps refunds the hold entirely."""
     amount = max(0, steps) * COST_STEP
@@ -482,7 +501,7 @@ async def run_turn(
     on_thought: Callable[[str], None] | None = None,
     ask_confirm: Callable[[str], Any] | None = None,
 ) -> None:
-    """One agent turn — 2 credits per model step, settled on every exit.
+    """One agent turn — COST_STEP credits per model step, settled on every exit.
 
     Soft metering: a low balance is never a mid-run kill switch; the turn
     always finishes (balance may clamp to 0). A 0 balance starts blocked.
