@@ -17,6 +17,8 @@ import sys
 import time
 from pathlib import Path
 
+import flet as ft
+
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -448,3 +450,83 @@ def test_model_pill_is_not_rebuilt_for_every_token():
     assert "_pill_signature" in source, "the pill must short-circuit"
     refresh = source.split("def refresh_model_chip", 1)[1].split("\n    def ", 1)[0]
     assert "if signature == getattr(self, \"_pill_signature\", None):" in refresh
+
+
+# ── the clock in every prompt ─────────────────────────────────────────────
+def test_prompts_carry_the_current_date():
+    """The model's training data ends before today, so 'this week' was
+    answered from its knowledge cutoff instead of from now."""
+    import datetime
+
+    from services.ai_service import build_summary_messages, with_clock
+
+    stamped = with_clock("You are DDGS AI.")
+    today = datetime.datetime.now().astimezone().strftime("%Y-%m-%d")
+    assert today in stamped, "the clock line must carry today's date"
+    assert "never your training data" in stamped
+
+    summary = build_summary_messages("T", "body")
+    assert today in summary[0]["content"]
+
+
+def test_chat_prompt_carries_the_current_date():
+    """The chat prompt is the one that answers 'what happened this week'."""
+    source = (SRC / "services" / "chat_agent.py").read_text(encoding="utf-8")
+    assert "ai_service.with_clock(SYSTEM_PROMPT)" in source
+
+
+# ── write-tool outcomes ──────────────────────────────────────────────────
+def test_write_tools_report_what_they_did():
+    from services.chat_agent import tool_outcome
+
+    assert tool_outcome(
+        "save_page", {"saved_to": "/home/u/Downloads/DDGS/kiri.ng.md"}
+    ) == "saved to kiri.ng.md"
+    assert (
+        tool_outcome(
+            "scrape_site",
+            {"saved": ["a.md", "b.md", "c.md"], "failed": []},
+        )
+        == "3 pages saved"
+    )
+    assert (
+        tool_outcome("scrape_site", {"saved": ["a.md"], "failed": ["b.md"]})
+        == "1 page saved, 1 failed"
+    )
+    assert tool_outcome("cancel_scrape", {"removed": 1}) == "1 removed"
+    assert tool_outcome("cancel_scrape", {"removed": 0}) == "nothing to cancel"
+    assert (
+        tool_outcome("schedule_scrape", {"scheduled": {"interval_minutes": 45}})
+        == "every 45 minutes"
+    )
+    # a search tool has no outcome; it reports a count instead
+    assert tool_outcome("search_web", []) == ""
+
+
+def test_step_done_carries_the_outcome():
+    source = (SRC / "services" / "chat_agent.py").read_text(encoding="utf-8")
+    assert '"outcome": tool_outcome(name, model_out)' in source
+
+
+# ── stop shows a live indicator ──────────────────────────────────────────
+def test_stop_button_is_a_spinner_not_a_bare_icon():
+    """A static red square was the only sign the app was alive."""
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    assert isinstance(session.stop_btn, ft.Container), "needs content for a ring"
+    assert session.stop_btn.on_click is not None, "it must still stop"
+    assert session.stop_btn.visible is False, "hidden until busy"
+    assert session.stop_btn.tooltip == "Stop"
+
+    def walk(control, found):
+        if isinstance(control, ft.ProgressRing):
+            found.append(control)
+        for child in getattr(control, "controls", None) or []:
+            walk(child, found)
+        content = getattr(control, "content", None)
+        if content is not None and hasattr(content, "controls"):
+            walk(content, found)
+
+    rings: list = []
+    walk(session.stop_btn.content, rings)
+    assert rings, "the stop button must contain a progress ring"
