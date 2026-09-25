@@ -1,36 +1,52 @@
-"""Premium entitlement: one flag, two possible channels.
+"""Premium: resolves whether this user is entitled, and from which channel.
 
-    premium = play_purchase_active OR license_active
+Two channels exist and they are independent:
 
-`state.is_premium` stays the single switch that ad_service, credit_service,
-wallet and styles read, so none of them change. What is new here is that it
-becomes *derived* rather than latched: a licence can now be revoked, and a
-Play purchase no longer grants a permanent local boolean that nothing can
-take back.
+  - **Kiri License** (license.kiri.ng) — Flutterwave checkout plus a signed
+    entitlement token. Works on the direct APK, Windows and Linux with no
+    Google permission at all.
+  - **Google Play Billing** — present in the source and dormant until the
+    store actually reports products for this package.
 
-The offline rule, which is the whole point of the local token:
+The Play AAB ships free-only: `core.build_channel.CHANNEL == "play"` gates
+every licence method, so no Worker request is made, no purchase UI is
+rendered, and a token left over from a direct install can never unlock it.
 
-  - a locally valid token keeps Premium until its own `exp`
-  - a lifetime token has no `exp`, so it stays valid offline indefinitely
-  - a network failure NEVER downgrades. Only an authoritative
-    `revoked`/`expired` from the server removes access.
+Mirrors ktv-player/src/services/premium_service.py: `load_local` verifies
+the cached token offline, `reconcile` talks to the Worker after the first
+frame and re-derives even on failure, and `_recompute_premium` is the single
+place the derived flag is written. The extra Play helpers exist only
+because DDGS ships two channels where KTV ships one.
 
-That last line matters more than it looks: someone who buys Premium and then
-flies on a plane must not lose it at 30,000 feet.
+Core rules:
+
+- The entitlement is a **signed token** verified offline on every start —
+  never a bare local flag. A token the app cannot verify drops Premium; a
+  network that cannot be reached does not.
+- The recovery ID is stored immediately: it is the only way back in after
+  the user clears app data.
 """
 
 from __future__ import annotations
 
 import logging
 
+from core.build_channel import CHANNEL
 from core.state import state
 from services import license_service
+from services.license_service import KiriLicenseService, LicenseUnavailable
 
 logger = logging.getLogger(__name__)
 
+__all__ = [
+    "LicenseUnavailable",
+    "PremiumService",
+    "apply_entitlement",
+]
+
 
 def apply_entitlement() -> bool:
-    """Recompute `state.is_premium` from the channel flags and persist it."""
+    """Resolve the derived flag from whichever channel is entitled."""
     resolved = bool(getattr(state, "play_premium_active", False)) or bool(
         getattr(state, "license_premium_active", False)
     )
@@ -39,156 +55,165 @@ def apply_entitlement() -> bool:
     return resolved
 
 
-def set_play_entitlement(active: bool, *, product_id: str = "") -> None:
-    """Record the Play Billing channel's answer."""
-    state.play_premium_active = bool(active)
-    if active and product_id:
-        state.premium_source = f"play:{product_id}"
-    elif not active:
-        state.premium_source = ""
-    apply_entitlement()
+class PremiumService:
+    """Owns the licence verdict and derives `state.is_premium` from it."""
 
+    def __init__(self, page=None, storage=None):
+        self.page = page
+        self.storage = storage
+        self.backend: str = "none"  # "kiri" | "none"
+        self.license = KiriLicenseService(
+            storage=storage, on_change=self._recompute_premium
+        )
+        if CHANNEL == "play":
+            # Free-only build: no purchase surface of any kind is wired up,
+            # so nothing for Play policy to look at.
+            logger.info("Play channel build — premium disabled, free tier with ads")
+            return
+        self.backend = "kiri"
 
-def _store_license(fields: dict) -> None:
-    storage = getattr(state, "credit_service", None)
-    storage = getattr(storage, "_storage", None) if storage else None
-    if storage is None:
-        return
-    # Fire-and-forget: the caller is usually a UI callback. A lost write
-    # only costs a re-restore, never an incorrect unlock.
-    import asyncio
+    # -- verdict --------------------------------------------------------------
 
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-    loop.create_task(storage.set_license_record(**fields))
+    @property
+    def available(self) -> bool:
+        """True when this build may offer a direct purchase at all."""
+        return self.backend == "kiri"
 
+    def _premium_disabled(self) -> bool:
+        if CHANNEL == "play":
+            logger.info("Purchase ignored: the Play build has no premium")
+            return True
+        return False
 
-def apply_license_entitlement(entitlement: license_service.Entitlement) -> None:
-    """Record the license channel's answer and resolve Premium.
+    def _recompute_premium(self) -> None:
+        """Mirror the licence verdict into the app-wide flag.
 
-    `offline=True` means the verdict came from the cached token alone. A
-    locally valid token is trusted to its expiry; a locally invalid one is
-    ignored rather than used to downgrade someone whose token is merely
-    stale on disk.
-    """
-    if entitlement.offline and not entitlement.grants_access:
-        logger.debug("offline license check not conclusive: %s", entitlement.status)
-        return
-    if not entitlement.is_definitive and not entitlement.grants_access:
-        # Online but the Worker said something we do not recognise. That is
-        # not proof of expiry, so leave the current entitlement alone.
-        logger.debug("non-definitive license status ignored: %s", entitlement.status)
-        return
-    state.license_premium_active = entitlement.grants_access
-    state.license_status = entitlement.status
-    if entitlement.product:
-        state.license_product = entitlement.product
-    if entitlement.token:
-        _store_license({"token": entitlement.token})
-    if entitlement.paid_through is not None:
-        _store_license({"paid_through": entitlement.paid_through})
-    apply_entitlement()
-    if entitlement.grants_access:
-        state.premium_source = f"license:{entitlement.product or 'unknown'}"
-
-
-def clear_license() -> None:
-    """Forget the license entirely (user action, not a refund)."""
-    state.license_premium_active = False
-    state.license_status = ""
-    state.license_product = ""
-    state.premium_source = ""
-    _store_license({"recovery_id": "", "token": "", "status": "", "product": ""})
-    apply_entitlement()
-
-
-async def load_from_storage(storage) -> None:
-    """Startup: read the stored license and trust the token offline.
-
-    Runs before any network call so a user with no connection still gets
-    the Premium they paid for.
-
-    The persisted `is_premium` value is deliberately NOT used as proof. It
-    is a resolved cache from a previous run, and either channel can have
-    been revoked since. Loading here recomputes the OR from the channel
-    flags, so a stale true cannot survive with no token and no purchase.
-    """
-    from services import license_service as licenses
-
-    try:
-        record = await storage.get_license_record()
-    except Exception as exc:
-        logger.warning("license record unreadable: %s", exc)
+        The Play channel contributes independently, so both are ORed: a
+        refunded licence must not cancel a Play purchase, and a Play
+        purchase must survive a licence lapse.
+        """
+        state.license_premium_active = bool(self.license.unlocked)
+        if state.license_premium_active:
+            state.license_status = "active"
+            state.premium_source = (
+                f"license:{self.license.claims.product if self.license.claims else ''}"
+            ).rstrip(":")
+        else:
+            state.license_status = state.license_status or ""
         apply_entitlement()
-        return
-    state.license_recovery_id = str(record.get("recovery_id") or "")
-    if not state.license_recovery_id and not record.get("token"):
-        # Nothing on disk proves entitlement through this channel.
+
+    def set_play_entitlement(self, active: bool, *, product_id: str = "") -> None:
+        """Record the Play Billing channel's answer."""
+        state.play_premium_active = bool(active)
+        if active and product_id:
+            state.premium_source = f"play:{product_id}"
+        elif not active and not state.license_premium_active:
+            state.premium_source = ""
         apply_entitlement()
-        return
-    entitlement = licenses.entitlement_from_token(
-        str(record.get("token") or ""), state.license_recovery_id
-    )
-    state.license_status = entitlement.status
-    state.license_product = entitlement.product or str(record.get("product") or "")
-    apply_license_entitlement(entitlement)
-    logger.info("offline license status: %s", entitlement.status)
 
+    # -- startup / reconcile --------------------------------------------------
 
-async def refresh_from_server(page=None) -> bool:
-    """Ask the Worker for the authoritative answer, when we can.
+    async def load_local(self) -> None:
+        """Verify the cached token — safe on the boot path.
 
-    Returns True only when the server actually ruled. Any failure is
-    swallowed on purpose: an unreachable service must not cost the user
-    their Premium, because the local token already covers them until it
-    expires. The caller needs the boolean so it never tells a user their
-    payment was confirmed when no request ever succeeded.
-    """
-    if not license_service.is_available(page):
-        return False
-    recovery_id = getattr(state, "license_recovery_id", "")
-    if not recovery_id:
-        return False
-    try:
-        entitlement = await license_service.check_status(recovery_id)
-    except license_service.LicenseUnavailable:
-        return False
-    except license_service.LicenseError as exc:
-        logger.info("license status check skipped: %s", exc)
-        return False
-    except Exception as exc:  # never let a network blip touch entitlement
-        logger.debug("license status check failed: %s", exc)
-        return False
-    # Only a definitive verdict may downgrade. A 200 carrying an unknown or
-    # transitional status ("pending", a future value) is not proof of
-    # expiry, and treating it as one would strip Premium from a paying user
-    # on a schema change.
-    if entitlement.is_definitive:
-        state.license_premium_active = entitlement.grants_access
-    state.license_status = entitlement.status
-    if entitlement.product:
-        state.license_product = entitlement.product
-    apply_entitlement()
-    if entitlement.grants_access:
-        state.premium_source = f"license:{entitlement.product or 'unknown'}"
-    logger.info("license status from server: %s", entitlement.status)
-    return True
+        Offline by design: a paid app keeps Premium with no network at all,
+        and a token that no longer verifies (expired, tampered, revoked)
+        drops it again. A rejected token is *dropped*, not treated as
+        inconclusive: only a network failure is inconclusive.
+        """
+        if CHANNEL == "play":
+            # Free-only build: a token left over from a direct install
+            # must never unlock it.
+            state.license_premium_active = False
+            state.play_premium_active = False
+            apply_entitlement()
+            return
+        try:
+            await self.license.apply_cached_token()
+        except Exception:
+            logger.warning("Could not verify the cached licence", exc_info=True)
+        self._recompute_premium()
 
+    async def reconcile(self) -> None:
+        """Refresh the entitlement with the Worker.
 
-async def restore_license(recovery_id: str) -> license_service.Entitlement:
-    """Restore from a recovery ID after reinstall or a data wipe."""
-    entitlement = await license_service.restore(recovery_id)
-    state.license_recovery_id = entitlement.recovery_id or recovery_id
-    _store_license({"recovery_id": state.license_recovery_id})
-    if entitlement.token:
-        _store_license({"token": entitlement.token})
-    _store_license({"status": entitlement.status, "product": entitlement.product})
-    state.license_status = entitlement.status
-    state.license_product = entitlement.product
-    state.license_premium_active = entitlement.grants_access
-    apply_entitlement()
-    if entitlement.grants_access:
-        state.premium_source = f"license:{entitlement.product or 'unknown'}"
-    return entitlement
+        A network round-trip, so this runs *after* the first frame, never
+        on the boot path. It runs even while unlocked: the Worker is
+        authoritative when reachable, so a refunded or revoked licence must
+        land. Only a network failure keeps the local verdict.
+        """
+        if CHANNEL == "play":
+            return
+        try:
+            await self.license.refresh()
+        except LicenseUnavailable as ex:
+            logger.info("Kiri license refresh: %s", ex)
+        except Exception:
+            logger.debug("Kiri license refresh failed", exc_info=True)
+        finally:
+            # Re-derive even on failure: a refusal or a rejected token has
+            # already cleared the licence, and the flag must follow it.
+            self._recompute_premium()
+
+    # -- Kiri License surface -------------------------------------------------
+
+    async def kiri_catalog(self) -> list[license_service.LicenseProduct]:
+        """Products offered by the licence Worker, or [] when offline."""
+        if self._premium_disabled():
+            return []
+        try:
+            return await self.license.fetch_catalog()
+        except LicenseUnavailable as ex:
+            logger.info("License catalog unavailable: %s", ex)
+            return []
+        except Exception:
+            logger.debug("License catalog failed", exc_info=True)
+            return []
+
+    async def kiri_checkout(
+        self, product_id: str, email: str, *, name: str = "", phone: str = ""
+    ) -> license_service.Checkout:
+        """Create a hosted payment and save the recovery ID."""
+        if self._premium_disabled():
+            raise LicenseUnavailable("Premium is not available in this build")
+        checkout = await self.license.checkout(
+            product_id, email, name=name, phone=phone
+        )
+        return checkout
+
+    async def kiri_restore(self, recovery_id: str) -> license_service.LicenseStatus:
+        """Redeem a recovery ID; raises LicenseUnavailable with a reason."""
+        if self._premium_disabled():
+            raise LicenseUnavailable("Premium is not available in this build")
+        status = await self.license.restore(recovery_id)
+        self._recompute_premium()
+        await self._persist_verdict()
+        return status
+
+    async def kiri_check_status(self):
+        """Re-check the saved entitlement, keeping the local token offline."""
+        if self._premium_disabled():
+            return None
+        try:
+            status = await self.license.refresh()
+        except LicenseUnavailable as ex:
+            # A refusal (402/403/404) already dropped the unlock inside the
+            # client, so the verdict must be re-derived — not swallowed.
+            logger.info("Licence status refused: %s", ex)
+            self._recompute_premium()
+            await self._persist_verdict()
+            raise
+        self._recompute_premium()
+        await self._persist_verdict()
+        return status
+
+    # -- persistence ----------------------------------------------------------
+
+    async def _persist_verdict(self) -> None:
+        """Write the derived flag back to disk for the next launch."""
+        if self.storage is None:
+            return
+        try:
+            await self.storage.set("is_premium", bool(state.is_premium))
+        except Exception:
+            logger.debug("Could not persist the premium flag", exc_info=True)

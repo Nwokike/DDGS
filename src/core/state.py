@@ -164,7 +164,6 @@ class AppState:
         self.ai_overview: AiOverview | None = None
         self.ai_overview_expanded: bool = False
         self.scheduled_scrapes: list = []  # [{url, interval_min, next_run, last_run, pages_saved}]
-        self.assistant_history: list = []  # active conversation messages
         # Router lifecycle, mirroring LM Router's gateway states so the
         # model picker can say what is actually happening.
         self.ai_router_status: str = "starting"  # starting|ready|stopped|unavailable
@@ -173,7 +172,6 @@ class AppState:
         # search is still running behind them.
         self.results_from_cache: bool = False
         # Conversations (chat history): summary rows + the active id.
-        self.conversations: list = []
         self.active_conversation: str = ""
 
         # ── Services (set by AppController) ──

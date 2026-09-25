@@ -192,21 +192,24 @@ def test_tool_cap_writes_a_reply_for_every_requested_call():
 
 
 # ── the Premium card must not ask for an unknown amount ─────────────────
-def test_premium_plan_shows_a_price_or_a_neutral_label():
+def test_premium_plan_shows_a_price_or_a_neutral_label(monkeypatch):
     import flet as ft
 
     from components.settings.sections_premium import build_premium_section
     from core import build_channel
     from core.state import state
+    from services import premium_service as ps
 
-    build_channel.CHANNEL = "direct"
+    monkeypatch.setattr(build_channel, "CHANNEL", "direct", raising=False)
+    monkeypatch.setattr(ps, "CHANNEL", "direct", raising=False)
     state.is_premium = False
     state.license_recovery_id = ""
-    state.license_prices = {"monthly": "USD 3.99"}
+    state.license_prices = {"monthly": "$3.99 USD"}
 
     class Controller:
         billing = None
         storage = None
+        premium = ps.PremiumService(None, None)
 
         async def _grant_premium_benefits(self):
             return False
@@ -248,7 +251,7 @@ def test_premium_plan_shows_a_price_or_a_neutral_label():
 
     walk(card)
     rendered = " ".join(blob)
-    assert "USD 3.99" in rendered, "the known price must be shown"
+    assert "$3.99 USD" in rendered, "the known price must be shown"
     # an unknown plan must not advertise a number it does not have
     state.license_prices = {}
     card2 = build_premium_section(Page())

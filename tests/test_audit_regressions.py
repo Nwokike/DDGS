@@ -82,86 +82,117 @@ class FakeStorage:
 
 
 # ── premium must be proven, never assumed from a stale flag ─────────────
-def test_stale_persisted_premium_does_not_grant_access():
-    """A leftover is_premium:true must not survive with no proof.
+def test_stale_persisted_premium_does_not_grant_access(monkeypatch):
+    """A leftover is_premium:true must not survive without a token.
 
     The persisted value is a cache of a previous run. Either channel can
-    have been revoked since, so it cannot seed state.
+    have been revoked since, so load_local() derives the flag from the
+    token instead of trusting it.
     """
     from core.state import state
     from services import premium_service
 
+    monkeypatch.setattr(premium_service, "CHANNEL", "direct")
     state.is_premium = True  # as if loaded from storage.json
     state.play_premium_active = False
     state.license_premium_active = False
-    state.license_recovery_id = ""
-    state.license_status = ""
 
-    storage = FakeStorage({"is_premium": True})
-    asyncio.run(premium_service.load_from_storage(storage))
+    service = premium_service.PremiumService(None, FakeStorage({"is_premium": True}))
+    asyncio.run(service.load_local())
     assert state.is_premium is False, (
         "a stale flag granted Premium with no token and no purchase"
     )
 
 
-def test_load_from_storage_recomputes_on_every_path(monkeypatch):
-    """Even the early-return path must recompute, not leave the flag."""
+def test_load_local_clears_a_rejected_token(monkeypatch):
+    """A token we cannot verify is dropped, not treated as inconclusive.
+
+    Distinguishing this from a network failure is the whole trust model:
+    a tampered local token is proof of nothing, an unreachable server is
+    proof of nothing either.
+    """
     from core.state import state
     from services import premium_service
 
-    monkeypatch.setattr(
-        premium_service, "logger", pytest.importorskip("logging").getLogger("t")
+    monkeypatch.setattr(premium_service, "CHANNEL", "direct")
+    state.is_premium = False
+    state.license_premium_active = True
+    service = premium_service.PremiumService(
+        None, FakeStorage({"kiri_token": "v1.!!!.###"})
     )
-    state.is_premium = True
-    state.play_premium_active = False
-    state.license_premium_active = False
-    state.license_recovery_id = ""
+    asyncio.run(service.load_local())
+    assert state.is_premium is False, "an unverifiable token must not unlock"
+    assert service.license.unlocked is False
 
-    class Broken(FakeStorage):
-        async def get_license_record(self):
-            raise OSError("unreadable")
 
-    asyncio.run(premium_service.load_from_storage(Broken()))
+def test_play_channel_cannot_unlock_from_a_leftover_token(monkeypatch):
+    """The AAB must stay free-only even if a direct-install token is on disk."""
+    from core.state import state
+    from services import premium_service
+
+    monkeypatch.setattr(premium_service, "CHANNEL", "play")
+    state.is_premium = False
+    service = premium_service.PremiumService(None, FakeStorage())
+    asyncio.run(service.load_local())
     assert state.is_premium is False
+    assert service.available is False
+    monkeypatch.undo()
 
 
-def test_non_definitive_status_does_not_revoke():
-    """A 200 with an unknown status is not proof of expiry."""
+def test_network_failure_keeps_the_verdict_but_a_refusal_drops_it(
+    monkeypatch,
+):
+    """KTV's split: an unreachable Worker is inconclusive, a refusal is not."""
     from core.state import state
     from services import license_service, premium_service
 
-    state.is_premium = True
+    monkeypatch.setattr(premium_service, "CHANNEL", "direct")
     state.play_premium_active = False
     state.license_premium_active = True
-    state.license_recovery_id = "KIRI-L-" + "A" * 24
-
-    for status in ("unknown", "pending", "something_new"):
-        premium_service.apply_license_entitlement(
-            license_service.Entitlement(status=status, offline=False)
-        )
-        assert state.is_premium is True, f"{status!r} must not revoke"
-
-    premium_service.apply_license_entitlement(
-        license_service.Entitlement(status="revoked", offline=False)
+    state.is_premium = True
+    service = premium_service.PremiumService(
+        None, FakeStorage({"kiri_recovery_id": "KIRI-L-" + "A" * 24})
     )
-    assert state.is_premium is False, "a real revocation must still downgrade"
+    # The service, not state, is the licence's source of truth: reconcile
+    # re-derives from license.unlocked, so seed it the way a successful
+    # load_local would have.
+    service.license._unlocked = True
+    service._recompute_premium()
+    assert state.is_premium is True
+
+    async def offline(*args, **kwargs):
+        raise license_service.LicenseUnavailable("unreachable")
+
+    monkeypatch.setattr(service.license, "refresh", offline)
+    asyncio.run(service.reconcile())
+    assert state.is_premium is True, "a network failure must not revoke"
+
+    # A refusal is the server ruling: the client clears the unlock itself.
+    class Refusing:
+        async def refresh(self):
+            service.license._unlocked = False
+            raise license_service.LicenseUnavailable("404 license_not_found")
+
+    monkeypatch.setattr(service.license, "refresh", Refusing().refresh)
+    asyncio.run(service.reconcile())
+    assert state.is_premium is False, "a refusal must revoke"
 
 
-def test_refresh_reports_whether_the_server_answered(monkeypatch):
+def test_kiri_check_status_does_not_claim_an_unreachable_server(monkeypatch):
     """The UI must not say 'Payment confirmed' when nothing was confirmed."""
     from services import license_service, premium_service
 
-    async def offline(*a, **k):
-        raise license_service.LicenseError("unreachable")
+    monkeypatch.setattr(premium_service, "CHANNEL", "direct")
+    service = premium_service.PremiumService(
+        None, FakeStorage({"kiri_recovery_id": "KIRI-L-" + "A" * 24})
+    )
 
-    monkeypatch.setattr(license_service, "check_status", offline)
-    assert asyncio.run(premium_service.refresh_from_server()) is False
+    async def offline(*args, **kwargs):
+        raise license_service.LicenseUnavailable("unreachable")
 
-    async def answered(*a, **k):
-        return license_service.Entitlement(status="active", product="lifetime")
-
-    monkeypatch.setattr(license_service, "check_status", answered)
-    assert asyncio.run(premium_service.refresh_from_server()) is True
+    monkeypatch.setattr(service.license, "refresh", offline)
+    with pytest.raises(license_service.LicenseUnavailable):
+        asyncio.run(service.kiri_check_status())
 
 
 # ── chat history must not lose or misfile a turn ───────────────────────

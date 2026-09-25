@@ -114,6 +114,12 @@ class AppController:
                 self.page.run_task(self.verify_purchases)
             except Exception as exc:
                 logger.warning("billing unavailable: %s", exc)
+        # ── Premium. Built here, not in a task: verify_purchases is
+        # scheduled before _init_premium runs, and it reads this attribute.
+        from services import premium_service
+
+        self.premium = premium_service.PremiumService(self.page, self.storage)
+
         # ── Load persisted settings FIRST — the premium/ad-free flag must
         # be known before consent + preload decide whether to request ads ──
         await self._load_settings()
@@ -206,19 +212,17 @@ class AppController:
         to. Best effort: a missing price leaves the card on a neutral label
         rather than failing the section.
         """
-        from services import license_service as licenses
-
-        if not licenses.is_available(self.page):
+        if self.premium is None or not self.premium.available:
             return
         try:
-            products = await licenses.fetch_catalog()
+            products = await self.premium.kiri_catalog(force=True)
         except Exception as exc:
             logger.debug("license prices unavailable: %s", exc)
             return
         prices = {
-            product.id: product.label
+            product.id: product.price_label
             for product in products
-            if getattr(product, "id", None) and getattr(product, "amount", 0)
+            if product.id and product.amount
         }
         if prices:
             state.license_prices = prices
@@ -226,27 +230,22 @@ class AppController:
     async def _init_premium(self) -> None:
         """Resolve Premium at startup from both channels.
 
-        The stored token is trusted first so a user who launches offline
-        keeps what they paid for; only then do we ask the server, which is
-        the only thing allowed to take it away.
+        The stored token is verified first so a user who launches offline
+        keeps what they paid for; only then do we ask the Worker, which is
+        the only thing allowed to take it away. Both steps re-derive the
+        flag, so a stale one can never survive either check.
         """
-        from services import license_service as licenses
-        from services import premium_service
-
         try:
-            # Restore the direct-channel opt-in first: it decides whether
-            # the purchase UI exists at all on a direct Android APK.
-            if await licenses.load_opt_in(self.storage):
-                licenses.set_available(self.page, True)
             was_premium = state.is_premium
-            await premium_service.load_from_storage(self.storage)
+            await self.premium.load_local()
+            await self._load_license_prices()
             if state.is_premium and not was_premium:
                 # Entitlement was proven after credits were initialised, so
                 # bring a fresh day up to the premium cap now.
                 await self._grant_premium_benefits()
             await self._sync_premium_storage()
-            await self._load_license_prices()
-            await premium_service.refresh_from_server(self.page)
+            # Network round-trip: after the first frame, never on boot.
+            await self.premium.reconcile()
             if state.is_premium and not was_premium:
                 await self._grant_premium_benefits()
             await self._sync_premium_storage()
@@ -276,10 +275,8 @@ class AppController:
         # Re-check the licence on resume, as the client contract asks. A
         # failure here changes nothing, so a flaky network is harmless.
         if state.is_online:
-            from services import premium_service
-
             try:
-                await premium_service.refresh_from_server(self.page)
+                await self.premium.reconcile()
                 await self._sync_premium_storage()
             except Exception as exc:
                 logger.debug("licence refresh on resume skipped: %s", exc)
@@ -517,7 +514,6 @@ class AppController:
                         "Your previous Assistant chat is now in Chat history",
                         "info",
                     )
-            state.conversations = rows
             # Re-open the chat the user was last in, not merely the newest.
             remembered = ""
             if self.storage is not None:
@@ -531,14 +527,13 @@ class AppController:
                 if remembered and remembered in known
                 else (rows[0]["id"] if rows else conversations.new_conversation_id())
             )
-            active = await asyncio.to_thread(
-                conversations.load_conversation, state.active_conversation
-            )
-            state.assistant_history = list((active or {}).get("messages") or [])
+            # The messages are deliberately NOT loaded here. ChatSession
+            # reads the active conversation itself when it opens; caching a
+            # second copy on observable state was one more owner for the
+            # transcript and one more thing that could disagree with disk.
         except Exception:
             logger.exception("conversation history init failed")
-            state.conversations = []
-            state.assistant_history = list(legacy_history or [])
+            state.active_conversation = conversations.new_conversation_id()
 
     def is_search_running(self, search_type: str) -> bool:
         """True while a live search for this type is still in flight.
@@ -1003,12 +998,11 @@ class AppController:
         channel, so a license-only user is unaffected and either channel can
         be withdrawn.
         """
-        from services import premium_service
 
         if not str(product_id).startswith("premium"):
             return
         was_premium = state.is_premium
-        premium_service.set_play_entitlement(True, product_id=product_id)
+        self.premium.set_play_entitlement(True, product_id=product_id)
         first_time = await self._grant_premium_benefits()
         await self._sync_premium_storage()
         if first_time and not was_premium:
@@ -1021,7 +1015,6 @@ class AppController:
         # gate and is tracked as an infra task — the client never trusts the
         # local flag beyond what Play itself reports.
         """Re-check owned products on launch — never trust the local flag alone."""
-        from services import premium_service
 
         billing = getattr(self, "billing", None)
         if billing is None:
@@ -1033,7 +1026,7 @@ class AppController:
                 (pid for pid in owned if str(pid).startswith("premium")), None
             )
             was_premium = state.is_premium
-            premium_service.set_play_entitlement(
+            self.premium.set_play_entitlement(
                 bool(found), product_id=str(found or "")
             )
             if found and not was_premium:

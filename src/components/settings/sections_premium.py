@@ -18,6 +18,8 @@ changing a price there needs no app release.
 
 from __future__ import annotations
 
+import re
+
 import flet as ft
 
 from components.results.downloader import launch_url
@@ -34,12 +36,14 @@ from core.tokens import (
     SPACE_XS,
     SPACE_XXS,
 )
-from services import license_service, premium_service
+from services import license_service
 
 _OPACITY_BACKDROP = 0.08
 _OPACITY_DIM = 0.6
 _ICON_BACKDROP = 36
 _ICON_BACKDROP_RADIUS = 10
+
+EMAIL_RE = re.compile(r"^\S+@\S+\.\S+$")
 
 _STATUS_COPY = {
     "active": ("Premium active", "Everything Premium includes is switched on"),
@@ -125,7 +129,10 @@ def build_premium_section(page: ft.Page) -> ft.Container:
     # The build channel is stamped into the artifact, not chosen at runtime.
     from core.build_channel import CHANNEL
 
-    license_ok = license_service.is_available(page)
+    premium = getattr(controller, "premium", None)
+    # Availability is a build property: KTV Player gates it on CHANNEL and
+    # so do we. A Play build has no licence service instance at all.
+    license_ok = bool(premium) and premium.available
     # Play Billing is only ever offered in a direct build, and only once the
     # store actually lists our products. On the Play AAB this stays False
     # because CHANNEL is "play", so no purchase row can appear.
@@ -160,15 +167,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         except Exception:
             pass
 
-    async def _save_contact() -> None:
-        if controller is None or controller.storage is None:
-            return
-        await controller.storage.set_license_record(
-            email=email_field.value or "",
-            name=name_field.value or "",
-            phone=phone_field.value or "",
-        )
-
     async def _copy_recovery() -> None:
         recovery_id = recovery_field.value or state.license_recovery_id
         if not recovery_id:
@@ -177,114 +175,96 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         try:
             clipboard = ft.Clipboard()
             page.services.append(clipboard)
-            await clipboard.set_data(recovery_id)
+            await clipboard.set(recovery_id)
             _snack("Recovery ID copied. Keep it somewhere safe.", "success")
         except Exception as exc:
             _snack(f"Could not copy automatically: {exc}", "error")
 
     async def _checkout(product_id: str) -> None:
         email = (email_field.value or "").strip()
-        if not license_service.valid_email(email):
+        if not EMAIL_RE.match(email):
             _snack("Enter a valid email address to continue", "warning")
             return
-        await _save_contact()
+        premium = getattr(controller, "premium", None)
+        if premium is None:
+            _snack("Premium is unavailable in this build", "error")
+            return
         try:
-            result = await license_service.start_checkout(
+            order = await premium.kiri_checkout(
                 product_id,
-                email=email,
+                email,
                 name=name_field.value or "",
                 phone=phone_field.value or "",
             )
         except license_service.LicenseUnavailable as exc:
             _snack(str(exc), "error")
             return
-        except license_service.LicenseError as exc:
-            _snack(f"Could not start the payment: {exc}", "error")
-            return
-        recovery_field.value = result["recovery_id"]
-        state.license_recovery_id = result["recovery_id"]
-        if controller is not None and controller.storage is not None:
-            await controller.storage.set_license_record(
-                recovery_id=result["recovery_id"]
-            )
-        url = result.get("checkout_url") or ""
-        if url:
-            await launch_url(url, page)
+        # Open the browser FIRST: everything below can throw, and a failed
+        # checkout that never opened the payment page is worse than a
+        # cosmetic miss.
+        if order.checkout_url:
+            try:
+                await launch_url(order.checkout_url, page)
+            except Exception as exc:
+                _snack(f"Could not open the payment page: {exc}", "error")
+                return
+        # Never assign to a control: this card is a rendered component, so
+        # its controls are frozen. Write the observable instead and let the
+        # component repaint, which is how the recovery field gets its value.
+        state.license_recovery_id = order.recovery_id
         _snack(
             "Finish the payment in your browser, then tap Check status.",
             "success",
         )
 
     async def _restore() -> None:
-        recovery_id = (recovery_field.value or "").strip()
+        recovery_id = (recovery_field.value or "").strip().upper()
         if not recovery_id:
             _snack("Paste the recovery ID from your receipt first", "warning")
             return
+        premium = getattr(controller, "premium", None)
+        if premium is None:
+            _snack("Premium is unavailable in this build", "error")
+            return
         try:
-            entitlement = await premium_service.restore_license(recovery_id)
+            status = await premium.kiri_restore(recovery_id)
         except license_service.LicenseUnavailable as exc:
             _snack(str(exc), "error")
             return
-        except license_service.LicenseError as exc:
-            _snack(f"Restore failed: {exc}", "error")
-            return
-        if entitlement.grants_access:
+        if controller is not None:
+            await controller._grant_premium_benefits()
+            await controller._sync_premium_storage()
+        if status.unlocks:
             _snack("Premium restored. Thank you.", "success")
-            if controller is not None:
-                await controller._grant_premium_benefits()
-                await controller._sync_premium_storage()
         else:
-            _snack(f"That licence is {entitlement.status}", "warning")
+            _snack(f"That licence is {status.status}", "warning")
 
     async def _check_status() -> None:
         if not state.license_recovery_id:
             _snack("Buy Premium first, then check the status", "warning")
             return
-        answered = await premium_service.refresh_from_server(page)
+        premium = getattr(controller, "premium", None)
+        if premium is None:
+            _snack("Premium is unavailable in this build", "error")
+            return
+        try:
+            status = await premium.kiri_check_status()
+        except license_service.LicenseUnavailable as exc:
+            # A refusal (402/403/404) already dropped the unlock. Never
+            # claim "Payment confirmed" when no confirmation arrived.
+            _snack(str(exc), "error")
+            return
+        except Exception as exc:
+            _snack(f"Could not reach the payment service: {exc}", "error")
+            return
         if controller is not None:
             await controller._sync_premium_storage()
-        if not answered:
-            # Never claim a confirmation we did not receive. Saying
-            # "Payment confirmed" after a failed request is the one message
-            # a buyer would be most misled by.
-            _snack(
-                "Could not reach the payment service. Check your connection "
-                "and try again.",
-                "warning",
-            )
-        elif state.license_status in ("active", "grace"):
+        if status is None:
+            _snack("No saved licence to check yet", "warning")
+        elif status.unlocks:
             _snack("Payment confirmed. Premium is on.", "success")
         else:
-            _snack(f"Payment status: {state.license_status}", "warning")
-
-    async def _opt_in_direct(enabled: bool) -> None:
-        """Turn the direct channel on or off and remember the choice.
-
-        A direct APK user reaches this only after telling us Play payment
-        is not working for them, which is the build where it can fail for
-        reasons that are not ours.
-        """
-        license_service.set_available(page, enabled)
-        if controller is not None and controller.storage is not None:
-            try:
-                if not await license_service.save_opt_in(
-                    controller.storage, enabled
-                ):
-                    # save_opt_in swallows the error and returns False, so
-                    # the choice would silently vanish on restart.
-                    _snack(
-                        "Could not remember that choice. It will reset when "
-                        "you restart.",
-                        "warning",
-                    )
-            except Exception as exc:
-                _snack(f"Could not save that choice: {exc}", "error")
-        _snack(
-            "Direct checkout enabled. Pull in from the direct APK."
-            if enabled
-            else "Direct checkout turned off.",
-            "success",
-        )
+            _snack(f"Payment status: {status.status}", "warning")
 
     async def _play_buy(product_id: str) -> None:
         if billing is None:
@@ -539,29 +519,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                         size=FONT_XS,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
-                )
-            )
-        else:
-            # A direct Android APK that has not opted in yet.
-            rows.append(_divider())
-            rows.append(
-                _setting_row(
-                    ft.Icons.PAYMENTS_ROUNDED,
-                    "Google Play payment not working?",
-                    "Buy Premium here with a card, bank transfer or USDC "
-                    "instead of through Google Play",
-                    ft.OutlinedButton(
-                        "Enable",
-                        on_click=lambda e: page.run_task(_opt_in_direct, True),
-                        style=ft.ButtonStyle(
-                            color=AppColors.PRIMARY,
-                            side=ft.BorderSide(1, AppColors.PRIMARY),
-                            shape=ft.RoundedRectangleBorder(
-                                radius=BORDER_RADIUS_MD
-                            ),
-                        ),
-                    ),
-                    stacked=narrow,
                 )
             )
 
