@@ -306,28 +306,188 @@ def test_play_products_map_to_license_tiers():
 
 
 # ── build-channel policy ─────────────────────────────────────────────────
-def test_license_channel_is_absent_from_a_play_build():
-    """One test, both ways: exactly one channel may be active per build."""
+def test_play_build_never_offers_a_purchase_control(monkeypatch):
+    """A Play build must render no purchase UI of any kind.
+
+    Guards the whole channel decision by walking the real rendered card
+    with CHANNEL stamped to "play", on Android with a live billing
+    service. It fails if any buy, subscribe, checkout or recovery control
+    ever becomes reachable in the store build.
+    """
+    import flet as ft
+
+    from components.settings.sections_premium import build_premium_section
+    from core import build_channel
+    from core.state import state
+
+    monkeypatch.setattr(build_channel, "CHANNEL", "play", raising=False)
+
+    class Billing:
+        """Present and healthy, so only CHANNEL can be doing the work."""
+
+    class Controller:
+        billing = Billing()
+        storage = None
+
+        async def _grant_premium_benefits(self):
+            return False
+
+        async def _sync_premium_storage(self):
+            pass
+
+        async def verify_purchases(self):
+            pass
+
+    class Page:
+        platform = ft.PagePlatform.ANDROID
+        width = 390
+        height = 800
+        theme_mode = ft.ThemeMode.LIGHT
+        _ddgs_controller = Controller()
+
+        def run_task(self, handler, *a, **k):
+            pass
+
+        def show_dialog(self, dlg):
+            pass
+
+        def update(self):
+            pass
+
+    state.is_premium = False
+    state.license_recovery_id = ""
+    card = build_premium_section(Page())
+
+    blob: list[str] = []
+
+    def walk(control):
+        blob.append(type(control).__name__)
+        if isinstance(control, ft.Text) and control.value:
+            blob.append(str(control.value))
+        for child in getattr(control, "controls", None) or []:
+            walk(child)
+        for attr in ("content", "leading", "trailing", "title", "icon"):
+            child = getattr(control, attr, None)
+            if child is not None and hasattr(child, "__class__"):
+                walk(child)
+
+    walk(card)
+    rendered = " ".join(blob)
+
+    for forbidden in ("Subscribe", "Choose", "Restore", "Buy", "Recovery ID"):
+        assert forbidden not in rendered, (
+            f"the Play build must not offer {forbidden!r}"
+        )
+    # It should still explain itself, not leave the user at a dead end.
+    assert "Premium is not sold in this build" in rendered
+    assert "direct APK" in rendered, "point the user somewhere Premium exists"
+
+
+
+def test_direct_build_offers_the_purchase_flow(monkeypatch):
+    """The mirror of the Play test: a direct build must still sell."""
+    import flet as ft
+
+    from components.settings.sections_premium import build_premium_section
+    from core import build_channel
+    from core.state import state
+
+    monkeypatch.setattr(build_channel, "CHANNEL", "direct", raising=False)
+
+    class Controller:
+        billing = None
+        storage = None
+
+        async def _grant_premium_benefits(self):
+            return False
+
+        async def _sync_premium_storage(self):
+            pass
+
+        async def verify_purchases(self):
+            pass
+
+    class Page:
+        platform = ft.PagePlatform.WINDOWS
+        width = 390
+        height = 800
+        theme_mode = ft.ThemeMode.LIGHT
+        _ddgs_controller = Controller()
+
+        def run_task(self, handler, *a, **k):
+            pass
+
+        def show_dialog(self, dlg):
+            pass
+
+        def update(self):
+            pass
+
+    state.is_premium = False
+    state.license_recovery_id = ""
+    card = build_premium_section(Page())
+
+    blob: list[str] = []
+
+    def walk(control):
+        if isinstance(control, ft.Text) and control.value:
+            blob.append(str(control.value))
+        for child in getattr(control, "controls", None) or []:
+            walk(child)
+        for attr in ("content", "leading", "trailing", "title", "icon"):
+            child = getattr(control, attr, None)
+            if child is not None and hasattr(child, "__class__"):
+                walk(child)
+
+    walk(card)
+    rendered = " ".join(blob)
+    assert "recovery ID" in rendered, "a direct build needs the recovery flow"
+    assert "Choose" in rendered, "a direct build must offer plans to buy"
+
+
+def test_a_play_aab_is_stamped_free_only():
+    """The workflow must rewrite CHANNEL before the AAB is built."""
+
+    workflow = (SRC.parent / ".github" / "workflows" / "build-all.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "Stamp the Play channel" in workflow, (
+        "the AAB job must stamp CHANNEL = play"
+    )
+    stamp_step = workflow.split("Stamp the Play channel", 1)[1].split("Build AAB", 1)[0]
+    # The YAML wraps the two replacement arguments onto separate lines, so
+    # match them independently rather than as one literal.
+    assert 'CHANNEL = "direct"' in stamp_step, "the stamp reads the direct default"
+    assert 'CHANNEL = "play"' in stamp_step, "the stamp writes the play value"
+    assert "build_channel.py" in stamp_step, "the stamp must edit the channel module"
+    assert workflow.index("Stamp the Play channel") < workflow.index("Build AAB"), (
+        "the stamp has to happen before the AAB is built, not after"
+    )
+
+
+def test_android_direct_apk_needs_the_opt_in(monkeypatch):
+    """A direct APK is the build where Play payment is expected, so the
+    Flutterwave path is offered only after the user asks for it."""
+    import flet as ft
+
+    from core import build_channel
     from services import license_service
 
-    root = SRC.parent
-    premium_ui = (root / "src" / "components" / "settings" / "sections_premium.py").read_text(
-        encoding="utf-8"
-    )
-    client = (root / "src" / "services" / "license_service.py").read_text(
-        encoding="utf-8"
-    )
+    monkeypatch.setattr(build_channel, "CHANNEL", "direct", raising=False)
 
-    if license_service.is_available():
-        # Direct build: the license channel is real and reachable.
-        assert "license.kiri.ng" in client
-        assert "Checkout" not in premium_ui or "checkout" in premium_ui.lower()
-        assert "Recovery ID" in premium_ui, "direct builds need the recovery flow"
-    else:
-        # Play build: no endpoint, no hosted checkout, no recovery UI.
-        assert "license.kiri.ng" not in client, (
-            "a Play build must not carry the external payment endpoint"
-        )
-        assert "checkout_url" not in client
-        assert "Recovery ID" not in premium_ui
-        assert "Play Billing" in premium_ui or "Google Play" in premium_ui
+    class AndroidPage:
+        platform = ft.PagePlatform.ANDROID
+
+    page = AndroidPage()
+    license_service.clear_available(page)
+    assert license_service.is_available(page) is False, (
+        "a direct APK must not silently offer external checkout"
+    )
+    license_service.set_available(page, True)
+    assert license_service.is_available(page) is True
+
+    class DesktopPage:
+        platform = ft.PagePlatform.WINDOWS
+
+    # Desktop and web need no opt-in: there is no Play Store to bill through.
+    assert license_service.is_available(DesktopPage()) is True
