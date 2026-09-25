@@ -198,7 +198,7 @@ def show_model_picker(page: ft.Page) -> None:
             from services import ai_service as _ai
 
             if ps.action == "Start router":
-                await _ai.ensure_router()
+                await _ai.ensure_router(verify=True)
             await _ai.refresh_catalog()
             show_model_picker(page)
 

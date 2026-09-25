@@ -37,7 +37,9 @@ _KIND_ICONS = {
     "news": ft.Icons.NEWSPAPER_ROUNDED,
     "books": ft.Icons.BOOK_ROUNDED,
 }
-_THROUGHT_CAP = 900
+# Generous now that the body is expandable and collapsible: truncating at
+# 900 characters used to hide the reasoning the user asked to see.
+_THROUGHT_CAP = 8000
 
 _SUGGESTIONS = [
     "What happened in tech this week?",
@@ -46,10 +48,33 @@ _SUGGESTIONS = [
 ]
 
 
+def _thought_seconds(turn: dict) -> int:
+    """How long the model spent reasoning, frozen when the thought ended.
+
+    Measured from the first reasoning delta, so it excludes the wait
+    before the model started thinking.
+    """
+    started = turn.get("thought_started_at")
+    if not started:
+        return 0
+    end = turn.get("thought_ended_at") or started
+    try:
+        return int(max(end - started, 0))
+    except TypeError:
+        return 0
+
+
 def _domain(url: str) -> str:
     if "//" in url:
         return url.split("/")[2].removeprefix("www.")
     return url[:40]
+
+
+def conversations_load(conversation_id: str) -> dict | None:
+    """Read a saved conversation. Thin wrapper so callers need one import."""
+    from services import conversation_service as conversations
+
+    return conversations.load_conversation(conversation_id)
 
 
 def _turns_from_messages(messages: list[dict]) -> list[dict]:
@@ -194,7 +219,7 @@ class ChatSession:
             actions=[
                 self.model_chip,
                 self.credits_chip,
-                self._history_menu(),
+                self._history_button_control(),
                 ft.Container(width=6),
             ],
             bgcolor=ft.Colors.TRANSPARENT,
@@ -254,7 +279,10 @@ class ChatSession:
         self.cancel = asyncio.Event()
         self.busy = True
         self._set_busy_ui(True)
-        self.page.run_task(self._run_turn, text)
+        # Keep the handle so Stop can cancel the task. Setting the flag
+        # alone is cooperative: a stalled socket or a long tool can leave
+        # the UI spinning long after the user pressed Stop.
+        self._turn_task = asyncio.ensure_future(self._run_turn(text))
 
     async def _run_turn(self, text: str) -> None:
         from services import chat_agent
@@ -268,13 +296,28 @@ class ChatSession:
                 on_thought=lambda t: self.emit("thought", {"text": t}),
                 ask_confirm=self.ask_confirm,
             )
+        except asyncio.CancelledError:
+            # Stop cancelled the task outright. run_turn settles its own
+            # credits before re-raising, so nothing is left half-charged;
+            # we just keep what the user already saw.
+            logger.info("assistant turn cancelled by the user")
+            raise
         finally:
             self.busy = False
+            self._turn_task = None
             self._set_busy_ui(False)
+            # Persist and refresh the balance even on stop or failure: the
+            # credits moved whether or not the turn succeeded.
+            self._persist_history()
+            self._refresh_credits_chip()
             self._render(force=True)
 
     def stop(self) -> None:
+        """Stop the turn now: raise the flag, then cancel the task itself."""
         self.cancel.set()
+        task = getattr(self, "_turn_task", None)
+        if task is not None and not task.done():
+            task.cancel()
 
     async def ask_confirm(self, label: str) -> bool:
         """Inline approve/deny gate for file-writing tools. Times out to deny."""
@@ -299,8 +342,11 @@ class ChatSession:
         Popping the view is not the same as discarding the conversation:
         the ChatSession object stays on the page, so the FAB can bring back
         the exact same turns, scroll position and pending approval.
+
+        This deliberately does not cancel a running turn. Minimizing means
+        putting the conversation away, not discarding work in progress, and
+        the FAB brings the user straight back to it.
         """
-        self.cancel.set()
         self._persist_history()
         try:
             if self.page.views and self.page.views[-1] is self.view:
@@ -405,27 +451,81 @@ class ChatSession:
         state.active_conversation = self.conversation_id
         self.turns = []
         self.agent_history = []
+        self._remember_active()
         self._render(force=True)
+
+    def _toggle_thought(self, turn: dict) -> None:
+        turn["thought_open"] = not bool(turn.get("thought_open", True))
+        self._render(force=True)
+
+    def _retry_last(self) -> None:
+        """Re-send the last user message of the active chat."""
+        for turn in reversed(self.turns):
+            if turn.get("role") == "user" and str(turn.get("text") or "").strip():
+                self.send(turn["text"])
+                return
+        self._snack("There is nothing to retry")
+
+    def _switch_model_and_retry(self, model_id: str) -> None:
+        """Apply the suggested model, then re-ask the last question.
+
+        Both halves matter: a rate limit is only recovered from if the new
+        model is actually the one the next request uses.
+        """
+        if not model_id:
+            return
+        from components.model_picker import _select
+
+        _select(self.page, getattr(self.page, "_ddgs_controller", None), model_id)
+        self.refresh_model_chip()
+        self._retry_last()
+
+    def _adopt(self, loaded: dict) -> None:
+        """Make a loaded conversation the live one, with no same-id guard.
+
+        Split out from switch_conversation so deleting the active chat can
+        load its replacement: the caller sets the id itself, and the old
+        guard would have seen the ids already matching and returned early,
+        leaving the deleted chat's turns on screen.
+        """
+        self.conversation_id = str(loaded.get("id") or self.conversation_id)
+        state.active_conversation = self.conversation_id
+        self.turns = _turns_from_messages(loaded.get("messages") or [])
+        self.agent_history = list(loaded.get("messages") or [])
+        self._remember_active()
+        self._render(force=True)
+
+    def _remember_active(self) -> None:
+        """Remember the open chat so the next launch returns to it."""
+        ctrl = getattr(self.page, "_ddgs_controller", None)
+        storage = getattr(ctrl, "storage", None) if ctrl else None
+        if storage is None:
+            return
+
+        async def _save() -> None:
+            try:
+                await storage.set_active_conversation(self.conversation_id)
+            except Exception:
+                logger.debug("could not remember the active chat")
+
+        try:
+            self.page.run_task(_save)
+        except Exception:
+            pass
 
     def switch_conversation(self, conversation_id: str) -> None:
         """Open a saved chat in this session."""
-        from services import conversation_service as conversations
-
         if conversation_id == self.conversation_id:
             return
         if self.busy:
             self._snack("Wait for the current reply to finish")
             return
         self._persist_history()
-        loaded = conversations.load_conversation(conversation_id)
+        loaded = conversations_load(conversation_id)
         if loaded is None:
             self._snack("That chat could not be opened")
             return
-        self.conversation_id = conversation_id
-        state.active_conversation = conversation_id
-        self.turns = _turns_from_messages(loaded.get("messages") or [])
-        self.agent_history = list(loaded.get("messages") or [])
-        self._render(force=True)
+        self._adopt(loaded)
 
     def delete_conversation(self, conversation_id: str) -> None:
         from services import conversation_service as conversations
@@ -438,11 +538,14 @@ class ChatSession:
         if was_active:
             rows = conversations.list_conversations()
             if rows:
-                # keep_current=False: this chat is gone, so saving it again
-                # would recreate the file the user just deleted.
-                self.conversation_id = rows[0]["id"]
-                state.active_conversation = rows[0]["id"]
-                self.switch_conversation(rows[0]["id"])
+                # Load the replacement directly. Going through
+                # switch_conversation() would set the id first and then hit
+                # its own same-id guard, leaving the deleted chat's turns
+                # on screen. keep_current=False everywhere: this chat is
+                # gone, so saving it again would recreate the deleted file.
+                loaded = conversations.load_conversation(rows[0]["id"])
+                if loaded is not None:
+                    self._adopt(loaded)
             else:
                 self.new_conversation(keep_current=False)
         self._snack("Chat deleted")
@@ -458,156 +561,167 @@ class ChatSession:
         else:
             self._snack("All chats deleted")
 
-    def _history_menu(self) -> ft.PopupMenuButton:
-        """The hamburger. Items are rebuilt on every open, never cached.
+    def _history_button_control(self) -> ft.IconButton:
+        """The hamburger. It opens a sheet rebuilt from disk every time.
 
-        The items used to be built once when the session was created, so a
-        chat deleted in the menu kept showing until the whole screen was
-        refreshed. on_open re-reads the list from disk each time.
+        A popup menu froze its items when the session was created, so a
+        deleted chat kept showing until the whole screen refreshed. A sheet
+        is also the right surface: 50 chats do not fit a dropdown, and a
+        truncated list means the older files you can still open are
+        invisible.
         """
-        self._history_button = ft.PopupMenuButton(
-            tooltip="Chat history",
+        return ft.IconButton(
             icon=ft.Icons.MENU_ROUNDED,
+            icon_size=18,
             icon_color=AppColors.PRIMARY,
-            items=self._history_items(),
-            on_open=lambda e: self._refresh_history_menu(),
+            tooltip="Chat history",
+            on_click=lambda e: self._open_history_sheet(),
         )
-        return self._history_button
 
-    def _refresh_history_menu(self) -> None:
-        """Re-read the conversation list and swap the menu contents."""
-        try:
-            button = getattr(self, "_history_button", None)
-            if button is None:
-                return
-            button.items = self._history_items()
-            button.update()
-        except Exception:
-            logger.exception("history menu refresh failed")
-
-    def _history_items(self) -> list[ft.PopupMenuItem]:
+    def _open_history_sheet(self) -> None:
+        """Build and show the chat list, newest first, all of them."""
         from services import conversation_service as conversations
 
         rows = conversations.list_conversations()
-        items: list[ft.PopupMenuItem] = [
-            ft.PopupMenuItem(
-                content=ft.Row(
-                    [
-                        ft.Icon(
-                            ft.Icons.ADD_ROUNDED,
-                            size=tokens.ICON_SM,
-                            color=AppColors.PRIMARY,
-                        ),
-                        ft.Text(
-                            "New chat",
-                            size=tokens.FONT_SM,
-                            weight=ft.FontWeight.W_500,
-                        ),
-                    ],
-                    spacing=8,
+
+        def _close(e=None):
+            try:
+                self.page.pop_dialog()
+            except Exception:
+                pass
+
+        def _new_chat(e=None):
+            _close()
+            self.new_conversation()
+
+        def _open_chat(cid: str):
+            def _handler(e=None):
+                _close()
+                self.switch_conversation(cid)
+
+            return _handler
+
+        def _delete_chat(cid: str):
+            def _handler(e=None):
+                _close()
+                self._confirm_delete_one(cid)
+
+            return _handler
+
+        tiles: list[ft.Control] = [
+            ft.ListTile(
+                leading=ft.Icon(
+                    ft.Icons.ADD_ROUNDED, color=ft.Colors.PRIMARY, size=tokens.ICON_MD
                 ),
-                on_click=lambda e: self.new_conversation(),
-            ),
+                title=ft.Text(
+                    "New chat",
+                    weight=ft.FontWeight.W_500,
+                    font_family="Outfit",
+                ),
+                subtitle=ft.Text(
+                    "Start a fresh conversation", size=tokens.FONT_XS
+                ),
+                on_click=_new_chat,
+            )
         ]
 
-        if rows:
-            items.append(
-                ft.PopupMenuItem(disabled=True, content=ft.Container(height=1))
-            )
-            items.append(
-                ft.PopupMenuItem(
-                    disabled=True,
+        if not rows:
+            tiles.append(
+                ft.Container(
                     content=ft.Text(
-                        "RECENT CHATS",
-                        size=tokens.FONT_XS,
-                        weight=ft.FontWeight.W_700,
+                        "No saved chats yet.",
+                        size=tokens.FONT_SM,
                         color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
-                )
-            )
-        for row in rows[:12]:
-            conversation_id = row["id"]
-            is_active = conversation_id == self.conversation_id
-            items.append(
-                ft.PopupMenuItem(
-                    content=ft.Row(
-                        [
-                            ft.Icon(
-                                ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED
-                                if is_active
-                                else ft.Icons.CHAT_BUBBLE_OUTLINE,
-                                size=tokens.ICON_SM,
-                                color=AppColors.PRIMARY
-                                if is_active
-                                else ft.Colors.ON_SURFACE_VARIANT,
-                            ),
-                            ft.Column(
-                                [
-                                    ft.Text(
-                                        row.get("title") or "Untitled",
-                                        size=tokens.FONT_SM,
-                                        weight=ft.FontWeight.W_600
-                                        if is_active
-                                        else ft.FontWeight.W_400,
-                                        color=AppColors.PRIMARY
-                                        if is_active
-                                        else ft.Colors.ON_SURFACE,
-                                        max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS,
-                                    ),
-                                    ft.Text(
-                                        conversations.summarize(row),
-                                        size=tokens.FONT_XS,
-                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                    ),
-                                ],
-                                spacing=1,
-                                tight=True,
-                                expand=True,
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
-                                icon_size=tokens.ICON_SM,
-                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                                tooltip="Delete this chat",
-                                on_click=lambda e, cid=conversation_id: (
-                                    self._on_delete_button(e, cid)
-                                ),
-                            ),
-                        ],
-                        spacing=8,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    ),
-                    on_click=lambda e, cid=conversation_id: self.switch_conversation(
-                        cid
+                    padding=ft.Padding(
+                        tokens.SPACE_LG, tokens.SPACE_MD, tokens.SPACE_LG, tokens.SPACE_MD
                     ),
                 )
             )
 
-        items.append(ft.PopupMenuItem(disabled=True, content=ft.Container(height=1)))
-        items.append(
-            ft.PopupMenuItem(
-                content=ft.Row(
-                    [
-                        ft.Icon(
-                            ft.Icons.DELETE_SWEEP_OUTLINED,
-                            size=tokens.ICON_SM,
-                            color=ft.Colors.ERROR,
-                        ),
-                        ft.Text(
-                            "Delete all chats",
-                            size=tokens.FONT_SM,
-                            color=ft.Colors.ERROR,
-                        ),
-                    ],
-                    spacing=8,
+        for row in rows:
+            conversation_id = str(row.get("id") or "")
+            is_active = conversation_id == self.conversation_id
+            title = str(row.get("title") or "New chat")
+            tiles.append(
+                ft.ListTile(
+                    leading=ft.Icon(
+                        ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+                        size=tokens.ICON_MD,
+                        color=ft.Colors.PRIMARY if is_active else None,
+                    ),
+                    title=ft.Text(
+                        title,
+                        weight=ft.FontWeight.W_600 if is_active else None,
+                        font_family="Outfit",
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                    subtitle=ft.Text(
+                        conversations.summarize(row),
+                        size=tokens.FONT_XS,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    bgcolor=(
+                        ft.Colors.with_opacity(0.10, ft.Colors.PRIMARY)
+                        if is_active
+                        else None
+                    ),
+                    on_click=_open_chat(conversation_id),
+                    trailing=ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                        icon_size=tokens.ICON_SM,
+                        icon_color=AppColors.ERROR,
+                        tooltip="Delete this chat",
+                        on_click=_delete_chat(conversation_id),
+                    ),
+                )
+            )
+
+        tiles.append(
+            ft.Divider(height=1, color=ft.Colors.with_opacity(0.2, ft.Colors.OUTLINE))
+        )
+        tiles.append(
+            ft.ListTile(
+                leading=ft.Icon(
+                    ft.Icons.DELETE_SWEEP_OUTLINED,
+                    color=AppColors.ERROR,
+                    size=tokens.ICON_MD,
                 ),
-                on_click=lambda e: self._confirm_delete_all(),
+                title=ft.Text(
+                    "Delete all chats",
+                    color=AppColors.ERROR,
+                    font_family="Outfit",
+                ),
+                on_click=lambda e: (_close(), self._confirm_delete_all()),
             )
         )
 
-        return items
-
+        # Scrollable with a bounded height: 50 tiles must not push the
+        # sheet off the screen on a phone.
+        self.page.show_dialog(
+            ft.BottomSheet(
+                content=ft.Container(
+                    content=ft.Column(
+                        controls=tiles,
+                        spacing=0,
+                        tight=True,
+                        scroll=ft.ScrollMode.AUTO,
+                    ),
+                    padding=ft.Padding(
+                        tokens.SPACE_SM,
+                        tokens.SPACE_MD,
+                        tokens.SPACE_SM,
+                        tokens.SPACE_MD,
+                    ),
+                    height=min(
+                        len(tiles) * 72 + 40,
+                        (getattr(self.page, "height", None) or 700) * 0.7,
+                    ),
+                ),
+                show_drag_handle=True,
+            )
+        )
     def _on_delete_button(self, e, conversation_id: str) -> None:
         """Delete from a menu row without also opening that row's chat.
 
@@ -741,6 +855,8 @@ class ChatSession:
                 return
             self._last_partial_flush = now
         elif event == "thought" and self._current is not None:
+            if not self._current.get("thought_started_at"):
+                self._current["thought_started_at"] = now
             buf = (self._current.get("thought") or "") + data.get("text", "")
             self._current["thought"] = buf[:_THROUGHT_CAP]
             force = False
@@ -770,6 +886,12 @@ class ChatSession:
                 {"kind": data.get("kind", "web"), "results": data.get("results", [])}
             )
         elif event == "text_final" and self._current is not None:
+            # Reasoning is over once the answer starts, so freeze its
+            # duration instead of letting the label keep counting.
+            if self._current.get("thought_started_at") and not self._current.get(
+                "thought_ended_at"
+            ):
+                self._current["thought_ended_at"] = now
             self._current.update(
                 text=data.get("text", ""),
                 related=data.get("related", []),
@@ -780,17 +902,18 @@ class ChatSession:
                 partial=False,
                 receipt="",
             )
-            self.agent_history = (
-                self.agent_history
-                + [
-                    {"role": "user", "content": self.pending_user},
-                    {"role": "assistant", "content": self._current["text"]},
-                ]
-            )[-16:]
+            self.agent_history = self.agent_history + [
+                {"role": "user", "content": self.pending_user},
+                {"role": "assistant", "content": self._current["text"]},
+            ]
             self._persist_history()
             self._refresh_credits_chip()
             self.refresh_model_chip()
         elif event == "stopped" and self._current is not None:
+            if self._current.get("thought_started_at") and not self._current.get(
+                "thought_ended_at"
+            ):
+                self._current["thought_ended_at"] = now
             self._current.update(
                 partial=False,
                 stopped=True,
@@ -798,9 +921,18 @@ class ChatSession:
                 cost=data.get("cost", self._current.get("cost", 0)),
             )
         elif event == "error" and self._current is not None:
+            if self._current.get("thought_started_at") and not self._current.get(
+                "thought_ended_at"
+            ):
+                self._current["thought_ended_at"] = now
             self._current.update(
                 partial=False,
                 error=data.get("kind", "unavailable"),
+                # Rate limits and empty answers carry their own copy and a
+                # next step, so they are not flattened into a generic
+                # "unavailable" the user can do nothing about.
+                error_message=str(data.get("message") or ""),
+                suggestion=str(data.get("suggestion") or ""),
                 steps=data.get("steps", self._current.get("steps", 0)),
                 cost=data.get("cost", self._current.get("cost", 0)),
             )
@@ -825,6 +957,10 @@ class ChatSession:
             )
             if data.get("kind") == "credits":
                 self.busy = False
+            self._refresh_credits_chip()
+        # The balance moved for stops, failures and rate limits too, so the
+        # chip is refreshed on every terminal event, not only on success.
+        if event in ("text_final", "error", "stopped"):
             self._refresh_credits_chip()
         self._render(force=force)
 
@@ -983,22 +1119,64 @@ class ChatSession:
         kids: list[ft.Control] = []
 
         if (turn.get("thought") or "").strip():
+            thinking_open = bool(turn.get("thought_open", True))
+            still_thinking = bool(turn.get("partial")) and not turn.get("text")
+            elapsed = _thought_seconds(turn)
+            label = (
+                "Thinking…"
+                if still_thinking
+                else f"Thought for {elapsed}s"
+                if elapsed
+                else "Thought it through"
+            )
+            block: list[ft.Control] = [
+                ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.PSYCHOLOGY_ROUNDED,
+                            size=tokens.ICON_SM,
+                            color=AppColors.WARNING
+                            if still_thinking
+                            else AppColors.SUCCESS,
+                        ),
+                        ft.Text(
+                            label,
+                            size=tokens.FONT_XS,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                        ft.Container(expand=True),
+                        ft.Icon(
+                            ft.Icons.EXPAND_LESS_ROUNDED
+                            if thinking_open
+                            else ft.Icons.EXPAND_MORE_ROUNDED,
+                            size=tokens.ICON_SM,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                    spacing=6,
+                )
+            ]
+            if thinking_open:
+                block.append(
+                    ft.Text(
+                        turn["thought"].strip(),
+                        size=tokens.FONT_XS,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        selectable=True,
+                    )
+                )
             kids.append(
                 ft.Container(
-                    content=ft.Text(
-                        "💭 " + turn["thought"].strip().replace("\n", " "),
-                        size=tokens.FONT_XS,
-                        italic=True,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                        max_lines=2,
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
-                    padding=ft.Padding(8, 4, 8, 4),
+                    content=ft.Column(block, spacing=4, tight=True),
+                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
                     border_radius=tokens.RADIUS_SM,
-                    bgcolor=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                    padding=ft.Padding(8, 8, 8, 8),
+                    ink=True,
+                    tooltip="Tap to expand or collapse",
+                    on_click=lambda e, t=turn: self._toggle_thought(t),
                 )
             )
-
         for row in turn.get("steps_rows", []):
             if row["state"] == "running":
                 icon = ft.Row(
@@ -1016,8 +1194,16 @@ class ChatSession:
             if row["state"] == "done" and row.get("count"):
                 label = label.removesuffix("…")
                 label += f": {row['count']} results"
-            if row["state"] == "error" and row.get("error"):
-                label = f"{label.rstrip('…')}: no results"
+            if row["state"] == "error":
+                # Show what actually went wrong. "no results" for a denied
+                # write, a network failure and an empty search told the user
+                # nothing they could act on.
+                detail = str(row.get("error") or "").strip()
+                if not detail:
+                    detail = "no results"
+                elif len(detail) > 90:
+                    detail = detail[:90].rstrip() + "…"
+                label = f"{label.rstrip('…')}: {detail}"
             kids.append(
                 ft.Row(
                     [
@@ -1127,6 +1313,67 @@ class ChatSession:
                     "⚠ Connection lost mid-answer. What arrived was still charged.",
                     size=tokens.FONT_XS,
                     color=AppColors.WARNING,
+                )
+            )
+        elif turn.get("error") == "rate_limited":
+            suggestion = str(turn.get("suggestion") or "")
+            kids.append(
+                ft.Column(
+                    [
+                        ft.Text(
+                            str(turn.get("error_message") or "")
+                            or "Rate limited right now.",
+                            size=tokens.FONT_XS,
+                            color=AppColors.WARNING,
+                        ),
+                        *(
+                            [
+                                ft.TextButton(
+                                    f"Use {suggestion} and retry",
+                                    icon=ft.Icons.AUTO_AWESOME_ROUNDED,
+                                    on_click=lambda e, mid=suggestion: (
+                                        self._switch_model_and_retry(mid)
+                                    ),
+                                    style=ft.ButtonStyle(
+                                        padding=ft.Padding(0, 0, 0, 0)
+                                    ),
+                                )
+                            ]
+                            if suggestion
+                            else []
+                        ),
+                        ft.TextButton(
+                            "Ask again",
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            on_click=lambda e: self._retry_last(),
+                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
+                        ),
+                    ],
+                    spacing=2,
+                    tight=True,
+                    alignment=ft.MainAxisAlignment.START,
+                )
+            )
+        elif turn.get("error") == "empty":
+            kids.append(
+                ft.Column(
+                    [
+                        ft.Text(
+                            "That model replied with nothing. You were not "
+                            "charged for it.",
+                            size=tokens.FONT_XS,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.TextButton(
+                            "Ask again",
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            on_click=lambda e: self._retry_last(),
+                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
+                        ),
+                    ],
+                    spacing=2,
+                    tight=True,
+                    alignment=ft.MainAxisAlignment.START,
                 )
             )
         elif turn.get("error") == "unavailable":

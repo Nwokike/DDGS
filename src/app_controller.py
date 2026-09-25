@@ -452,8 +452,18 @@ class AppController:
                         "info",
                     )
             state.conversations = rows
+            # Re-open the chat the user was last in, not merely the newest.
+            remembered = ""
+            if self.storage is not None:
+                try:
+                    remembered = await self.storage.get_active_conversation()
+                except Exception:
+                    remembered = ""
+            known = {r["id"] for r in rows}
             state.active_conversation = (
-                rows[0]["id"] if rows else conversations.new_conversation_id()
+                remembered
+                if remembered and remembered in known
+                else (rows[0]["id"] if rows else conversations.new_conversation_id())
             )
             active = await asyncio.to_thread(
                 conversations.load_conversation, state.active_conversation

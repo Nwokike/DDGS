@@ -73,6 +73,22 @@ class AIMidStream(Exception):
     """The source died after tokens were delivered — partial answer, no retry."""
 
 
+class AIRateLimited(Exception):
+    """Every candidate was capped. Carries a message and a next step.
+
+    Distinct from AIUnavailable on purpose: a capped free tier is a
+    "try this model instead" moment, not a broken app, and the UI offers a
+    one-tap switch when `suggestion` is set.
+    """
+
+    def __init__(self, model_id: str = ""):
+        message, suggestion = rate_limit_advice(model_id)
+        self.model_id = str(model_id or "")
+        self.message = message
+        self.suggestion = suggestion
+        super().__init__(message)
+
+
 class NotEnoughCredits(Exception):
     """Raised before any call when the local reserve fails."""
 
@@ -139,6 +155,86 @@ def model_hint(model_id: str) -> str:
     return ""
 
 
+def _cap_per_hour(entry: dict) -> int | None:
+    """Published hourly cap, when the router states one."""
+    rate = entry.get("rate_hint") or {}
+    if not isinstance(rate, dict):
+        return None
+    value = rate.get("approx_per_hour")
+    return int(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def rate_limit_advice(model_id: str = "") -> tuple[str, str]:
+    """What to say when every candidate model is capped.
+
+    Returns (message, suggested_model_id). "Rate limited. Try again." reads
+    like something is broken, but the router publishes a per-model cap and a
+    pool of alternatives, so the reply can name one that is not capped. That
+    is the difference between a dead end and a next step.
+
+    An empty suggestion means there is nothing better to point at, and the
+    caller must not render a button for it.
+    """
+    if not _catalog:
+        return ("Kiri's free tier is busy right now. Try again shortly.", "")
+
+    def _label(entry: dict) -> str:
+        return str((entry.get("rate_hint") or {}).get("label") or "").strip()
+
+    others = [m for m in _catalog if str(m.get("id")) != str(model_id)]
+    # Prefer a model whose own published cap can take the load, then the
+    # fastest of the rest, so the suggestion is actually usable.
+    ranked = sorted(
+        others,
+        key=lambda m: (
+            _cap_per_hour(m) or 10**9,
+            m.get("latency_ms") if isinstance(m.get("latency_ms"), int) else 10**9,
+            str(m.get("id") or "").lower(),
+        ),
+    )
+    suggestion_id = str(ranked[0].get("id")) if ranked else ""
+
+    if not model_id or str(model_id).lower() == "auto":
+        # auto rotates, so it has no single cap of its own. Suggesting a
+        # model would be pointless if that model is itself the capped one
+        # auto was rotating through, so exclude anything the catalog
+        # already reports as rate limited or failed.
+        healthy = [
+            m
+            for m in _catalog
+            if str(m.get("id")) != "auto"
+            and str(m.get("status") or "active") == "active"
+        ]
+        if healthy:
+            pick = min(
+                healthy,
+                key=lambda m: (
+                    _cap_per_hour(m) or 10**9,
+                    m.get("latency_ms")
+                    if isinstance(m.get("latency_ms"), int)
+                    else 10**9,
+                    str(m.get("id") or "").lower(),
+                ),
+            )
+            suggestion_id = str(pick.get("id"))
+        row = next((m for m in _catalog if str(m.get("id")) == "auto"), {})
+        hint = _label(row)
+        lead = f"Rate limited right now. {hint}" if hint else "Rate limited right now."
+        tail = (
+            f"Try again shortly, or pick {suggestion_id}."
+            if suggestion_id
+            else "Try again shortly."
+        )
+        return (f"{lead} {tail}", suggestion_id)
+
+    row = next((m for m in _catalog if str(m.get("id")) == model_id), None)
+    hint = _label(row) if row else ""
+    suggestion = f" Try {suggestion_id} instead." if suggestion_id else ""
+    if hint:
+        return (f"Rate limited. {hint}.{suggestion}", suggestion_id)
+    return (f"Rate limited by this model.{suggestion}", suggestion_id)
+
+
 async def _probe_existing_router() -> int | None:
     """Scan 8082..8092 for a live Kiri router (ours or the user's own)."""
     async with httpx.AsyncClient(http2=False) as client:
@@ -189,12 +285,32 @@ async def probe_router() -> tuple[str, int | None]:
     return ("stopped", port)
 
 
-async def ensure_router() -> int | None:
-    """Attach to a running Kiri router, or embed one. Returns its port."""
+async def ensure_router(*, verify: bool = False) -> int | None:
+    """Attach to a running Kiri router, or embed one. Returns its port.
+
+    `verify=True` health-checks the port we already hold before trusting
+    it. Without it a stale port is returned forever, which made the
+    picker's "Start router" action look like it did nothing. The picker
+    calls it with verify=True; the normal request path does not, because
+    paying a 2s probe on every turn is not worth it.
+    """
     global _router_server, _router_port
     with _router_lock:
         if _router_port is not None:
-            return _router_port
+            known = _router_port
+        else:
+            known = None
+    if known is not None:
+        if not verify:
+            return known
+        status, _port = await probe_router()
+        if status == "ready":
+            return known
+        # The port is dead. Forget it so the normal attach path runs again.
+        with _router_lock:
+            if _router_port == known:
+                _router_port = None
+        logger.info("AI router on %s is gone; re-attaching", known)
 
     # Publish "starting" before the slow parts so the picker can say so.
     _publish_status("starting", None)
@@ -551,6 +667,7 @@ async def _stream_router(
         candidates = [c for c in picked if c] or candidates
 
     last_error: Exception | None = None
+    rate_limited = False
     for candidate in candidates:
         payload: dict = {
             "model": candidate,
@@ -609,6 +726,11 @@ async def _stream_router(
             raise
         except _RouterModelError as exc:
             last_error = exc
+            # 429 specifically is a capped model, not a dead router. Keep
+            # rotating, but remember that it happened so the eventual
+            # failure can offer a different model instead of shrugging.
+            if getattr(exc, "status", 0) == 429:
+                rate_limited = True
             continue
         except (
             httpx.TimeoutException,
@@ -621,6 +743,10 @@ async def _stream_router(
                 raise AIMidStream(str(exc)) from exc
             last_error = exc
             break  # connectivity is model-independent — go to gateway
+    if rate_limited:
+        # Every candidate we tried was capped. That is recoverable advice,
+        # not an outage, so it gets its own outcome.
+        raise AIRateLimited(model)
     _mark_router_failed()
     raise AIUnavailable(f"router exhausted candidates: {last_error}")
 
@@ -720,7 +846,8 @@ async def stream_llm(
     Returns {"served_by", "model", "finish_reason", "tool_calls"|None}.
     `model` is the id that actually answered, which matters when the
     request asked for "auto" and the router picked one.
-    Raises AIUnavailable (nothing delivered) or AIMidStream (partial).
+    Raises AIUnavailable (nothing delivered), AIMidStream (partial) or
+    AIRateLimited (every candidate was capped, with a next step).
     """
     try:
         async with httpx.AsyncClient(http2=False) as client:
@@ -729,14 +856,23 @@ async def stream_llm(
             )
         result["served_by"] = "router"
         return result
+    except AIRateLimited:
+        # The gateway is a different provider pool, so it is still worth
+        # trying before telling the user they are capped. Only if that
+        # fails too does the rate limit reach the UI.
+        logger.info("router models capped — trying gateway")
     except AIUnavailable as exc:
         logger.info("AI router unavailable (%s) — falling back to gateway", exc)
     except AIMidStream:
         raise
-    async with httpx.AsyncClient(http2=False) as client:
-        result = await _stream_gateway(
-            client, messages, on_token, tools, on_thought, model, max_tokens
-        )
+    try:
+        async with httpx.AsyncClient(http2=False) as client:
+            result = await _stream_gateway(
+                client, messages, on_token, tools, on_thought, model, max_tokens
+            )
+    except AIUnavailable:
+        # Preserve the original, more actionable reason for the failure.
+        raise AIRateLimited(str(model or "")) from None
     result["served_by"] = "gateway"
     return result
 

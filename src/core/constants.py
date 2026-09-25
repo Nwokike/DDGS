@@ -26,6 +26,7 @@ STORAGE_SEARCH_LICENSE = "search_license"
 STORAGE_SCHEDULED_SCRAPES = "scheduled_scrapes"
 STORAGE_AI_MODEL = "ai_model"
 STORAGE_ASSISTANT_HISTORY = "assistant_history"
+STORAGE_ACTIVE_CONVERSATION = "active_conversation"
 
 # Kiri License (direct/web channel). Deliberately separate from
 # STORAGE_IS_PREMIUM, which is the *resolved* entitlement written by
