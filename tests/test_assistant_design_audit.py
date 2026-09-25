@@ -77,28 +77,33 @@ def _session_stub():
 
 
 # ── the deleted message must stay deleted ────────────────────────────────
+def _chat(*pairs: str) -> list[dict]:
+    """A transcript of alternating user/assistant rows from 'role,text' pairs."""
+    turns = []
+    for i, text in enumerate(pairs):
+        turns.append({"role": "user" if i % 2 == 0 else "assistant", "text": text})
+    return turns
+
+
 def test_deleting_a_message_removes_it_from_the_transcript(tmp_path, monkeypatch):
     monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
     ChatSession, Page = _session_stub()
 
     session = ChatSession(Page())
-    session.agent_history = [
-        {"role": "user", "content": "first question"},
-        {"role": "assistant", "content": "first answer"},
-        {"role": "user", "content": "second question"},
-        {"role": "assistant", "content": "second answer"},
-    ]
-    session.turns = _turns(session)
-    before = len(session.agent_history)
+    session.turns = _chat(
+        "first question", "first answer", "second question", "second answer"
+    )
+    before = len(session.turns)
 
     session._delete_turn(2)  # the second user message
 
-    assert len(session.agent_history) == before - 2, "the exchange was not removed"
-    text = " ".join(str(m.get("content")) for m in session.agent_history)
+    assert len(session.turns) == before - 2, "the exchange was not removed"
+    text = " ".join(str(t.get("text")) for t in session.turns)
     assert "second question" not in text, "the deleted message stayed in the transcript"
     assert "second answer" not in text, "the orphaned answer survived"
     assert "first question" in text, "unrelated messages must be untouched"
-    assert len(session.turns) == 2, "the view must be rebuilt from the transcript"
+    # There is one transcript, so what the model reads cannot lag the view.
+    assert "second question" not in str(session._model_history())
 
     # and it must not come back on reload, which is the reported bug
     from services import conversation_service as cs
@@ -112,35 +117,54 @@ def test_deleting_a_message_removes_it_from_the_transcript(tmp_path, monkeypatch
     assert "first question" in persisted
 
 
-def _turns(session):
-    from screens.chat_screen import _turns_from_messages
-
-    return _turns_from_messages(session.agent_history)
-
-
 def test_deleting_a_message_keeps_the_view_in_sync(tmp_path, monkeypatch):
     monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
     ChatSession, Page = _session_stub()
     session = ChatSession(Page())
-    session.agent_history = [
-        {"role": "user", "content": "a"},
-        {"role": "assistant", "content": "b"},
-        {"role": "user", "content": "c"},
-        {"role": "assistant", "content": "d"},
-    ]
-    session.turns = _turns(session)
+    session.turns = _chat("a", "b", "c", "d")
     session._delete_turn(0)
-    assert len(session.turns) == len(session.agent_history) == 2
+    assert len(session.turns) == 2
+    assert [m["content"] for m in session._model_history()] == ["c", "d"], (
+        "the projection must be the same list the screen just edited"
+    )
 
 
 def test_deleting_out_of_range_is_a_no_op(tmp_path, monkeypatch):
     monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
     ChatSession, Page = _session_stub()
     session = ChatSession(Page())
-    session.agent_history = [{"role": "user", "content": "only"}]
-    session.turns = _turns(session)
+    session.turns = _chat("only")
     session._delete_turn(99)
-    assert len(session.agent_history) == 1
+    assert len(session.turns) == 1
+
+
+def test_what_is_saved_is_what_the_model_is_told(tmp_path, monkeypatch):
+    """One projection serves disk and context, so they cannot disagree.
+
+    Two lists meant a partial or failed exchange could be on screen, absent
+    from the file, and absent from the model's context — three different
+    histories of the same conversation.
+    """
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = [
+        {"role": "user", "text": "why is the sky blue"},
+        {"role": "assistant", "text": "rayleigh scattering"},
+        # A failure that streamed nothing is not something the model should
+        # be told the user said.
+        {"role": "assistant", "text": "", "error": "unavailable"},
+    ]
+    projected = session._model_history()
+    assert [m["role"] for m in projected] == ["user", "assistant"]
+    assert projected[0]["content"] == "why is the sky blue"
+
+    session._persist_history()
+    from services import conversation_service as cs
+
+    rows = cs.list_conversations()
+    stored = cs.load_conversation(rows[0]["id"])["messages"]
+    assert stored == projected, "the file and the model must read one transcript"
 
 
 # ── the destroyed-session cascade ────────────────────────────────────────
@@ -149,11 +173,7 @@ def test_session_shutdown_stops_the_turn_and_persists(tmp_path, monkeypatch):
     ChatSession, Page = _session_stub()
     page = Page()
     session = ChatSession(page)
-    session.agent_history = [
-        {"role": "user", "content": "question"},
-        {"role": "assistant", "content": "answer"},
-    ]
-    session.turns = _turns(session)
+    session.turns = _chat("question", "answer")
     session.busy = True
     session.send = lambda text: None  # not used; we are shutting down
 
@@ -180,8 +200,7 @@ def test_render_does_not_talk_to_a_dead_session(tmp_path, monkeypatch):
 
     page = DeadPage()
     session = ChatSession(page)
-    session.agent_history = [{"role": "user", "content": "q"}]
-    session.turns = _turns(session)
+    session.turns = _chat("q")
     session._pinned = True
     session._render()  # must not raise
     assert True
@@ -195,11 +214,7 @@ def test_persist_schedules_the_save_before_touching_observable_state(
     ChatSession, Page = _session_stub()
     page = Page()
     session = ChatSession(page)
-    session.agent_history = [
-        {"role": "user", "content": "q"},
-        {"role": "assistant", "content": "a"},
-    ]
-    session.turns = _turns(session)
+    session.turns = _chat("q", "a")
     session._persist_history()
     assert "_save_history" in page.scheduled, (
         "the disk save must be scheduled even if an observable write fails"
@@ -217,6 +232,27 @@ def test_turn_task_exception_is_retrieved():
     ).read_text(encoding="utf-8")
     assert "add_done_callback(self._on_turn_done)" in source
     assert "def shutdown(self)" in source
+
+
+def test_there_is_no_second_transcript_to_get_out_of_sync():
+    """The bug class, not the instance.
+
+    Every history defect in this file came from two lists being mutated at
+    different times. `turns` is the only transcript now; disk and model
+    context are both `flat_from_turns(turns)`.
+    """
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "self.agent_history" not in source, "a second in-memory list is back"
+    assert "self.pending_user" not in source, (
+        "the staging field that fed the second list is back"
+    )
+    service = (SRC / "services" / "conversation_service.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def flat_from_turns(" in service
+    # ...and the offset mapper that translated between the two is gone.
+    assert "def _transcript_offset" not in source
+    assert "def _record_turn" not in source
 
 
 def test_app_close_stops_the_turn_before_flushing():

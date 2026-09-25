@@ -62,6 +62,36 @@ def _title_from_messages(messages: list[dict]) -> str:
     return "New chat"
 
 
+def flat_from_turns(turns: list[dict]) -> list[dict]:
+    """Project a rendered transcript into the flat pairs that are stored.
+
+    The screen owns exactly one list — `turns`, the thing the user sees —
+    and this is the only place it becomes `{"role", "content"}`. What is
+    written to disk and what the model is handed are the same projection,
+    so they cannot disagree.
+
+    This exists because the second list used to live in memory beside the
+    first: a delete updated one and persisted the other, and the message
+    came straight back from disk. LM Router keeps one transcript too
+    (`lm-router/src/services/history.py`), projecting kani's history into
+    display messages rather than mirroring both directions.
+    """
+    flat: list[dict] = []
+    for turn in turns or []:
+        if not isinstance(turn, dict):
+            continue
+        role = turn.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        text = turn.get("text")
+        if not isinstance(text, str) or not text.strip():
+            # An error row with nothing behind it is not something the
+            # model should be told the user said.
+            continue
+        flat.append({"role": role, "content": text})
+    return flat
+
+
 # Ids deleted recently. A save already in flight when the user deletes a
 # chat would otherwise rewrite the file and resurrect it after the next
 # restart, which looks exactly like "delete does nothing".
