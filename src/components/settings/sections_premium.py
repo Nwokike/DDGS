@@ -240,10 +240,19 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         if not state.license_recovery_id:
             _snack("Buy Premium first, then check the status", "warning")
             return
-        await premium_service.refresh_from_server()
+        answered = await premium_service.refresh_from_server(page)
         if controller is not None:
             await controller._sync_premium_storage()
-        if state.license_status in ("active", "grace"):
+        if not answered:
+            # Never claim a confirmation we did not receive. Saying
+            # "Payment confirmed" after a failed request is the one message
+            # a buyer would be most misled by.
+            _snack(
+                "Could not reach the payment service. Check your connection "
+                "and try again.",
+                "warning",
+            )
+        elif state.license_status in ("active", "grace"):
             _snack("Payment confirmed. Premium is on.", "success")
         else:
             _snack(f"Payment status: {state.license_status}", "warning")
@@ -258,9 +267,16 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         license_service.set_available(page, enabled)
         if controller is not None and controller.storage is not None:
             try:
-                await license_service.save_opt_in(
+                if not await license_service.save_opt_in(
                     controller.storage, enabled
-                )
+                ):
+                    # save_opt_in swallows the error and returns False, so
+                    # the choice would silently vanish on restart.
+                    _snack(
+                        "Could not remember that choice. It will reset when "
+                        "you restart.",
+                        "warning",
+                    )
             except Exception as exc:
                 _snack(f"Could not save that choice: {exc}", "error")
         _snack(

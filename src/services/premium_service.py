@@ -76,6 +76,11 @@ def apply_license_entitlement(entitlement: license_service.Entitlement) -> None:
     if entitlement.offline and not entitlement.grants_access:
         logger.debug("offline license check not conclusive: %s", entitlement.status)
         return
+    if not entitlement.is_definitive and not entitlement.grants_access:
+        # Online but the Worker said something we do not recognise. That is
+        # not proof of expiry, so leave the current entitlement alone.
+        logger.debug("non-definitive license status ignored: %s", entitlement.status)
+        return
     state.license_premium_active = entitlement.grants_access
     state.license_status = entitlement.status
     if entitlement.product:
@@ -104,6 +109,11 @@ async def load_from_storage(storage) -> None:
 
     Runs before any network call so a user with no connection still gets
     the Premium they paid for.
+
+    The persisted `is_premium` value is deliberately NOT used as proof. It
+    is a resolved cache from a previous run, and either channel can have
+    been revoked since. Loading here recomputes the OR from the channel
+    flags, so a stale true cannot survive with no token and no purchase.
     """
     from services import license_service as licenses
 
@@ -111,9 +121,12 @@ async def load_from_storage(storage) -> None:
         record = await storage.get_license_record()
     except Exception as exc:
         logger.warning("license record unreadable: %s", exc)
+        apply_entitlement()
         return
     state.license_recovery_id = str(record.get("recovery_id") or "")
     if not state.license_recovery_id and not record.get("token"):
+        # Nothing on disk proves entitlement through this channel.
+        apply_entitlement()
         return
     entitlement = licenses.entitlement_from_token(
         str(record.get("token") or ""), state.license_recovery_id
@@ -124,30 +137,36 @@ async def load_from_storage(storage) -> None:
     logger.info("offline license status: %s", entitlement.status)
 
 
-async def refresh_from_server(page=None) -> None:
+async def refresh_from_server(page=None) -> bool:
     """Ask the Worker for the authoritative answer, when we can.
 
-    Any failure here is swallowed on purpose: an unreachable service must
-    not cost the user their Premium, because the local token already
-    covers them until it expires.
+    Returns True only when the server actually ruled. Any failure is
+    swallowed on purpose: an unreachable service must not cost the user
+    their Premium, because the local token already covers them until it
+    expires. The caller needs the boolean so it never tells a user their
+    payment was confirmed when no request ever succeeded.
     """
     if not license_service.is_available(page):
-        return
+        return False
     recovery_id = getattr(state, "license_recovery_id", "")
     if not recovery_id:
-        return
+        return False
     try:
         entitlement = await license_service.check_status(recovery_id)
     except license_service.LicenseUnavailable:
-        return
+        return False
     except license_service.LicenseError as exc:
         logger.info("license status check skipped: %s", exc)
-        return
+        return False
     except Exception as exc:  # never let a network blip touch entitlement
         logger.debug("license status check failed: %s", exc)
-        return
-    # An authoritative answer, so a downgrade here is safe.
-    state.license_premium_active = entitlement.grants_access
+        return False
+    # Only a definitive verdict may downgrade. A 200 carrying an unknown or
+    # transitional status ("pending", a future value) is not proof of
+    # expiry, and treating it as one would strip Premium from a paying user
+    # on a schema change.
+    if entitlement.is_definitive:
+        state.license_premium_active = entitlement.grants_access
     state.license_status = entitlement.status
     if entitlement.product:
         state.license_product = entitlement.product
@@ -155,6 +174,7 @@ async def refresh_from_server(page=None) -> None:
     if entitlement.grants_access:
         state.premium_source = f"license:{entitlement.product or 'unknown'}"
     logger.info("license status from server: %s", entitlement.status)
+    return True
 
 
 async def restore_license(recovery_id: str) -> license_service.Entitlement:

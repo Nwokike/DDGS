@@ -2,7 +2,8 @@
 
 50 free AI credits daily (200 when premium), UTC date-change reset that
 preserves surplus (ad-earned credits survive). Transaction-keyed reservations
-prevent overlapping commit/rollback corruption; auto-rollback after 60s.
+prevent overlapping commit/rollback corruption; auto-rollback after
+ROLLBACK_SECONDS (240s, was documented as 60s and never matched the code).
 
 Only AI entry points spend: manual search, scraping and downloads never call
 this service, which is how "the manual way stays free" is enforced.
@@ -24,6 +25,11 @@ from core.constants import (
 
 logger = logging.getLogger(__name__)
 
+# How long an unsettled hold is trusted before the service gives the credits
+# back on its own. Long enough that a slow turn never loses its hold,
+# short enough that a crashed or force-quit turn is not a visible shortage.
+ROLLBACK_SECONDS = 240.0
+
 
 class CreditService:
     """Manages the local credit economy over the app's StorageService."""
@@ -32,6 +38,10 @@ class CreditService:
         self._storage = storage
         self._reservations: dict[str, int] = {}  # tx_id -> amount
         self._rollback_tasks: dict[str, asyncio.Task] = {}  # tx_id -> auto-rollback
+        # Balance read-modify-write is a check-then-act, so two operations
+        # interleaving between the read and the write lose one. Every
+        # mutation of the balance now runs under this lock.
+        self._lock = asyncio.Lock()
 
     async def initialize(self) -> int:
         """Load credits from storage, reset if new day. Returns current balance."""
@@ -42,7 +52,9 @@ class CreditService:
         """Optimistically reserve credits. Returns tx id, or None if insufficient.
 
         Call commit(tx_id) to finalize or rollback(tx_id) to release.
-        Auto-rollback after 60 seconds if neither happens.
+        Auto-rollback after ROLLBACK_SECONDS if neither happens. The doc
+        used to say 60 while the code waited 240, so an abandoned hold
+        looked like a four-minute shortage rather than a one-minute one.
         """
         current = await self._get_credits()
         total_reserved = sum(self._reservations.values())
@@ -72,7 +84,7 @@ class CreditService:
             task.cancel()
 
         async def _auto_rollback():
-            await asyncio.sleep(240)
+            await asyncio.sleep(ROLLBACK_SECONDS)
             if tx_id in self._reservations:
                 del self._reservations[tx_id]
                 self._rollback_tasks.pop(tx_id, None)
@@ -84,18 +96,27 @@ class CreditService:
 
     async def commit_amount(self, tx_id: str, amount: int) -> int:
         """Settle a hold for an exact charge. May under/over-shoot the hold;
-        overdraft clamps at zero - a completed message is never revoked by billing."""
+        overdraft clamps at zero - a completed message is never revoked by billing.
+
+        Idempotent. A second call with the same tx_id finds no hold and
+        returns without charging, so a retried settlement cannot bill the
+        user twice for one turn.
+        """
         from core.state import state
 
         task = self._rollback_tasks.pop(tx_id, None)
         if task:
             task.cancel()
-        held = self._reservations.pop(tx_id, 0)
-        if amount <= 0:
-            return await self._get_credits()
-        current = await self._get_credits()
-        new_balance = max(0, current - amount)
-        await self._storage.set(STORAGE_CREDITS, str(new_balance))
+        async with self._lock:
+            if tx_id not in self._reservations:
+                logger.info("settlement for %s already applied", tx_id)
+                return await self._get_credits()
+            held = self._reservations.pop(tx_id, 0)
+            if amount <= 0:
+                return await self._get_credits()
+            current = await self._get_credits()
+            new_balance = max(0, current - amount)
+            await self._storage.set(STORAGE_CREDITS, str(new_balance))
         state.credits_remaining = new_balance
         logger.info(
             "Settled %d credits (held %d, tx: %s). Remaining: %d",

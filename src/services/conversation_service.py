@@ -230,6 +230,22 @@ def migrate_legacy_history(legacy: list[dict]) -> str | None:
     return None
 
 
+async def clear_legacy_history(storage) -> None:
+    """Drop the old flat history once it has been migrated.
+
+    Without this, "delete all chats" emptied the directory, the next launch
+    found it empty, and the stale legacy value was migrated straight back as
+    a new "Previous chat". A chat the user had deliberately deleted came
+    back on every restart.
+    """
+    try:
+        await storage.set_assistant_history("[]")
+        await storage.flush()
+        logger.info("cleared the legacy assistant history after migration")
+    except Exception as exc:
+        logger.warning("could not clear the legacy assistant history: %s", exc)
+
+
 def refresh_state() -> list[dict]:
     """Reload the summary rows into observable state (UI loop only)."""
     state.conversations = list_conversations()

@@ -44,33 +44,21 @@ MAX_BYTES = 64 * 1024 * 1024
 SCHEMA = 1
 
 
-def search_key(
-    query: str,
-    search_type: str,
-    *,
-    region: str = "",
-    safesearch: str = "",
-    timelimit: str = "",
-    backend: str = "",
-) -> str:
+def search_key(query: str, search_type: str, **filters: object) -> str:
     """Stable content key for one search.
 
     Every input that changes the result set is folded in, so changing the
-    region or the engine can never serve a stale list from another
-    configuration.
-    """
-    raw = "\x1f".join(
-        [
-            str(search_type),
-            str(query).strip().lower(),
-            str(region),
-            str(safesearch),
-            str(timelimit),
-            str(backend),
-        ]
-    )
-    return "s_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    region, the engine, the result limit, the page, or any image or video
+    filter can never serve a list from another configuration.
 
+    Filters are taken as **kwargs and sorted rather than listed explicitly:
+    a hardcoded parameter list silently DROPPED every filter added after it
+    was written, which is how max_results, page and the image and video
+    filters went missing from the key while appearing present in the caller.
+    """
+    parts = [str(search_type), str(query).strip().lower()]
+    parts.extend(f"{name}={filters[name]}" for name in sorted(filters, key=str))
+    return "s_" + hashlib.sha1(chr(31).join(parts).encode("utf-8")).hexdigest()
 
 def page_key(url: str, fmt: str = "") -> str:
     raw = f"{str(url).strip()}\x1f{fmt!s}"
@@ -263,6 +251,12 @@ class CacheService:
 
     # ── Maintenance ───────────────────────────────────────────────────
     async def prune(self, *, max_bytes: int = MAX_BYTES) -> dict[str, int]:
+        # Serialized with set(): prune unlinks paths it stat'ed, and without
+        # the lock a write landing in between was deleted by a stale prune.
+        async with self._lock:
+            return await self._prune_locked(max_bytes=max_bytes)
+
+    async def _prune_locked(self, *, max_bytes: int) -> dict[str, int]:
         """Drop expired entries, then oldest-first until under the cap.
 
         Returns {"removed": n, "freed": bytes, "remaining": count}.
@@ -288,9 +282,15 @@ class CacheService:
             # from elsewhere can have a fresh mtime and a stale entry.
             try:
                 entry = json.loads(path.read_text(encoding="utf-8"))
-                expires = entry.get("expires_at")
-                if isinstance(entry, dict) and isinstance(expires, (int, float)):
-                    expired = now > expires
+                # Type first: a hand-edited file holding valid JSON such as
+                # [], null or "text" used to raise AttributeError here,
+                # which aborted the whole prune and left the cache above its
+                # cap on every later run too.
+                expired = True
+                if isinstance(entry, dict):
+                    expires = entry.get("expires_at")
+                    if isinstance(expires, (int, float)):
+                        expired = now > expires
             except (OSError, ValueError, TypeError):
                 expired = True  # unreadable/garbage: not worth keeping
             if expired:
