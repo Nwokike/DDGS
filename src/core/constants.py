@@ -40,6 +40,18 @@ STORAGE_LICENSE_EMAIL = "license_email"
 STORAGE_LICENSE_NAME = "license_name"
 STORAGE_LICENSE_PHONE = "license_phone"
 
+# ── Kiri License (external checkout for every surface Play cannot bill) ──
+KIRI_LICENSE_BASE_URL = "https://license.kiri.ng"
+KIRI_LICENSE_PUBLIC_KEY = (
+    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE-YfZ-yKdG3wYF1IR0XcpJH4RclAB"
+    "nddMmAGXFI2J8sbC4gWY2POKc8hVrn0_uHxDZ9ufzwzg4buUimW-IEw4Uw"
+)
+# Stable app identifier sent to the Worker. The same value is used for
+# checkout, restore and status — a temporary install id would orphan
+# purchases on reinstall.
+KIRI_LICENSE_APP_ID = "ng.kiri.ddgs"
+KIRI_LICENSE_TIMEOUT = 15.0
+
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
     {"key": "duckduckgo", "label": "DuckDuckGo"},

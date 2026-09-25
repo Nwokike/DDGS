@@ -1,363 +1,406 @@
-"""Kiri License client: Flutterwave-backed Premium for direct builds.
+"""Kiri License client — external checkout for everything Play cannot bill.
 
-The Worker at license.kiri.ng owns payment policy; this module only speaks
-its documented client contract (kiri-license/docs/client-integration.md):
+Google Play only sells to Play-installed builds (or linked license testers),
+so a GitHub-downloaded APK, the Windows build and the Linux build can never
+complete a purchase through Play Billing. This client covers exactly those
+surfaces, using the same Worker that backs every Kiri app:
 
-    GET  /catalog   product ids, prices, intervals (safe to cache)
-    POST /checkout  start a hosted payment, returns recovery_id + url
-    POST /restore   authoritative status + a signed token
-    POST /status    same as restore, without a token
+    GET  /catalog   -> public products, prices, currency
+    POST /checkout  -> Flutterwave hosted page + a recovery ID
+    POST /restore   -> entitlement status and a signed offline token
+    POST /status    -> status refresh without issuing a token
 
-This is one implementation for every build. Whether the purchase UI may
-be reached is decided by `core.build_channel.CHANNEL`, not by having a
-second copy of this file: the Play AAB never offers a purchase row, so
-nothing here is reachable there.
+The Worker is authoritative; the token it returns is a signed cache that
+keeps premium working offline (see :mod:`services.license_token`). Nothing
+here unlocks premium by itself — a verified token or a live server response
+must say so first.
 
-Availability, matching the other Kiri apps:
-
-  - the Play build (CHANNEL == "play"): never. It is a free-only build.
-  - desktop and web: always. There is no Play Store to bill through.
-  - a direct Android APK: only after the user has explicitly opted in,
-    because that is the build where Play payment would otherwise have been
-    expected and can fail for reasons that are not the app's fault.
-
-Two rules that are not negotiable:
-
-  - a network failure NEVER removes Premium. Only an authoritative
-    `revoked`/`expired` from the server downgrades, and a locally valid
-    token keeps access until its own expiry.
-  - the private signing key and the Flutterwave secret never appear here.
-    Only the public verification key, which is safe to ship.
+Matches ktv-player/src/services/kiri_license.py wherever the two overlap:
+same refusal rules, same storage timing, same "never honour a token you
+cannot verify". Only the transport and storage differ, because DDGS carries
+its own StorageService and httpx instead of db_manager.
 """
 
 from __future__ import annotations
 
 import logging
-import re
-import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
 
-from core import license_crypto
+from core.constants import (
+    KIRI_LICENSE_APP_ID,
+    KIRI_LICENSE_BASE_URL,
+    KIRI_LICENSE_PUBLIC_KEY,
+    KIRI_LICENSE_TIMEOUT,
+)
+from services.license_token import LicenseClaims, TokenRejected, verify_token
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://license.kiri.ng"
-ISSUER = "license.kiri.ng"
-APP_ID = "ng.kiri.ddgs"  # matches [tool.flet] org + product in pyproject
-
-# Public verification key. Safe to ship: it can only confirm a signature,
-# never produce one. Matches LICENSE_PUBLIC_KEY in the Worker's wrangler.toml.
-PUBLIC_KEY = (
-    "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE-YfZ-yKdG3wYF1IR0XcpJH4RclABnddMmAG"
-    "XFI2J8sbC4gWY2POKc8hVrn0_uHxDZ9ufzwzg4buUimW-IEw4Uw"
-)
-
-TIMEOUT = 15.0
-# The catalog is safe to cache per its own docs, and it is the only request
-# made on the premium screen's first paint.
-CATALOG_TTL = 60 * 60
-
-# Product id -> the Play product it is the same tier as, so a user moving
-# between channels sees one consistent set of names.
-PLAY_EQUIVALENT = {
-    "monthly": "premium_monthly",
-    "yearly": "premium_yearly",
-    "lifetime": "premium_lifetime",
-}
-
-_RECOVERY_RE = re.compile(r"^KIRI-([A-Z])-([A-Z0-9_-]{20,})$")
-_EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-
-_catalog_cache: dict[str, Any] = {"at": 0.0, "products": []}
-# Android opt-in for the direct channel: a direct APK user is offered
-# Flutterwave only after telling us Play payment does not work for them.
-_DIRECT_OPTIN_KEY = "kiri_license_direct_optin"
+# Shared with the other Kiri apps so the recovery story reads the same.
+SETTING_RECOVERY_ID = "kiri_recovery_id"
+SETTING_TOKEN = "kiri_token"
+SETTING_PRODUCT = "kiri_product"
 
 
 class LicenseUnavailable(Exception):
-    """This build must not offer the license channel (Play policy)."""
+    """The license service could not be reached or refused the request."""
 
 
-class LicenseError(Exception):
-    """The Worker refused or could not be reached."""
+def status_refusal(code: int) -> bool:
+    """HTTP codes meaning "this entitlement is not valid" — not transport.
 
-
-def is_available(page=None) -> bool:
-    """Whether this build and this user may be offered direct checkout.
-
-    Mirrors the other Kiri apps so the rule is the same everywhere:
-
-      - the Play AAB (CHANNEL == "play"): never. It is a free-only build,
-        because selling in-app digital goods there needs a Google Payments
-        merchant profile that no account available to us has yet.
-      - desktop and web: always. There is no Play Store to bill through.
-      - a direct Android APK: only after the user has explicitly opted in.
-        That is the build where Play payment would otherwise have been
-        expected, and it can fail for reasons that are not the app's
-        fault, so the user is asked before we offer the alternative.
+    400 malformed request, 402 payment not valid, 403 app not entitled,
+    404 license not found. 429 is deliberately excluded: a throttled
+    check must never revoke a real license.
     """
-    from core.build_channel import CHANNEL
-
-    if CHANNEL == "play":
-        return False
-    if page is None:
-        return True
-    try:
-        if not page.platform.is_mobile():
-            return True
-    except Exception:
-        return True
-    return bool(getattr(page, "_kiri_direct_optin", False))
-
-
-def set_available(page, enabled: bool) -> None:
-    """Record the Android opt-in so the UI can offer or withdraw the channel."""
-    if page is not None:
-        page._kiri_direct_optin = bool(enabled)
-
-
-def clear_available(page=None) -> None:
-    """Withdraw the opt-in, for the Play build and for anyone who reverts."""
-    if page is not None:
-        page._kiri_direct_optin = False
-
-
-async def load_opt_in(storage) -> bool:
-    """Restore the opt-in at startup. One key read, never fatal."""
-    try:
-        return (await storage.get(_DIRECT_OPTIN_KEY)) == "true"
-    except Exception:
-        logger.debug("could not read the direct-purchase opt-in", exc_info=True)
-        return False
-
-
-async def save_opt_in(storage, enabled: bool) -> bool:
-    """Persist the opt-in. The UI calls this when the user chooses."""
-    try:
-        await storage.set(_DIRECT_OPTIN_KEY, "true" if enabled else "false")
-        return True
-    except Exception:
-        logger.debug("could not save the direct-purchase opt-in", exc_info=True)
-        return False
-
-
-_UNAVAILABLE = (
-    "Premium is not available in this build. It is sold on the direct APK, "
-    "on desktop and on the web."
-)
-
-
-def _require_available() -> None:
-    if not is_available():
-        raise LicenseUnavailable(_UNAVAILABLE)
+    return code in (400, 402, 403, 404)
 
 
 @dataclass(frozen=True)
-class Product:
+class LicenseProduct:
     id: str
-    code: str
-    kind: str
-    interval: str | None
     amount: float
     currency: str
+    kind: str
     description: str
 
     @property
-    def is_recurring(self) -> bool:
-        return self.kind != "one_time"
-
-    @property
-    def label(self) -> str:
-        return f"{self.currency} {self.amount:.2f}"
+    def price_label(self) -> str:
+        symbol = {"USD": "$", "EUR": "€", "NGN": "₦"}.get(self.currency.upper(), "")
+        amount = f"{self.amount:,.2f}".rstrip("0").rstrip(".")
+        return f"{symbol}{amount} {self.currency.upper()}".strip()
 
 
 @dataclass(frozen=True)
-class Entitlement:
-    """The outcome of a restore/status call, or an offline token check."""
+class Checkout:
+    recovery_id: str
+    checkout_url: str
+    product: str
+    amount: float
+    currency: str
 
-    status: str  # active | grace | expired | revoked | unknown
-    product: str = ""
-    paid_through: str | None = None
-    recovery_id: str = ""
-    scope: str = ""
-    token: str = ""
-    offline: bool = False
+
+@dataclass(frozen=True)
+class LicenseStatus:
+    status: str
+    product: str
+    recovery_id: str
+    token: str | None = None
+    claims: LicenseClaims | None = None
 
     @property
-    def grants_access(self) -> bool:
+    def unlocks(self) -> bool:
         return self.status in ("active", "grace")
 
-    @property
-    def is_definitive(self) -> bool:
-        """True when the server actually ruled, so a downgrade is safe."""
-        return self.status in ("active", "grace", "expired", "revoked")
+
+def _client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(http2=False, timeout=KIRI_LICENSE_TIMEOUT)
 
 
-def parse_recovery_id(value: str) -> str | None:
-    """Validate a recovery ID's shape without contacting the Worker."""
-    text = str(value or "").strip().upper()
-    return text if _RECOVERY_RE.match(text) else None
+class KiriLicenseService:
+    """Talks to the Kiri License Worker and caches the signed entitlement."""
 
-
-def valid_email(value: str) -> bool:
-    return bool(_EMAIL_RE.match(str(value or "").strip()))
-
-
-async def _post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
-    _require_available()
-    url = f"{BASE_URL}{path}"
-    try:
-        async with httpx.AsyncClient(http2=False, timeout=TIMEOUT) as client:
-            resp = await client.post(url, json=payload)
-    except httpx.HTTPError as exc:
-        # Deliberately a distinct type: the caller must not treat an
-        # unreachable Worker as a revoked licence.
-        raise LicenseError(f"Could not reach the licence service: {exc}") from exc
-    if resp.status_code >= 400:
-        code = ""
-        try:
-            code = str((resp.json() or {}).get("error") or "")
-        except ValueError:
-            pass
-        raise LicenseError(code or f"licence service returned {resp.status_code}")
-    try:
-        body = resp.json()
-    except ValueError as exc:
-        raise LicenseError("licence service sent an unreadable reply") from exc
-    return body if isinstance(body, dict) else {}
-
-
-async def fetch_catalog(*, force: bool = False) -> list[Product]:
-    """Product list from the Worker. Cached briefly; safe to cache per docs."""
-    _require_available()
-    if (
-        not force
-        and _catalog_cache["products"]
-        and time.monotonic() - _catalog_cache["at"] < CATALOG_TTL
+    def __init__(
+        self,
+        app_id: str = KIRI_LICENSE_APP_ID,
+        public_key: str = KIRI_LICENSE_PUBLIC_KEY,
+        storage=None,
+        on_change: Callable[[], None] | None = None,
     ):
-        return list(_catalog_cache["products"])
-    try:
-        async with httpx.AsyncClient(http2=False, timeout=TIMEOUT) as client:
-            resp = await client.get(f"{BASE_URL}/catalog")
-        resp.raise_for_status()
-        raw = (resp.json() or {}).get("products") or []
-    except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("license catalog unavailable: %s", exc)
-        return list(_catalog_cache["products"])
-    products = [
-        Product(
-            id=str(item.get("id") or ""),
-            code=str(item.get("code") or ""),
-            kind=str(item.get("kind") or "one_time"),
-            interval=item.get("interval"),
-            amount=float(item.get("amount") or 0.0),
-            currency=str(item.get("currency") or "USD"),
-            description=str(item.get("description") or ""),
+        self.app_id = app_id
+        # Injected rather than read from the constant at every call so a key
+        # rotation (and the test fixtures, which are signed with their own
+        # throwaway pair) is a constructor argument, not a monkeypatch.
+        self.public_key = public_key
+        # DDGS carries its own StorageService rather than a global db_manager.
+        self.storage = storage
+        # Owns its entitlement only: it reports the verdict and lets
+        # PremiumService mirror it into the app-wide flag.
+        self.on_change = on_change
+        self.products: list[LicenseProduct] = []
+        self.claims: LicenseClaims | None = None
+        self._unlocked = False
+
+    # -- local state ---------------------------------------------------------
+
+    @property
+    def unlocked(self) -> bool:
+        return self._unlocked
+
+    async def recovery_id(self) -> str:
+        return str(await self._get(SETTING_RECOVERY_ID)) or ""
+
+    async def cached_product(self) -> str:
+        return str(await self._get(SETTING_PRODUCT)) or ""
+
+    async def _get(self, key: str):
+        if self.storage is None:
+            return None
+        try:
+            return await self.storage.get(key)
+        except Exception:
+            logger.debug("licence setting read failed", exc_info=True)
+            return None
+
+    async def _store(
+        self,
+        *,
+        recovery_id: str | None = None,
+        token: str | None = None,
+        product: str | None = None,
+    ) -> None:
+        if self.storage is None:
+            return
+        try:
+            if recovery_id is not None:
+                await self.storage.set(SETTING_RECOVERY_ID, recovery_id)
+            if token is not None:
+                await self.storage.set(SETTING_TOKEN, token)
+            if product is not None:
+                await self.storage.set(SETTING_PRODUCT, product)
+        except Exception:
+            logger.warning("Could not store the licence", exc_info=True)
+
+    async def _apply(self, status: str, claims: LicenseClaims | None) -> None:
+        """Record a verified entitlement and let the app re-evaluate.
+
+        Deliberately does NOT set `state.is_premium` itself: the caller
+        re-derives it from a single source of truth, so an entitlement can
+        only be granted or dropped in one place.
+        """
+        self._unlocked = status in ("active", "grace") and claims is not None
+        logger.info(
+            "Kiri license status=%s product=%s unlocked=%s",
+            status,
+            claims.product if claims else "-",
+            self._unlocked,
         )
-        for item in raw
-        if isinstance(item, dict) and item.get("id")
-    ]
-    if products:
-        _catalog_cache["products"] = products
-        _catalog_cache["at"] = time.monotonic()
-    return products
+        if self.on_change is not None:
+            self.on_change()
 
+    # -- offline -------------------------------------------------------------
 
-async def start_checkout(
-    product_id: str,
-    *,
-    email: str,
-    name: str = "",
-    phone: str = "",
-) -> dict[str, Any]:
-    """Create a hosted payment. Returns recovery_id and checkout_url.
+    async def apply_cached_token(self) -> bool:
+        """Verify the stored token so premium survives being offline.
 
-    The caller must persist recovery_id immediately: it is the only way back
-    in after the user clears app data.
-    """
-    if not valid_email(email):
-        raise LicenseError("Enter a valid email address to continue.")
-    payload: dict[str, Any] = {
-        "app_id": APP_ID,
-        "product_id": str(product_id),
-        "email": str(email).strip(),
-    }
-    if name.strip():
-        payload["name"] = name.strip()[:120]
-    if phone.strip():
-        payload["phone_number"] = phone.strip()[:40]
-    body = await _post("/checkout", payload)
-    recovery_id = str(body.get("recovery_id") or "")
-    if not recovery_id:
-        raise LicenseError("The payment service did not return a recovery ID.")
-    return {
-        "recovery_id": recovery_id,
-        "checkout_url": str(body.get("checkout_url") or ""),
-        "product": str(body.get("product") or product_id),
-        "status": str(body.get("status") or "pending"),
-        "amount": body.get("amount"),
-        "currency": str(body.get("currency") or "USD"),
-    }
+        Returns whether the app is unlocked. A rejected token is cleared
+        rather than left to fail on every launch — a token we cannot verify
+        is a token we do not honour.
+        """
+        token = await self._get(SETTING_TOKEN)
+        if not token:
+            self._unlocked = False
+            # Nothing left to verify, so stale claims must not survive to
+            # be reused by a later status reply.
+            self.claims = None
+            self._notify_change()
+            return False
+        try:
+            claims = verify_token(token, self.public_key, self.app_id)
+        except TokenRejected as ex:
+            logger.info("Cached Kiri license rejected (%s)", ex.reason)
+            self._unlocked = False
+            self.claims = None
+            self._notify_change()
+            return False
+        self.claims = claims
+        await self._apply(claims.status, claims)
+        return self._unlocked
 
+    # -- server --------------------------------------------------------------
 
-def _entitlement_from_body(
-    body: dict[str, Any], recovery_id: str, *, offline: bool = False
-) -> Entitlement:
-    return Entitlement(
-        status=str(body.get("status") or "unknown"),
-        product=str(body.get("product") or ""),
-        paid_through=body.get("paid_through"),
-        recovery_id=recovery_id,
-        scope=str(body.get("scope") or ""),
-        token=str(body.get("token") or ""),
-        offline=offline,
-    )
+    async def fetch_catalog(self, force: bool = False) -> list[LicenseProduct]:
+        if self.products and not force:
+            return self.products
+        try:
+            async with _client() as client:
+                response = await client.get(f"{KIRI_LICENSE_BASE_URL}/catalog")
+                response.raise_for_status()
+                payload = response.json()
+        except Exception as ex:
+            raise LicenseUnavailable(
+                f"Could not reach the license service: {ex}"
+            ) from ex
+        self.products = [
+            LicenseProduct(
+                id=str(item.get("id", "")),
+                amount=float(item.get("amount") or 0),
+                currency=str(item.get("currency") or "USD"),
+                kind=str(item.get("kind") or "one_time"),
+                description=str(item.get("description") or ""),
+            )
+            for item in payload.get("products", [])
+            if item.get("id")
+        ]
+        return self.products
 
+    async def checkout(
+        self, product_id: str, email: str, *, name: str = "", phone: str = ""
+    ) -> Checkout:
+        """Start a hosted payment and return where to send the user."""
+        body: dict = {
+            "app_id": self.app_id,
+            "product_id": product_id,
+            "email": email,
+        }
+        if name:
+            body["name"] = name[:120]
+        if phone:
+            body["phone_number"] = phone[:40]
+        try:
+            async with _client() as client:
+                response = await client.post(
+                    f"{KIRI_LICENSE_BASE_URL}/checkout", json=body
+                )
+        except Exception as ex:
+            raise LicenseUnavailable(
+                f"Could not reach the license service: {ex}"
+            ) from ex
+        if response.status_code >= 400:
+            raise LicenseUnavailable(self._error_message(response, "Checkout failed"))
+        try:
+            payload = response.json()
+        except Exception as ex:
+            raise LicenseUnavailable(
+                "The license service returned invalid JSON"
+            ) from ex
+        if not isinstance(payload, dict):
+            raise LicenseUnavailable("The license service returned an invalid response")
+        checkout = Checkout(
+            recovery_id=str(payload.get("recovery_id") or ""),
+            checkout_url=str(payload.get("checkout_url") or ""),
+            product=str(payload.get("product") or product_id),
+            amount=float(payload.get("amount") or 0),
+            currency=str(payload.get("currency") or "USD"),
+        )
+        if not checkout.checkout_url or not checkout.recovery_id:
+            raise LicenseUnavailable("The license service returned an incomplete order")
+        # Persist the recovery ID immediately: it is the only way back in
+        # after the user clears app data.
+        await self._store(recovery_id=checkout.recovery_id, product=checkout.product)
+        return checkout
 
-async def restore(recovery_id: str) -> Entitlement:
-    """Authoritative status plus a fresh signed token."""
-    clean = parse_recovery_id(recovery_id)
-    if not clean:
-        raise LicenseError("That recovery ID does not look right.")
-    body = await _post("/restore", {"recovery_id": clean, "app_id": APP_ID})
-    return _entitlement_from_body(body, clean)
+    async def restore(self, recovery_id: str) -> LicenseStatus:
+        """Redeem a recovery ID and cache the signed entitlement."""
+        return await self._query("/restore", recovery_id, issue_token=True)
 
+    async def refresh(self) -> LicenseStatus | None:
+        """Re-check the stored entitlement (no token issued)."""
+        recovery_id = await self.recovery_id()
+        if not recovery_id:
+            return None
+        return await self._query("/status", recovery_id, issue_token=False)
 
-async def check_status(recovery_id: str) -> Entitlement:
-    """Refresh without requesting a new token."""
-    clean = parse_recovery_id(recovery_id)
-    if not clean:
-        raise LicenseError("That recovery ID does not look right.")
-    body = await _post("/status", {"recovery_id": clean, "app_id": APP_ID})
-    return _entitlement_from_body(body, clean)
+    def _notify_change(self) -> None:
+        """Report a verdict change so the app-wide flag cannot go stale."""
+        if self.on_change is not None:
+            self.on_change()
 
+    async def _query(
+        self, path: str, recovery_id: str, *, issue_token: bool
+    ) -> LicenseStatus:
+        recovery_id = (recovery_id or "").strip()
+        if not recovery_id:
+            raise LicenseUnavailable("Enter the recovery ID from your purchase email")
+        try:
+            async with _client() as client:
+                response = await client.post(
+                    f"{KIRI_LICENSE_BASE_URL}{path}",
+                    json={"recovery_id": recovery_id, "app_id": self.app_id},
+                )
+        except Exception as ex:
+            raise LicenseUnavailable(
+                f"Could not reach the license service: {ex}"
+            ) from ex
+        if response.status_code >= 400:
+            # The Worker answers entitlement questions here (402 payment not
+            # valid, 403 app not entitled, 404 license not found). That is
+            # the server refusing, not the network failing — so a standing
+            # unlock is dropped rather than preserved by accident.
+            if status_refusal(response.status_code):
+                logger.info(
+                    "License refused with HTTP %s — dropping unlock",
+                    response.status_code,
+                )
+                self._unlocked = False
+                self.claims = None
+                self._notify_change()
+            raise LicenseUnavailable(self._error_message(response, "Restore failed"))
 
-def verify_token(token: str) -> tuple[bool, str]:
-    """Offline signature and claim check. Never raises."""
-    return license_crypto.is_entitled(
-        token, PUBLIC_KEY, app_id=APP_ID, issuer=ISSUER
-    )
+        try:
+            payload = response.json()
+        except Exception as ex:
+            raise LicenseUnavailable(
+                "The license service returned invalid JSON"
+            ) from ex
+        if not isinstance(payload, dict):
+            raise LicenseUnavailable("The license service returned an invalid response")
+        status = str(payload.get("status") or "unknown")
+        token = payload.get("token") if issue_token else None
+        claims: LicenseClaims | None = None
+        if token:
+            try:
+                claims = verify_token(token, self.public_key, self.app_id)
+            except TokenRejected as ex:
+                logger.warning("Kiri license token rejected: %s", ex.reason)
+                self._unlocked = False
+                self.claims = None
+                self._notify_change()
+                raise LicenseUnavailable(
+                    "The license service returned a token this app could not verify"
+                ) from ex
+            if status in ("active", "grace"):
+                await self._store(
+                    recovery_id=str(payload.get("recovery_id") or recovery_id),
+                    token=token,
+                    product=str(payload.get("product") or ""),
+                )
+            else:
+                # A valid token for a revoked/expired license must not be
+                # cached: next launch would verify it and re-unlock.
+                logger.info("Not caching token for status=%s", status)
+                await self._store(
+                    recovery_id=str(payload.get("recovery_id") or recovery_id),
+                    token="",
+                    product=str(payload.get("product") or ""),
+                )
+        else:
+            await self._store(
+                recovery_id=str(payload.get("recovery_id") or recovery_id),
+                product=str(payload.get("product") or ""),
+            )
+        # A fresh verified token replaces the cache; a status-only reply
+        # (which carries no token by design) reuses the one we already
+        # verified — the assignment must come after that read, or every
+        # refresh wipes the cache with None and unlocks nothing.
+        if claims is not None:
+            self.claims = claims
+        effective = claims if claims is not None else self.claims
+        if status not in ("active", "grace"):
+            # Revoked/expired: the claims must not outlive the verdict, or
+            # the next status-only reply could re-unlock from them.
+            self.claims = None
+            effective = None
+        await self._apply(status, effective)
+        return LicenseStatus(
+            status=status,
+            product=str(payload.get("product") or ""),
+            recovery_id=str(payload.get("recovery_id") or recovery_id),
+            token=token,
+            claims=claims,
+        )
 
-
-def entitlement_from_token(token: str, recovery_id: str = "") -> Entitlement:
-    """Entitlement derived purely from a cached token, for offline use."""
-    if not token:
-        return Entitlement(status="none", recovery_id=recovery_id, offline=True)
-    ok, _reason = verify_token(token)
-    if not ok:
-        return Entitlement(status="invalid", recovery_id=recovery_id, offline=True)
-    try:
-        claims = license_crypto.verify_token(token, PUBLIC_KEY)
-    except license_crypto.TokenError:
-        return Entitlement(status="invalid", recovery_id=recovery_id, offline=True)
-    return Entitlement(
-        status=str(claims.get("status") or "unknown"),
-        product=str(claims.get("product") or ""),
-        recovery_id=recovery_id,
-        scope=str(claims.get("scope") or ""),
-        token=token,
-        offline=True,
-    )
+    @staticmethod
+    def _error_message(response, fallback: str) -> str:
+        try:
+            body = response.json()
+            if isinstance(body, dict) and body.get("message"):
+                return str(body["message"])
+            if isinstance(body, dict) and body.get("error"):
+                return str(body["error"])
+        except Exception:
+            pass
+        return f"{fallback} (HTTP {response.status_code})"
