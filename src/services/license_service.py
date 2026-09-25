@@ -1,4 +1,4 @@
-"""Kiri License client: Flutterwave-backed Premium for non-Play builds.
+"""Kiri License client: Flutterwave-backed Premium for direct builds.
 
 The Worker at license.kiri.ng owns payment policy; this module only speaks
 its documented client contract (kiri-license/docs/client-integration.md):
@@ -8,10 +8,21 @@ its documented client contract (kiri-license/docs/client-integration.md):
     POST /restore   authoritative status + a signed token
     POST /status    same as restore, without a token
 
-Design rules that are not negotiable here:
-  - `is_available()` is False in a Play-distributed build. Google policy
-    forbids steering Play users to external checkout, so the Play branch
-    ships a stub of this module rather than a hidden button.
+This is one implementation for every build. Whether the purchase UI may
+be reached is decided by `core.build_channel.CHANNEL`, not by having a
+second copy of this file: the Play AAB never offers a purchase row, so
+nothing here is reachable there.
+
+Availability, matching the other Kiri apps:
+
+  - the Play build (CHANNEL == "play"): never. It is a free-only build.
+  - desktop and web: always. There is no Play Store to bill through.
+  - a direct Android APK: only after the user has explicitly opted in,
+    because that is the build where Play payment would otherwise have been
+    expected and can fail for reasons that are not the app's fault.
+
+Two rules that are not negotiable:
+
   - a network failure NEVER removes Premium. Only an authoritative
     `revoked`/`expired` from the server downgrades, and a locally valid
     token keeps access until its own expiry.
@@ -61,7 +72,9 @@ _RECOVERY_RE = re.compile(r"^KIRI-([A-Z])-([A-Z0-9_-]{20,})$")
 _EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 _catalog_cache: dict[str, Any] = {"at": 0.0, "products": []}
-_UNAVAILABLE = ("Play-distributed builds use Play Billing, not external checkout.")
+# Android opt-in for the direct channel: a direct APK user is offered
+# Flutterwave only after telling us Play payment does not work for them.
+_DIRECT_OPTIN_KEY = "kiri_license_direct_optin"
 
 
 class LicenseUnavailable(Exception):
@@ -72,22 +85,69 @@ class LicenseError(Exception):
     """The Worker refused or could not be reached."""
 
 
-def is_available() -> bool:
-    """Whether THIS build may offer the direct checkout channel.
+def is_available(page=None) -> bool:
+    """Whether this build and this user may be offered direct checkout.
 
-    This file is the direct build: main builds the direct APK plus Windows
-    and Linux, where external checkout is permitted, so this returns True.
+    Mirrors the other Kiri apps so the rule is the same everywhere:
 
-    A Play build never loads this module. The playstore branch ships
-    `license_service.py` replaced with a stub whose `is_available()` is
-    False and whose every entry point raises LicenseUnavailable. The
-    branch IS the channel, which is why this cannot be a runtime flag:
-    a Play-distributed AAB is built from the playstore branch.
-
-    tests/test_license.py asserts both directions, including that a Play
-    build contains no payment endpoint at all.
+      - the Play AAB (CHANNEL == "play"): never. It is a free-only build,
+        because selling in-app digital goods there needs a Google Payments
+        merchant profile that no account available to us has yet.
+      - desktop and web: always. There is no Play Store to bill through.
+      - a direct Android APK: only after the user has explicitly opted in.
+        That is the build where Play payment would otherwise have been
+        expected, and it can fail for reasons that are not the app's
+        fault, so the user is asked before we offer the alternative.
     """
-    return True
+    from core.build_channel import CHANNEL
+
+    if CHANNEL == "play":
+        return False
+    if page is None:
+        return True
+    try:
+        if not page.platform.is_mobile():
+            return True
+    except Exception:
+        return True
+    return bool(getattr(page, "_kiri_direct_optin", False))
+
+
+def set_available(page, enabled: bool) -> None:
+    """Record the Android opt-in so the UI can offer or withdraw the channel."""
+    if page is not None:
+        page._kiri_direct_optin = bool(enabled)
+
+
+def clear_available(page=None) -> None:
+    """Withdraw the opt-in, for the Play build and for anyone who reverts."""
+    if page is not None:
+        page._kiri_direct_optin = False
+
+
+async def load_opt_in(storage) -> bool:
+    """Restore the opt-in at startup. One key read, never fatal."""
+    try:
+        return (await storage.get(_DIRECT_OPTIN_KEY)) == "true"
+    except Exception:
+        logger.debug("could not read the direct-purchase opt-in", exc_info=True)
+        return False
+
+
+async def save_opt_in(storage, enabled: bool) -> bool:
+    """Persist the opt-in. The UI calls this when the user chooses."""
+    try:
+        await storage.set(_DIRECT_OPTIN_KEY, "true" if enabled else "false")
+        return True
+    except Exception:
+        logger.debug("could not save the direct-purchase opt-in", exc_info=True)
+        return False
+
+
+_UNAVAILABLE = (
+    "Premium is not available in this build. It is sold on the direct APK, "
+    "on desktop and on the web."
+)
 
 
 def _require_available() -> None:

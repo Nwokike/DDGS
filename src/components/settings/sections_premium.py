@@ -122,9 +122,18 @@ def build_premium_section(page: ft.Page) -> ft.Container:
     controller = getattr(page, "_ddgs_controller", None)
     billing = getattr(controller, "billing", None) if controller else None
     narrow = bool(page.width and page.width < 560)
-    license_ok = license_service.is_available()
-    # Play Billing only exists where the Play app does.
-    play_ok = bool(billing) and page.platform == ft.PagePlatform.ANDROID
+    # The build channel is stamped into the artifact, not chosen at runtime.
+    from core.build_channel import CHANNEL
+
+    license_ok = license_service.is_available(page)
+    # Play Billing is only ever offered in a direct build, and only once the
+    # store actually lists our products. On the Play AAB this stays False
+    # because CHANNEL is "play", so no purchase row can appear.
+    play_ok = (
+        CHANNEL != "play"
+        and bool(billing)
+        and page.platform == ft.PagePlatform.ANDROID
+    )
 
     email_field = _field("Email", "")
     name_field = _field("Name (optional)", "")
@@ -238,6 +247,28 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             _snack("Payment confirmed. Premium is on.", "success")
         else:
             _snack(f"Payment status: {state.license_status}", "warning")
+
+    async def _opt_in_direct(enabled: bool) -> None:
+        """Turn the direct channel on or off and remember the choice.
+
+        A direct APK user reaches this only after telling us Play payment
+        is not working for them, which is the build where it can fail for
+        reasons that are not ours.
+        """
+        license_service.set_available(page, enabled)
+        if controller is not None and controller.storage is not None:
+            try:
+                await license_service.save_opt_in(
+                    controller.storage, enabled
+                )
+            except Exception as exc:
+                _snack(f"Could not save that choice: {exc}", "error")
+        _snack(
+            "Direct checkout enabled. Pull in from the direct APK."
+            if enabled
+            else "Direct checkout turned off.",
+            "success",
+        )
 
     async def _play_buy(product_id: str) -> None:
         if billing is None:
@@ -469,21 +500,52 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             )
         )
 
-    # ── Neither channel in this build ───────────────────────────────────
+    # ── No purchase channel in this build ───────────────────────────────
     if not license_ok and not play_ok:
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.PHONE_ANDROID_ROUNDED,
-                "Premium on Android",
-                "Premium is sold through Google Play in this build",
-                ft.Text(
-                    "Android only",
-                    size=FONT_XS,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                ),
+        # The Play AAB lands here. Say where Premium IS available, so the
+        # card is an honest explanation rather than a dead end, and offer
+        # no purchase control of any kind.
+        from core.build_channel import CHANNEL
+
+        if CHANNEL == "play":
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.OPEN_IN_NEW_ROUNDED,
+                    "Premium is not sold in this build",
+                    "This is the Google Play version, which is free with ads. "
+                    "Premium is sold on the direct APK, on desktop and on "
+                    "the web",
+                    ft.Text(
+                        "Free tier",
+                        size=FONT_XS,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                )
             )
-        )
+        else:
+            # A direct Android APK that has not opted in yet.
+            rows.append(_divider())
+            rows.append(
+                _setting_row(
+                    ft.Icons.PAYMENTS_ROUNDED,
+                    "Google Play payment not working?",
+                    "Buy Premium here with a card, bank transfer or USDC "
+                    "instead of through Google Play",
+                    ft.OutlinedButton(
+                        "Enable",
+                        on_click=lambda e: page.run_task(_opt_in_direct, True),
+                        style=ft.ButtonStyle(
+                            color=AppColors.PRIMARY,
+                            side=ft.BorderSide(1, AppColors.PRIMARY),
+                            shape=ft.RoundedRectangleBorder(
+                                radius=BORDER_RADIUS_MD
+                            ),
+                        ),
+                    ),
+                    stacked=narrow,
+                )
+            )
 
     return AppStyles.section_card(
         "DDGS Premium",

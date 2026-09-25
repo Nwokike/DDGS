@@ -205,12 +205,17 @@ class AppController:
         keeps what they paid for; only then do we ask the server, which is
         the only thing allowed to take it away.
         """
+        from services import license_service as licenses
         from services import premium_service
 
         try:
+            # Restore the direct-channel opt-in first: it decides whether
+            # the purchase UI exists at all on a direct Android APK.
+            if await licenses.load_opt_in(self.storage):
+                licenses.set_available(self.page, True)
             await premium_service.load_from_storage(self.storage)
             await self._sync_premium_storage()
-            await premium_service.refresh_from_server()
+            await premium_service.refresh_from_server(self.page)
             await self._sync_premium_storage()
         except Exception:
             logger.exception("premium init failed")
@@ -241,7 +246,7 @@ class AppController:
             from services import premium_service
 
             try:
-                await premium_service.refresh_from_server()
+                await premium_service.refresh_from_server(self.page)
                 await self._sync_premium_storage()
             except Exception as exc:
                 logger.debug("licence refresh on resume skipped: %s", exc)
