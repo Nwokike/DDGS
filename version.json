@@ -1,9 +1,9 @@
 {
-  "build_number": 6,
-  "version": "2.0.0",
+  "build_number": 4,
+  "version": "1.2.1",
   "type": "update",
-  "title": "DDGS 2.0.0",
-  "release_notes": "**Search everything. Download anything.**\n\n**Assistant**\n- A reply, a search, or a page fetch now costs **1 credit**\n- The current date and time go into every prompt, so \"this week\" means this week\n- A live spinner around Stop, and a plain line under each step saying what ran and where it was saved\n- Images are shown in the reply, not just described\n- Chat history opens as a modal, backed by one transcript instead of two\n- Save a page, download a video or image, crawl a whole site, or schedule a recurring crawl — all from the chat\n\n**Premium**\n- Pay by card, bank transfer or USDC through our payment partner on direct and desktop builds\n- $3.99 / month, $24.99 / year, or $49.99 once\n- A recovery ID restores your purchase on any device\n\n**Fixes**\n- Deleted chats stay deleted\n- A conversation survives the app being closed mid-reply, and minimizing the Assistant no longer destroys it",
+  "title": "DDGS 1.2.1",
+  "release_notes": "You're up to date on v1.2.1!",
   "mandatory": false,
   "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
   "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"

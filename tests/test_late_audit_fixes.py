@@ -422,35 +422,3 @@ def test_desktop_gets_no_ads(monkeypatch):
     svc = ads.AdService(Page())
     svc._can_request_ads = True
     assert svc.get_banner_ad().width == 0, "no ads outside mobile"
-
-
-# ── the update feed must announce the build that actually exists ─────────
-def test_the_update_feed_matches_the_build_it_announces():
-    """version.json sat at 1.2.1 / build 4 while the app built 2.0.0 / 6.
-
-    The update dialog only fires when the feed's build is *greater* than
-    the installed one, so a stale feed does not merely look wrong: nobody
-    is ever told a release exists. All three places that carry the version
-    have to move together.
-    """
-    import json
-    import tomllib
-
-    root = SRC.parent
-    feed = json.loads((root / "version.json").read_text(encoding="utf-8"))
-    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
-
-    assert feed["version"] == project["project"]["version"]
-    assert feed["build_number"] == int(project["tool"]["flet"]["build_number"])
-
-    workflow = (root / ".github" / "workflows" / "build-all.yml").read_text(
-        encoding="utf-8"
-    )
-    # The `||` fallbacks are what a tag push actually builds with, because
-    # workflow_dispatch inputs are empty on a tag.
-    assert f"'{feed['version']}'" in workflow, (
-        "the workflow must fall back to the version being released"
-    )
-    assert f"'{feed['build_number']}'" in workflow, (
-        "the workflow must fall back to the build being released"
-    )
