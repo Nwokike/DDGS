@@ -263,6 +263,12 @@ class CacheService:
 
     # ── Maintenance ───────────────────────────────────────────────────
     async def prune(self, *, max_bytes: int = MAX_BYTES) -> dict[str, int]:
+        # Serialized with set(): prune unlinks paths it stat'ed, and without
+        # the lock a write landing in between was deleted by a stale prune.
+        async with self._lock:
+            return await self._prune_locked(max_bytes=max_bytes)
+
+    async def _prune_locked(self, *, max_bytes: int) -> dict[str, int]:
         """Drop expired entries, then oldest-first until under the cap.
 
         Returns {"removed": n, "freed": bytes, "remaining": count}.
@@ -288,9 +294,15 @@ class CacheService:
             # from elsewhere can have a fresh mtime and a stale entry.
             try:
                 entry = json.loads(path.read_text(encoding="utf-8"))
-                expires = entry.get("expires_at")
-                if isinstance(entry, dict) and isinstance(expires, (int, float)):
-                    expired = now > expires
+                # Type first: a hand-edited file holding valid JSON such as
+                # [], null or "text" used to raise AttributeError here,
+                # which aborted the whole prune and left the cache above its
+                # cap on every later run too.
+                expired = True
+                if isinstance(entry, dict):
+                    expires = entry.get("expires_at")
+                    if isinstance(expires, (int, float)):
+                        expired = now > expires
             except (OSError, ValueError, TypeError):
                 expired = True  # unreadable/garbage: not worth keeping
             if expired:

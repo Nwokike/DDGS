@@ -28,7 +28,10 @@ def prune_old_logs(folder: str, days: int = LOG_RETENTION_DAYS) -> int:
     except OSError:
         return 0
     for name in names:
-        if not name.endswith(".log"):
+        # RotatingFileHandler writes app_<ts>.log.1, .log.2 ... which do not
+        # end in .log, so the sweep used to skip every rotated backup and
+        # they accumulated forever. Match the run prefix instead.
+        if not name.startswith("app_") or ".log" not in name:
             continue
         path = os.path.join(folder, name)
         try:

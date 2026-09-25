@@ -467,6 +467,7 @@ class AppController:
                     conversations.migrate_legacy_history, legacy_history
                 )
                 if migrated:
+                    await conversations.clear_legacy_history(self.storage)
                     rows = await asyncio.to_thread(conversations.list_conversations)
                     await self.show_snack(
                         "Your previous Assistant chat is now in Chat history",
