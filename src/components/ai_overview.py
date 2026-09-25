@@ -2,7 +2,7 @@
 
 Companion to the agentic chat: the chat is where the AI *acts* (searches,
 fetches, iterates); this card is the passive glanceable answer for the
-search you just ran. One credit per overview, auto-triggered when AI mode is
+search you just ran. Free — COST_OVERVIEW is 0, auto-triggered when AI mode is
 on; the router serves it free of upstream cost.
 
 Collapsed by default with a clamped body + "Read full report"; expanded shows

@@ -68,7 +68,13 @@ def model_picker_state() -> PickerState:
         (m for m in models if str(m.get("id") or "") == str(selected or "")),
         None,
     )
-    if current is not None:
+    # A stopped or unavailable router outranks a stale catalog. The catalog
+    # is only a snapshot, so once the router is down the pill used to keep
+    # showing a model name forever, and the "Start router" action never
+    # appeared because `models` was non-empty.
+    if status in ("stopped", "unavailable"):
+        label = "Router stopped" if status == "stopped" else "Router unavailable"
+    elif current is not None:
         label = "Auto" if str(current.get("id")) == "auto" else str(current["id"])
     elif status == "starting":
         label = "Starting router..."
@@ -82,7 +88,14 @@ def model_picker_state() -> PickerState:
         label = "Loading models..."
 
     message = action = ""
-    if not models:
+    if status == "stopped":
+        message, action = "The local model router stopped.", "Start router"
+    elif status == "unavailable":
+        message, action = (
+            "No local model router is running. Replies will use Kiri Gateway.",
+            "Start router",
+        )
+    elif not models:
         if discovering:
             message, action = "Looking for available models...", ""
         elif status == "stopped":
@@ -191,9 +204,11 @@ def show_model_picker(page: ft.Page) -> None:
     ctrl = getattr(page, "_ddgs_controller", None)
     ps = model_picker_state()
 
-    if not ps.models:
-        # Nothing to list yet. Say what is happening and offer the action
-        # that helps, instead of opening an empty dialog.
+    if not ps.models or ps.action:
+        # Either nothing to list, or the router is down while a stale
+        # catalog still exists. In both cases say what is happening and
+        # offer the action that helps, rather than presenting a list of
+        # models the current state cannot honour.
         async def _load_and_show() -> None:
             from services import ai_service as _ai
 

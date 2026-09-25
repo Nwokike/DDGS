@@ -35,11 +35,17 @@ def test_chat_models_before_response_and_by_latency():
         _m("limited-chat", status="rate limited", latency=5),
     ]
     ranked = rank_models(data)
-    # active chat models first (by latency), then others; inactive last
+    # Only chat-completion models are candidates: this function's own
+    # docstring says /response and /systemone cannot answer a
+    # /chat.completions payload. Including them let the request path send
+    # real traffic to endpoints that guaranteed a failure.
     assert ranked[0] == "fast-chat"
     assert ranked[1] == "slow-chat"
-    assert ranked.index("muse-spark") > ranked.index("slow-chat")
-    assert ranked.index("dead-chat") > ranked.index("muse-spark")
+    assert "muse-spark" not in ranked, "a /response model must not be a candidate"
+    assert "jev" not in ranked, "a /systemone model must not be a candidate"
+    # inactive models stay out too
+    assert "dead-chat" not in ranked
+    assert "limited-chat" not in ranked
 
 
 def test_rank_empty_and_dup_ids():

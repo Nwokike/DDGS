@@ -775,7 +775,7 @@ class AppController:
                     f"[{LOG_TAG}] PRIMP_CRASH: {search_type} — {progress.error}"
                 )
 
-            # Google-style AI overview over the results (1 credit, router-first)
+            # Google-style AI overview over the results (free, router-first)
             if (
                 state.ai_mode_enabled
                 and search_type in ("text", "news")
@@ -1192,9 +1192,21 @@ class AppController:
         await _persist_schedule()
 
     def on_app_close(self, e=None) -> None:
-        """Synchronous exit hook: flush storage + stop the embedded router."""
+        """Synchronous exit hook: stop the turn, flush storage, stop the router.
+
+        The turn is stopped FIRST, while the loop is still alive. Left
+        running, it throws once during render and again while settling
+        credits, and the conversation is never written — which is exactly
+        the destroyed-session cascade in the crash log.
+        """
         from services import ai_service
 
+        session = getattr(self.page, "_chat_session", None)
+        if session is not None:
+            try:
+                session.shutdown()
+            except Exception:
+                logger.debug("assistant shutdown failed")
         if self.storage:
             self.storage.flush_now()
         ai_service.shutdown()
