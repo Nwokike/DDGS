@@ -169,7 +169,7 @@ VIDEO_LICENSE_OPTIONS = [
 # ── AI mode (DDGS 2.0) ───────────────────────────────────────────────────
 DAILY_FREE_CREDITS = 50
 PREMIUM_DAILY_CREDITS = 200
-COST_STEP = 2  # one Assistant step = one model call
+COST_STEP = 1  # one Assistant step = one model call
 COST_OVERVIEW = 0  # passive search overview is free
 COST_SUMMARY = 0  # passive page summary is free
 AD_TOPUP_CREDITS = 2
@@ -179,6 +179,16 @@ AGENT_MAX_TOOLS = 10  # tool calls per turn
 AGENT_TIMEOUT_S = 240  # wall-clock per turn
 TOOL_OUTPUT_CAP = 2000  # chars of tool output re-sent per loop
 AGENT_HISTORY_MESSAGES = 6
+
+
+def credit_word(count: int) -> str:
+    """Price copy that cannot go plural-blind: 1 credit, 3 credits.
+
+    Every sentence quoting a credit price runs through here, so changing
+    COST_STEP cannot leave "1 credits" behind in one place and "2 credit"
+    in another.
+    """
+    return f"{count} credit" if count == 1 else f"{count} credits"
 
 STORAGE_AI_MODE = "ai_mode_enabled"
 STORAGE_IS_PREMIUM = "is_premium"

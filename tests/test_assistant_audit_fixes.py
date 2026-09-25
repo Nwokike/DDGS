@@ -3,7 +3,8 @@
 Each test here corresponds to a real user-visible bug, so a future change
 that reintroduces the behaviour fails here rather than in someone's chat:
 
-  - Settings said a step costs 1 credit while the agent charges COST_STEP
+  - Settings hardcoded its price copy instead of reading COST_STEP, so the
+    number on screen and the number charged could disagree
   - every completed turn truncated the stored transcript to 16 messages,
     making the 400-message cap dead code
   - deleting the active chat left its turns on screen, because the
@@ -17,6 +18,7 @@ that reintroduces the behaviour fails here rather than in someone's chat:
 from __future__ import annotations
 
 import asyncio
+import re
 import sys
 from pathlib import Path
 
@@ -87,10 +89,27 @@ def test_settings_price_copy_matches_cost_step():
 
     walk(card)
     blob = " ".join(texts)
-    assert f"{COST_STEP} credits" in blob, (
+    # Every credit figure on the page must be a number the code actually
+    # charges. Asserted as a set of figures rather than one literal, so the
+    # test holds at any value of COST_STEP instead of pinning the copy to
+    # today's price.
+    from core.constants import (
+        DAILY_FREE_CREDITS,
+        PREMIUM_DAILY_CREDITS,
+        credit_word,
+    )
+
+    figures = set(re.findall(r"\b\d+\s+credits?\b", blob))
+    assert credit_word(COST_STEP) in figures, (
         "the cost row must state the real per-step price from COST_STEP"
     )
-    assert "costs 1 credit" not in blob
+    allowed = {
+        credit_word(COST_STEP),
+        credit_word(DAILY_FREE_CREDITS),
+        credit_word(PREMIUM_DAILY_CREDITS),
+    }
+    drifted = sorted(figures - allowed)
+    assert not drifted, f"price copy drifted from the constants: {drifted}"
 
 
 def test_wallet_price_row_uses_cost_step():
@@ -98,8 +117,20 @@ def test_wallet_price_row_uses_cost_step():
 
     source = (SRC / "components" / "wallet.py").read_text(encoding="utf-8")
     assert "COST_STEP" in source
-    assert "costs 1 credit" not in source
+    assert "credit_word(COST_STEP)" in source, (
+        "the wallet must pluralise from the constant, not from a literal"
+    )
     assert COST_STEP >= 1
+
+
+def test_credit_word_is_singular_only_at_one():
+    """The old copy said "2 credit" at one price and would say
+    "1 credits" at the other; both are now impossible."""
+    from core.constants import credit_word
+
+    assert credit_word(1) == "1 credit"
+    assert credit_word(2) == "2 credits"
+    assert credit_word(50) == "50 credits"
 
 
 # ── transcript retention ─────────────────────────────────────────────────

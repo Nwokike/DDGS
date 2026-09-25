@@ -12,6 +12,7 @@ from core.constants import (
     COST_STEP,
     DAILY_FREE_CREDITS,
     PREMIUM_DAILY_CREDITS,
+    credit_word,
 )
 from core.state import state
 from core.theme import AppColors, AppStyles
@@ -188,8 +189,9 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         _setting_row(
             ft.Icons.PRICE_CHECK_ROUNDED,
             "What credits are for",
-            f"A chat reply, a search, or a page fetch costs {COST_STEP} "
-            "credits. Search overviews and page summaries are free",
+            f"A chat reply, a search, or a page fetch costs "
+            f"{credit_word(COST_STEP)}. Search overviews and page summaries "
+            "are free",
             ft.Text(
                 f"{COST_STEP} / step",
                 size=FONT_SM,
