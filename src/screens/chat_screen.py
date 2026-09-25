@@ -471,7 +471,7 @@ class ChatSession:
         """
         from services import conversation_service as conversations
 
-        if not keep_current and self._busy_refuse("starting a new chat"):
+        if self._busy_refuse("starting a new chat"):
             return
         if keep_current:
             self._persist_history()

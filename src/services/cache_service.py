@@ -44,33 +44,21 @@ MAX_BYTES = 64 * 1024 * 1024
 SCHEMA = 1
 
 
-def search_key(
-    query: str,
-    search_type: str,
-    *,
-    region: str = "",
-    safesearch: str = "",
-    timelimit: str = "",
-    backend: str = "",
-) -> str:
+def search_key(query: str, search_type: str, **filters: object) -> str:
     """Stable content key for one search.
 
     Every input that changes the result set is folded in, so changing the
-    region or the engine can never serve a stale list from another
-    configuration.
-    """
-    raw = "\x1f".join(
-        [
-            str(search_type),
-            str(query).strip().lower(),
-            str(region),
-            str(safesearch),
-            str(timelimit),
-            str(backend),
-        ]
-    )
-    return "s_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    region, the engine, the result limit, the page, or any image or video
+    filter can never serve a list from another configuration.
 
+    Filters are taken as **kwargs and sorted rather than listed explicitly:
+    a hardcoded parameter list silently DROPPED every filter added after it
+    was written, which is how max_results, page and the image and video
+    filters went missing from the key while appearing present in the caller.
+    """
+    parts = [str(search_type), str(query).strip().lower()]
+    parts.extend(f"{name}={filters[name]}" for name in sorted(filters, key=str))
+    return "s_" + hashlib.sha1(chr(31).join(parts).encode("utf-8")).hexdigest()
 
 def page_key(url: str, fmt: str = "") -> str:
     raw = f"{str(url).strip()}\x1f{fmt!s}"
