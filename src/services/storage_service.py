@@ -126,10 +126,10 @@ class StorageService:
             return  # web persists via async SharedPreferences in flush()
         try:
             _STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-            _STORAGE_FILE.write_text(
-                json.dumps(self._cache, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            payload = json.dumps(self._cache, ensure_ascii=False, indent=2)
+            tmp = _STORAGE_FILE.with_suffix(".json.tmp")
+            tmp.write_text(payload, encoding="utf-8")
+            tmp.replace(_STORAGE_FILE)
             self._dirty = False
             self._last_write = time.monotonic()
         except (
@@ -254,9 +254,35 @@ class StorageService:
         return list(raw) if isinstance(raw, list) else []
 
     async def get_history(self) -> list[dict]:
-        return self._history
+        """History rows the screens can safely call .get() on.
+
+        A single malformed row (a hand-edited file, or a value written by an
+        older build) used to crash both the History and Home screens, which
+        took out the whole UI rather than one row. Anything that is not a
+        usable dict entry is dropped here, once, instead of guarded twice.
+        """
+        rows = self._history
+        if rows and any(
+            not isinstance(row, dict) or not isinstance(row.get("query"), str)
+            for row in rows
+        ):
+            # `_history` is a read-only property over _cache, so the cleaned
+            # list has to be written back there — assigning to the property
+            # itself raises AttributeError, which is the very crash this is
+            # meant to prevent.
+            clean = [
+                row
+                for row in rows
+                if isinstance(row, dict) and isinstance(row.get("query"), str)
+            ]
+            self._cache[STORAGE_HISTORY] = clean
+            self._dirty = True
+            return clean
+        return rows
 
     async def add_history(self, entry: dict) -> bool:
+        if not isinstance(entry, dict) or not isinstance(entry.get("query"), str):
+            return False
         h = self._history
         h.insert(0, entry)
         return await self.set(STORAGE_HISTORY, h[:100])

@@ -62,6 +62,13 @@ def _title_from_messages(messages: list[dict]) -> str:
     return "New chat"
 
 
+# Ids deleted recently. A save already in flight when the user deletes a
+# chat would otherwise rewrite the file and resurrect it after the next
+# restart, which looks exactly like "delete does nothing".
+_tombstones: dict[str, float] = {}
+_TOMBSTONE_TTL = 60.0
+
+
 def _path(conversation_id: str) -> Path:
     safe = "".join(ch for ch in str(conversation_id) if ch.isalnum() or ch in "_-")
     return conversations_dir() / f"{safe}.json"
@@ -144,9 +151,14 @@ def save_conversation(
     """
     if not conversation_id:
         return False
+    now = time.time()
+    # A save that was queued before the delete must not recreate the file.
+    _prune_tombstones(now)
+    if conversation_id in _tombstones:
+        logger.debug("refusing to save %s: it was just deleted", conversation_id)
+        return False
     if not messages:
         return delete_conversation(conversation_id)
-    now = time.time()
     existing = _read(_path(conversation_id)) or {}
     payload = {
         "schema": SCHEMA,
@@ -154,7 +166,10 @@ def save_conversation(
         "title": title or existing.get("title") or _title_from_messages(messages),
         "created": existing.get("created") or now,
         "updated": now,
-        "messages": messages or [],
+        # Enforced here rather than only in the UI: migration and any
+        # future caller go through this function too, and a constant the
+        # service does not enforce is a lie about retention.
+        "messages": list(messages)[-CONVERSATION_MESSAGE_CAP:],
     }
     if not _write(_path(conversation_id), payload):
         return False
@@ -189,8 +204,15 @@ def prune_conversations(
     return removed
 
 
+def _prune_tombstones(now: float) -> None:
+    for key, stamp in list(_tombstones.items()):
+        if now - stamp > _TOMBSTONE_TTL:
+            _tombstones.pop(key, None)
+
+
 def delete_conversation(conversation_id: str) -> bool:
     """Delete one conversation. False means the file is still there."""
+    _tombstones[str(conversation_id)] = time.time()
     try:
         _path(conversation_id).unlink()
         return True

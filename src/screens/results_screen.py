@@ -207,7 +207,15 @@ def ResultsScreen() -> Control:
                 build_cache_banner(
                     bool(getattr(state, "results_from_cache", False)) and bool(results),
                     refreshing=bool(
-                        getattr(state, "results_from_cache", False) and is_running
+                        getattr(state, "results_from_cache", False)
+                        and (
+                            is_running
+                            or bool(
+                                getattr(controller, "is_search_running", lambda _: False)(
+                                    search_type
+                                )
+                            )
+                        )
                     ),
                     on_refresh=lambda: _get_page().run_task(
                         controller.refresh_search, query, search_type

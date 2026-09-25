@@ -902,7 +902,7 @@ async def stream_chat(
     if tx_id is None:
         raise NotEnoughCredits(await credits.get_balance())
     try:
-        result = await stream_llm(messages, on_token, model=model)
+        result = await stream_llm(messages, on_token, model=model, max_tokens=max_tokens)
         await credits.commit(tx_id)
     except AIMidStream:
         # Tokens were delivered — charge fairly.

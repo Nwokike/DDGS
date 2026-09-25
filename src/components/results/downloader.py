@@ -168,6 +168,11 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
 
     is_image = search_type == "images"
     is_video = search_type == "videos"
+    # Set when a YouTube stream cannot be resolved. Falling through to the
+    # direct path with the watch-page URL and expect_media=True guaranteed a
+    # confusing "not a media file" failure, because a YouTube watch page is
+    # always HTML.
+    yt_unresolved = False
 
     if is_image:
         media_url = result.image_url or result.url
@@ -184,6 +189,8 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
                 if stream:
                     media_url = stream.url
                     ext = stream.ext
+                else:
+                    yt_unresolved = True
             except (
                 ValueError,
                 TypeError,
@@ -193,6 +200,16 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
                 ImportError,
             ) as _ex:
                 __import__("logging").getLogger("app").debug(f"Ignored: {_ex}")
+                yt_unresolved = True
+        if yt_unresolved:
+            _show_feedback(
+                page,
+                "Could not fetch this video",
+                "No downloadable stream was found for that link. Try "
+                "opening it in your browser instead.",
+                is_error=True,
+            )
+            return
     else:
         media_url = result.url
         ext = ext_from_url(media_url, "html")
@@ -269,10 +286,15 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
                 on_progress=_on_progress,
             )
         else:
+            # Images, audio and documents get the same content-type check
+            # the video branch already had. Without it a broken image host
+            # returning an HTML error page was written to the .jpg the user
+            # had just chosen and the UI reported Download Complete.
             await download_media(
                 media_url,
                 path,
                 referer=result.url,
+                expect_media=True,
                 cancel_event=cancel_event,
                 on_progress=_on_progress,
             )

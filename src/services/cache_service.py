@@ -170,6 +170,13 @@ class CacheService:
                 return True
             except (OSError, ValueError, TypeError) as exc:
                 logger.warning("cache write failed for %s: %s", key, exc)
+                # Leave no partial temp behind. prune() and clear() only
+                # matched *.json, so a leak here accumulated forever and was
+                # invisible to the 64 MB cap.
+                try:
+                    tmp.unlink()
+                except (OSError, UnboundLocalError):
+                    pass
                 return False
 
         async with self._lock:
@@ -270,6 +277,18 @@ class CacheService:
             return stats
 
         now = time.time()
+        # Orphan temps from a process killed between write and replace are
+        # not real entries and are never listed by *.json, so they are
+        # swept here or they are invisible to the cap.
+        for stray in root.glob("*.json.tmp"):
+            try:
+                size = stray.stat().st_size
+                stray.unlink()
+                stats["removed"] += 1
+                stats["freed"] += size
+            except OSError:
+                pass
+
         live: list[tuple[float, int, Path]] = []
         for path in entries:
             try:
@@ -328,9 +347,13 @@ class CacheService:
         return stats
 
     async def clear(self) -> int:
+        async with self._lock:
+            return await self._clear_locked()
+
+    async def _clear_locked(self) -> int:
         removed = 0
         try:
-            for path in self.root.glob("*.json"):
+            for path in self.root.glob("*.json*"):
                 try:
                     path.unlink()
                     removed += 1
