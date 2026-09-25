@@ -213,9 +213,16 @@ class AppController:
             # the purchase UI exists at all on a direct Android APK.
             if await licenses.load_opt_in(self.storage):
                 licenses.set_available(self.page, True)
+            was_premium = state.is_premium
             await premium_service.load_from_storage(self.storage)
+            if state.is_premium and not was_premium:
+                # Entitlement was proven after credits were initialised, so
+                # bring a fresh day up to the premium cap now.
+                await self._grant_premium_benefits()
             await self._sync_premium_storage()
             await premium_service.refresh_from_server(self.page)
+            if state.is_premium and not was_premium:
+                await self._grant_premium_benefits()
             await self._sync_premium_storage()
         except Exception:
             logger.exception("premium init failed")
@@ -259,6 +266,11 @@ class AppController:
         try:
             await storage.initialize()
             if state.credit_service:
+                # Entitlement is resolved below, from the channel flags
+                # rather than the persisted flag. The daily reset reads the
+                # premium cap, so on a first launch (no licence record yet)
+                # this uses the free cap and _init_premium tops up once the
+                # licence is proven.
                 state.credits_remaining = await state.credit_service.initialize()
             t = await storage.get_theme()
             self.page.theme_mode = {
@@ -301,7 +313,11 @@ class AppController:
             except Exception:
                 legacy_history = []
             await self._init_conversations(legacy_history)
-            state.is_premium = await storage.get_is_premium()
+            # The persisted flag is a cache from a previous run, not proof.
+            # premium_service recomputes the OR from the channel flags in
+            # _init_premium; trusting it here would let a stale true survive
+            # with no licence token and no Play purchase.
+            state.is_premium = False
             import json as _json
 
             try:
@@ -480,29 +496,54 @@ class AppController:
             state.assistant_history = list(legacy_history or [])
 
     def _cache_filters(self) -> dict[str, str]:
-        """The search inputs that change the result set.
+        """Every input that changes the result set, folded into the key.
 
-        Folded into the cache key so a different region or engine can never
-        be served a list produced under the previous settings.
+        The key used to carry only region, safe search, time limit and
+        backend, so changing Max Results, any image or video filter, or the
+        result page served a list produced under the previous settings
+        while the banner still said "saved results". The window is snapped
+        at the START of a search and reused when the result is stored, so a
+        setting changed mid-search cannot file old results under new keys.
         """
         return {
             "region": state.region,
             "safesearch": state.safe_search,
             "timelimit": state.timelimit or "",
             "backend": state.backend,
+            "max_results": str(state.max_results),
+            "page": str(state.page),
+            "proxy": "1" if state.proxy else "",
+            "verify_ssl": str(bool(state.verify_ssl)),
+            "threads": str(state.threads),
+            # Image filters
+            "image_size": state.image_size,
+            "image_color": state.image_color,
+            "image_type": state.image_type,
+            "image_layout": state.image_layout,
+            "image_license": state.image_license,
+            # Video filters
+            "video_quality": state.video_quality,
+            "search_resolution": state.search_resolution,
+            "search_duration": state.search_duration,
+            "search_license": state.search_license,
         }
 
     def _cached_progress(
-        self, query: str, search_type: str
+        self,
+        query: str,
+        search_type: str,
+        filters: dict[str, str] | None = None,
     ) -> SearchProgress | None:
         """Build a finished SearchProgress from cache, or None on a miss.
 
         Synchronous on purpose: it is one small JSON read and the caller is
-        already on a task, so there is nothing to await.
+        already on a task, so there is nothing to await. `filters` is passed
+        in by a search that already snapshotted them, so a setting changed
+        mid-search cannot shift the key underneath it.
         """
         try:
             results = cache_service.get_cached_search(
-                query, search_type, **self._cache_filters()
+                query, search_type, **(filters or self._cache_filters())
             )
         except Exception as exc:
             logger.warning("search cache read failed: %s", exc)
@@ -572,11 +613,16 @@ class AppController:
         # Cancel prior tasks
         self.cancel_search()
 
+        # Snapshotted once, used for both the cached render and the store,
+        # so a filter changed while the request is in flight cannot make the
+        # two disagree about which configuration these results belong to.
+        cache_filters = self._cache_filters()
+
         # Fresh-enough results are shown immediately while the live search
         # runs underneath and replaces them (stale-while-revalidate). The
         # user gets an answer in milliseconds and still ends up current.
         if not self._skip_cache_once:
-            cached = self._cached_progress(query, search_type)
+            cached = self._cached_progress(query, search_type, cache_filters)
             if cached is not None:
                 state.results_from_cache = True
                 state.current_query = query
@@ -607,6 +653,16 @@ class AppController:
             # The live result supersedes whatever the cache showed.
             state.results_from_cache = False
 
+            if getattr(progress, "is_cancelled", False):
+                # A canceled search produced a truncation, not a result.
+                # Caching it would overwrite a good list, writing history
+                # would log a search the user abandoned, and the interstitial
+                # would charge attention for it.
+                logger.info("search canceled; not caching or logging it")
+                progress.is_running = False
+                await self._refresh(progress)
+                return
+
             # Cache a clean result set so re-running this exact search is
             # instant. A failed or empty search is not worth remembering.
             if progress.results and not progress.error:
@@ -615,7 +671,7 @@ class AppController:
                         query,
                         search_type,
                         progress.results,
-                        **self._cache_filters(),
+                        **cache_filters,
                     )
                 except Exception as exc:
                     logger.warning("search cache write failed: %s", exc)
@@ -671,7 +727,7 @@ class AppController:
         # Show loading state immediately, unless a cached set is already on
         # screen and the live run is about to replace it.
         if state.results_from_cache:
-            cached = self._cached_progress(query, search_type)
+            cached = self._cached_progress(query, search_type, cache_filters)
             if cached is not None:
                 await self._refresh(cached)
             else:

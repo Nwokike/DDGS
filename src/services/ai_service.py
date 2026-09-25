@@ -849,6 +849,7 @@ async def stream_llm(
     Raises AIUnavailable (nothing delivered), AIMidStream (partial) or
     AIRateLimited (every candidate was capped, with a next step).
     """
+    rate_limited = False
     try:
         async with httpx.AsyncClient(http2=False) as client:
             result = await _stream_router(
@@ -861,6 +862,7 @@ async def stream_llm(
         # trying before telling the user they are capped. Only if that
         # fails too does the rate limit reach the UI.
         logger.info("router models capped — trying gateway")
+        rate_limited = True
     except AIUnavailable as exc:
         logger.info("AI router unavailable (%s) — falling back to gateway", exc)
     except AIMidStream:
@@ -871,8 +873,13 @@ async def stream_llm(
                 client, messages, on_token, tools, on_thought, model, max_tokens
             )
     except AIUnavailable:
-        # Preserve the original, more actionable reason for the failure.
-        raise AIRateLimited(str(model or "")) from None
+        # Only a genuine cap becomes a rate limit. Converting every gateway
+        # failure (401, 404, a 500, malformed JSON) into one told users
+        # "Rate limited, try model X" during an outage, which is the wrong
+        # recovery path and hides a real backend failure.
+        if rate_limited:
+            raise AIRateLimited(str(model or "")) from None
+        raise
     result["served_by"] = "gateway"
     return result
 

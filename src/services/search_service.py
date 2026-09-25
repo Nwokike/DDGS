@@ -249,6 +249,14 @@ class SearchService:
             progress.total_results = len(parsed)
             progress.results = parsed
             progress.is_running = False
+            # A canceled search breaks out mid-stream, so whatever `parsed`
+            # holds is a truncation. Marking it here is what stops the
+            # controller caching a partial list, writing it to history, and
+            # showing an interstitial as if the search had completed.
+            progress.is_cancelled = self._is_cancelled
+            if self._is_cancelled:
+                progress.error = None
+                return progress
             progress.error = None
             if ui:
                 state.last_results[search_type] = parsed

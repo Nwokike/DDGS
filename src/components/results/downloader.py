@@ -74,13 +74,23 @@ async def _resolve_save_path(page: ft.Page, default_name: str) -> str | None:
         page.update()
 
     path: str | None = None
+    dialog_failed = False
     try:
         path = await file_picker.save_file(
             dialog_title=f"Save {default_name}",
             file_name=default_name,
         )
     except (ValueError, TypeError, OSError, RuntimeError, AttributeError):
+        # The dialog itself is unavailable on this platform/build. Only in
+        # that case may we pick a destination ourselves.
         path = None
+        dialog_failed = True
+
+    if not path and not dialog_failed:
+        # save_file() returned None because the user cancelled. That is a
+        # decision, not a failure, and auto-saving to Downloads anyway
+        # writes a file the user just said no to.
+        return None
 
     if not path:
         is_mobile = page.platform in (
@@ -95,7 +105,12 @@ async def _resolve_save_path(page: ft.Page, default_name: str) -> str | None:
         else:
             dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
 
-        os.makedirs(dl_dir, exist_ok=True)
+        try:
+            os.makedirs(dl_dir, exist_ok=True)
+        except OSError:
+            # No writable default location: the caller reports the failure
+            # instead of an unhandled OSError escaping the task.
+            return None
         name_part, ext_part = os.path.splitext(default_name)
         counter = 1
         unique_name = default_name

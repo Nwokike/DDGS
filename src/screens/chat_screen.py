@@ -320,16 +320,25 @@ class ChatSession:
             task.cancel()
 
     async def ask_confirm(self, label: str) -> bool:
-        """Inline approve/deny gate for file-writing tools. Times out to deny."""
+        """Inline approve/deny gate for file-writing tools. Times out to deny.
+
+        The gate is cleared in a finally block. Leaving it populated after a
+        timeout or a cancellation kept the Allow/No controls on screen for an
+        operation that was already resolved as denied, and clicking Allow
+        then did nothing, which made a real safety gate look broken.
+        """
         event = asyncio.Event()
         self._confirm = (event, {"label": label, "decision": None})
         self._render(force=True)
         try:
             await asyncio.wait_for(event.wait(), timeout=120)
-        except TimeoutError:
+            decision = self._confirm[1]["decision"] if self._confirm else None
+            return decision == "allow"
+        except (TimeoutError, asyncio.CancelledError):
             return False
-        decision = self._confirm[1]["decision"] if self._confirm else None
-        return decision == "allow"
+        finally:
+            self._confirm = None
+            self._render(force=True)
 
     def _confirm_decision(self, decision: str) -> None:
         if self._confirm and self._confirm[1].get("decision") is None:
@@ -406,7 +415,9 @@ class ChatSession:
         async def _save() -> None:
             try:
                 # All disk work off the UI thread: this runs on every turn.
-                before = await asyncio.to_thread(conversations.list_conversations)
+                existed = await asyncio.to_thread(
+                    conversations.load_conversation, conversation_id
+                )
                 saved = await asyncio.to_thread(
                     conversations.save_conversation, conversation_id, messages
                 )
@@ -414,12 +425,14 @@ class ChatSession:
                     self._snack("This chat could not be saved")
                     return
                 rows = conversations.refresh_state()
-                pruned = max(0, len(before) + 1 - len(rows))
-                if pruned:
+                # Announce pruning only when the cap actually bit. Counting
+                # "before + 1 - after" reported a deletion on every save of
+                # an existing chat, telling users their history was being
+                # removed when it was not.
+                if existed is None and len(rows) >= conversations.MAX_CONVERSATIONS:
                     self._snack(
                         f"Kept your {conversations.MAX_CONVERSATIONS} most recent "
-                        f"chats and removed {pruned} older "
-                        f"{'one' if pruned == 1 else 'ones'}"
+                        "chats and removed the oldest one"
                     )
             except Exception:
                 logger.exception("conversation save failed")
@@ -436,6 +449,19 @@ class ChatSession:
             pass
 
     # ── Conversation switching ──────────────────────────────────────────
+    def _busy_refuse(self, what: str) -> bool:
+        """Refuse a history change while a reply is still streaming.
+
+        The running turn writes into `self.conversation_id` when it
+        finishes, so switching, replacing or deleting the active chat
+        mid-reply would file the answer under the wrong conversation, or
+        recreate the one just deleted.
+        """
+        if not self.busy:
+            return False
+        self._snack(f"Wait for the current reply before {what}")
+        return True
+
     def new_conversation(self, *, keep_current: bool = True) -> None:
         """Start an empty chat.
 
@@ -445,6 +471,8 @@ class ChatSession:
         """
         from services import conversation_service as conversations
 
+        if not keep_current and self._busy_refuse("starting a new chat"):
+            return
         if keep_current:
             self._persist_history()
         self.conversation_id = conversations.new_conversation_id()
@@ -531,6 +559,8 @@ class ChatSession:
         from services import conversation_service as conversations
 
         was_active = conversation_id == self.conversation_id
+        if was_active and self._busy_refuse("deleting this chat"):
+            return
         if not conversations.delete_conversation(conversation_id):
             self._snack("That chat could not be deleted")
             return
@@ -553,6 +583,8 @@ class ChatSession:
     def delete_all_conversations(self) -> None:
         from services import conversation_service as conversations
 
+        if self._busy_refuse("deleting your chats"):
+            return
         deleted, failed = conversations.delete_all()
         conversations.refresh_state()
         self.new_conversation(keep_current=False)
@@ -902,10 +934,7 @@ class ChatSession:
                 partial=False,
                 receipt="",
             )
-            self.agent_history = self.agent_history + [
-                {"role": "user", "content": self.pending_user},
-                {"role": "assistant", "content": self._current["text"]},
-            ]
+            self._record_turn(self._current["text"])
             self._persist_history()
             self._refresh_credits_chip()
             self.refresh_model_chip()
@@ -917,9 +946,14 @@ class ChatSession:
             self._current.update(
                 partial=False,
                 stopped=True,
+                # Whatever streamed before Stop is a real partial answer and
+                # must survive a chat switch or a restart.
+                text=str(data.get("partial") or self._current.get("text") or ""),
                 steps=data.get("steps", self._current.get("steps", 0)),
                 cost=data.get("cost", self._current.get("cost", 0)),
             )
+            self._record_turn(self._current.get("text"))
+            self._persist_history()
         elif event == "error" and self._current is not None:
             if self._current.get("thought_started_at") and not self._current.get(
                 "thought_ended_at"
@@ -927,6 +961,9 @@ class ChatSession:
                 self._current["thought_ended_at"] = now
             self._current.update(
                 partial=False,
+                # Keep whatever streamed before the failure so the exchange
+                # survives a switch or a restart.
+                text=str(data.get("partial") or self._current.get("text") or ""),
                 error=data.get("kind", "unavailable"),
                 # Rate limits and empty answers carry their own copy and a
                 # next step, so they are not flattened into a generic
@@ -936,6 +973,8 @@ class ChatSession:
                 steps=data.get("steps", self._current.get("steps", 0)),
                 cost=data.get("cost", self._current.get("cost", 0)),
             )
+            self._record_turn(self._current.get("text"))
+            self._persist_history()
         elif event == "error" and self._current is None:
             self.turns.append(
                 {
@@ -963,6 +1002,32 @@ class ChatSession:
         if event in ("text_final", "error", "stopped"):
             self._refresh_credits_chip()
         self._render(force=force)
+
+    def _record_turn(self, text: str = "") -> None:
+        """Append a question, and any answer the user actually saw.
+
+        Called for success, stop and failure. A stopped or failed turn is
+        still a real exchange: dropping it meant that switching chats or
+        restarting the app lost the question, any partial answer, and the
+        context the model needed to follow up.
+        """
+        if not self.pending_user:
+            return
+        question = self.pending_user
+        answer = str(text or "").strip()
+        if not answer and self._current is not None:
+            answer = str(self._current.get("text") or "").strip()
+        if not question and not answer:
+            self.pending_user = ""
+            return
+        entry = []
+        if question:
+            entry.append({"role": "user", "content": question})
+        if answer:
+            entry.append({"role": "assistant", "content": answer})
+        if entry:
+            self.agent_history = self.agent_history + entry
+        self.pending_user = ""
 
     def _refresh_credits_chip(self) -> None:
         try:
