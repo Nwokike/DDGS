@@ -62,20 +62,30 @@ class CreditService:
             return None
 
         tx_id = str(uuid.uuid4())
-        self._reservations[tx_id] = amount
+        # Check and reserve as one step. Without this two concurrent turns
+        # can both see the same free balance and both win.
+        async with self._lock:
+            current = await self._get_credits()
+            total_reserved = sum(self._reservations.values())
+            if current - total_reserved < amount:
+                return None
+            tx_id = str(uuid.uuid4())
+            self._reservations[tx_id] = amount
         self._arm_rollback(tx_id, amount)
         return tx_id
 
     async def reserve_more(self, tx_id: str, extra: int) -> bool:
         """Grow an existing hold. False just means the balance dipped below
         the extra — soft metering: the caller keeps going (never breaks work)."""
-        if tx_id not in self._reservations:
-            return False
-        total_reserved = sum(self._reservations.values())
-        if await self._get_credits() - total_reserved < extra:
-            return False
-        self._reservations[tx_id] += extra
-        self._arm_rollback(tx_id, self._reservations[tx_id])
+        async with self._lock:
+            if tx_id not in self._reservations:
+                return False
+            total_reserved = sum(self._reservations.values())
+            if await self._get_credits() - total_reserved < extra:
+                return False
+            self._reservations[tx_id] += extra
+            held = self._reservations[tx_id]
+        self._arm_rollback(tx_id, held)
         return True
 
     def _arm_rollback(self, tx_id: str, amount: int) -> None:
@@ -85,7 +95,11 @@ class CreditService:
 
         async def _auto_rollback():
             await asyncio.sleep(ROLLBACK_SECONDS)
-            if tx_id in self._reservations:
+            # Same lock as settlement: a hold disappearing underneath a
+            # delivery that is about to commit loses that charge silently.
+            async with self._lock:
+                if tx_id not in self._reservations:
+                    return
                 del self._reservations[tx_id]
                 self._rollback_tasks.pop(tx_id, None)
                 logger.warning(
@@ -117,7 +131,9 @@ class CreditService:
             current = await self._get_credits()
             new_balance = max(0, current - amount)
             await self._storage.set(STORAGE_CREDITS, str(new_balance))
-        state.credits_remaining = new_balance
+            # Published inside the lock so a concurrent reward or reset
+            # cannot overwrite it with a value that ignores this debit.
+            state.credits_remaining = new_balance
         logger.info(
             "Settled %d credits (held %d, tx: %s). Remaining: %d",
             amount,
@@ -136,10 +152,14 @@ class CreditService:
         a completed message is never refunded by billing)."""
         from core.state import state
 
-        current = await self._get_credits()
-        new_balance = max(0, current - amount)
-        await self._storage.set(STORAGE_CREDITS, str(new_balance))
-        state.credits_remaining = new_balance
+        # Read, write and publish under one lock: otherwise an ad reward
+        # or a daily reset landing between the read and the write silently
+        # loses one of the two operations.
+        async with self._lock:
+            current = await self._get_credits()
+            new_balance = max(0, current - amount)
+            await self._storage.set(STORAGE_CREDITS, str(new_balance))
+            state.credits_remaining = new_balance
         logger.info("Charged %d credits. Remaining: %d", amount, new_balance)
         return new_balance
 
@@ -148,19 +168,21 @@ class CreditService:
         task = self._rollback_tasks.pop(tx_id, None)
         if task:
             task.cancel()
-        self._reservations.pop(tx_id, None)
+        async with self._lock:
+            self._reservations.pop(tx_id, None)
 
     async def spend(self, amount: int) -> tuple[bool, int]:
         """Deduct credits directly (no reservation). Returns (success, remaining)."""
         from core.state import state
 
-        current = await self._get_credits()
-        total_reserved = sum(self._reservations.values())
-        if current - total_reserved < amount:
-            return False, current
-        new_balance = current - amount
-        await self._storage.set(STORAGE_CREDITS, str(new_balance))
-        state.credits_remaining = new_balance
+        async with self._lock:
+            current = await self._get_credits()
+            total_reserved = sum(self._reservations.values())
+            if current - total_reserved < amount:
+                return False, current
+            new_balance = current - amount
+            await self._storage.set(STORAGE_CREDITS, str(new_balance))
+            state.credits_remaining = new_balance
         logger.info("Spent %d credits. Remaining: %d", amount, new_balance)
         return True, new_balance
 
@@ -168,10 +190,11 @@ class CreditService:
         """Add credits (ad rewards, premium grant). Returns the new balance."""
         from core.state import state
 
-        current = await self._get_credits()
-        new_balance = current + amount
-        await self._storage.set(STORAGE_CREDITS, str(new_balance))
-        state.credits_remaining = new_balance
+        async with self._lock:
+            current = await self._get_credits()
+            new_balance = current + amount
+            await self._storage.set(STORAGE_CREDITS, str(new_balance))
+            state.credits_remaining = new_balance
         logger.info("Added %d credits. New balance: %d", amount, new_balance)
         return new_balance
 
@@ -196,17 +219,25 @@ class CreditService:
 
         today = datetime.now(tz=UTC).date().isoformat()
         last_reset = await self._storage.get(STORAGE_LAST_RESET)
-        if last_reset != today:
+        if last_reset == today:
+            return
+        async with self._lock:
+            # Re-read under the lock: the clock is checked outside it, but
+            # two concurrent entries could both pass and both top up.
             current = await self._get_credits()
             daily_cap = await self.get_daily_cap()
             new_balance = max(current, daily_cap)
             await self._storage.set(STORAGE_CREDITS, str(new_balance))
             await self._storage.set(STORAGE_LAST_RESET, today)
             state.credits_remaining = new_balance
-            self._reservations.clear()
-            logger.info(
-                "Daily credit reset: balance preserved/topped up at %d.", new_balance
-            )
+            # Deliberately NOT clearing self._reservations. A turn in flight
+            # at midnight holds a reservation it is about to settle; clearing
+            # it made that turn's later commit find nothing and silently
+            # charge zero for delivered work. Holds are short-lived and
+            # self-rollback after ROLLBACK_SECONDS regardless.
+        logger.info(
+            "Daily credit reset: balance preserved/topped up at %d.", new_balance
+        )
 
     async def _get_credits(self) -> int:
         from core.constants import DAILY_FREE_CREDITS as _default

@@ -45,7 +45,17 @@ from services import agent_files, ai_service
 logger = logging.getLogger(__name__)
 
 # tool name -> SearchService.search type
-_WRITE_TOOLS = {"save_page", "download_media", "scrape_site", "schedule_scrape"}
+# Everything that mutates the user's world needs approval. cancel_scrape
+# was missing from this set: it deletes a recurring crawl and persists the
+# change, so a hallucinated or prompt-injected call could silently remove
+# a schedule the user set up.
+_WRITE_TOOLS = {
+    "save_page",
+    "download_media",
+    "scrape_site",
+    "schedule_scrape",
+    "cancel_scrape",
+}
 
 TOOL_KINDS = {
     "search_web": "text",
@@ -372,6 +382,25 @@ async def settle_turn(credits, tx_id: str | None, steps: int) -> int:
     return await credits.commit_amount(tx_id, amount)
 
 
+def _error_text(exc: BaseException) -> str:
+    """A message a human can act on for any exception.
+
+    `str(TimeoutError())` is the empty string, and the tool row falls back
+    to "no results" when the error is empty — so a 30-second search stall
+    was reported to the user as "no results". That is both wrong and
+    unactionable. Name the exception when it has no message.
+    """
+    text = str(exc).strip()
+    if text:
+        return text[:300]
+    if isinstance(exc, TimeoutError):
+        return "timed out"
+    if isinstance(exc, asyncio.CancelledError):
+        return "cancelled"
+    name = type(exc).__name__
+    return name if name else "failed"
+
+
 async def run_turn(
     user_text: str,
     history: list[dict],
@@ -522,10 +551,10 @@ async def run_turn(
                             {
                                 "label": label,
                                 "id": tc.get("id", ""),
-                                "error": str(exc)[:140],
+                                "error": _error_text(exc),
                             },
                         )
-                        model_out = {"error": str(exc)[:300]}
+                        model_out = {"error": _error_text(exc)}
                         results = []
                     else:
                         emit(
@@ -618,13 +647,19 @@ async def run_turn(
         )
         await settle_turn(credits, tx, steps)
     except ChatCancelled:
-        await settle_turn(credits, tx, steps)
+        # on_token raises the cancel before stream_llm returns, so `steps`
+        # is still 0 even though tokens reached the screen. Refunding that
+        # would give away delivered work: a model call happened, it just
+        # did not finish. Count one step when the user actually saw text.
+        delivered = bool("".join(content_parts).strip())
+        charge_steps = max(steps, 1) if delivered else steps
+        await settle_turn(credits, tx, charge_steps)
         emit(
             "stopped",
             {
                 "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge_steps,
+                "cost": charge_steps * COST_STEP,
             },
         )
     except ai_service.AIMidStream:

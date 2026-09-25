@@ -181,17 +181,25 @@ def rate_limit_advice(model_id: str = "") -> tuple[str, str]:
     def _label(entry: dict) -> str:
         return str((entry.get("rate_hint") or {}).get("label") or "").strip()
 
+    def _rank_key(entry: dict) -> tuple:
+        """Generous cap first, then fastest — never the tightest model.
+
+        The old key sorted the raw cap ascending, so a model publishing
+        10/hour was recommended before one publishing 500/hour: the exact
+        opposite of what the comment promised, and the opposite of useful.
+        An unpublished cap means unrestricted, so it is treated as generous.
+        """
+        cap = _cap_per_hour(entry)
+        bucket = 0 if (cap is None or cap >= 200) else 1
+        latency = (
+            entry.get("latency_ms")
+            if isinstance(entry.get("latency_ms"), int)
+            else 10**9
+        )
+        return (bucket, latency, str(entry.get("id") or "").lower())
+
     others = [m for m in _catalog if str(m.get("id")) != str(model_id)]
-    # Prefer a model whose own published cap can take the load, then the
-    # fastest of the rest, so the suggestion is actually usable.
-    ranked = sorted(
-        others,
-        key=lambda m: (
-            _cap_per_hour(m) or 10**9,
-            m.get("latency_ms") if isinstance(m.get("latency_ms"), int) else 10**9,
-            str(m.get("id") or "").lower(),
-        ),
-    )
+    ranked = sorted(others, key=_rank_key)
     suggestion_id = str(ranked[0].get("id")) if ranked else ""
 
     if not model_id or str(model_id).lower() == "auto":
@@ -206,16 +214,7 @@ def rate_limit_advice(model_id: str = "") -> tuple[str, str]:
             and str(m.get("status") or "active") == "active"
         ]
         if healthy:
-            pick = min(
-                healthy,
-                key=lambda m: (
-                    _cap_per_hour(m) or 10**9,
-                    m.get("latency_ms")
-                    if isinstance(m.get("latency_ms"), int)
-                    else 10**9,
-                    str(m.get("id") or "").lower(),
-                ),
-            )
+            pick = min(healthy, key=_rank_key)
             suggestion_id = str(pick.get("id"))
         row = next((m for m in _catalog if str(m.get("id")) == "auto"), {})
         hint = _label(row)
@@ -426,15 +425,14 @@ def rank_models(data: list[dict]) -> list[str]:
     usable = [m for m in data if m.get("id")]
     autos = [m for m in usable if str(m.get("id")).lower() == "auto" and active(m)]
     chat_active = [m for m in usable if is_chat(m) and active(m)]
-    others_active = [m for m in usable if active(m) and m not in chat_active]
+    # Only chat-completion models are candidates. The old code also appended
+    # every other active row, so when fewer than three chat models existed
+    # the request path could send a /chat.completions payload to a
+    # /response or /systemone endpoint — which the docstring on this very
+    # function says cannot answer. A short candidate list fails honestly
+    # into the gateway fallback; a broken candidate fails confusingly.
     chat_active.sort(key=latency)
-    others_active.sort(key=latency)
-    ordered: list[dict] = (
-        autos
-        + chat_active
-        + others_active
-        + [m for m in usable if m not in autos + chat_active + others_active]
-    )
+    ordered: list[dict] = autos + chat_active
     seen: set[str] = set()
     out: list[str] = []
     for m in ordered:

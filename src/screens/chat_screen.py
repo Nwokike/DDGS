@@ -138,9 +138,15 @@ class ChatSession:
         self.pending_user = ""
         self.busy = False
         self.cancel = asyncio.Event()
-        self._last_partial_flush = 0.0
+        # Two independent clocks. Sharing one meant a text flush reset the
+        # thought throttle and vice versa, so thinking could silently starve
+        # for 500ms every time a text token landed.
+        self._last_text_flush = 0.0
+        self._last_thought_flush = 0.0
         self._pinned = True  # auto-scroll only while the user sits at the bottom
         self._current: dict | None = None
+        # Set once teardown starts; every UI touch afterwards is a no-op.
+        self._closing = False
         self._confirm: tuple[asyncio.Event, dict] | None = None
 
         # ── Controls ────────────────────────────────────────────────
@@ -282,7 +288,49 @@ class ChatSession:
         # Keep the handle so Stop can cancel the task. Setting the flag
         # alone is cooperative: a stalled socket or a long tool can leave
         # the UI spinning long after the user pressed Stop.
-        self._turn_task = asyncio.ensure_future(self._run_turn(text))
+        task = asyncio.ensure_future(self._run_turn(text))
+        # Retrieve the terminal exception ourselves. Without this, a turn
+        # that fails logs "Task exception was never retrieved" and the
+        # error disappears, which is what produced the cascade in the log.
+        task.add_done_callback(self._on_turn_done)
+        self._turn_task = task
+
+    def shutdown(self) -> None:
+        """Tear the session down before Flet releases the page.
+
+        Called from the app close hook. Once the session is gone every
+        `page.update()` and `page.run_task()` raises, so a turn still
+        running would throw inside render, then again inside settlement,
+        and the persistence that follows would never run. Stopping it here,
+        while the loop is still alive, is the whole point.
+        """
+        if self._closing:
+            return
+        self._closing = True
+        self.cancel.set()
+        task = getattr(self, "_turn_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+        try:
+            self._persist_history()
+        except Exception:
+            logger.debug("persist on shutdown failed")
+
+    def _on_turn_done(self, task: asyncio.Task) -> None:
+        """Own the turn's terminal exception instead of letting asyncio log it."""
+        if self._turn_task is task:
+            self._turn_task = None
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is None:
+            return
+        # Expected after teardown; anything else is a real failure worth
+        # seeing once, loudly, rather than as a duplicate traceback.
+        if "destroyed session" in str(exc):
+            logger.debug("assistant turn ended with the session already closed")
+        else:
+            logger.exception("assistant turn failed", exc_info=exc)
 
     async def _run_turn(self, text: str) -> None:
         from services import chat_agent
@@ -374,12 +422,21 @@ class ChatSession:
         if self.view not in self.page.views:
             self.page.views.append(self.view)
         self.refresh_model_chip()
+        if self._closing:
+            return
         try:
             self.page.update()
         except Exception:
+            # The session may already be gone; that is teardown, not a bug.
             pass
         if self._pinned:
-            self.page.run_task(self._scroll_to_bottom)
+            try:
+                self.page.run_task(self._scroll_to_bottom)
+            except Exception:
+                # run_task evaluates page.session before scheduling, so a
+                # destroyed session raises here and would otherwise leak an
+                # un-awaited scroll coroutine and kill the whole turn.
+                pass
 
     def _clear_chat(self) -> None:
         if not self.turns:
@@ -391,10 +448,73 @@ class ChatSession:
         self._snack("Chat cleared")
 
     def _delete_turn(self, index: int) -> None:
-        if 0 <= index < len(self.turns):
+        """Delete a message from the transcript, then rebuild the view.
+
+        The old code deleted only from `self.turns` — the render list — and
+        then persisted `self.agent_history`, which was untouched. So the
+        message vanished visually and came straight back from disk on the
+        next switch or restart. A delete has to mutate the canonical
+        transcript; the view is a projection of it, never the other way
+        round.
+        """
+        if not (0 <= index < len(self.turns)):
+            return
+        turn = self.turns[index]
+        role = turn.get("role")
+        if role not in ("user", "assistant"):
+            # Error/empty rows have no transcript entry: view-only.
             del self.turns[index]
-            self._persist_history()
             self._render(force=True)
+            return
+        offset = self._transcript_offset(index, role)
+        if offset is None:
+            del self.turns[index]
+            self._render(force=True)
+            return
+
+        # Drop the whole exchange, not one side of it: a question with no
+        # answer, or an answer with no question, reads as a glitch.
+        start = offset
+        end = offset + 1
+        if role == "user":
+            while (
+                end < len(self.agent_history)
+                and self.agent_history[end].get("role") != "assistant"
+            ):
+                end += 1
+            if end < len(self.agent_history):
+                end += 1
+        else:
+            while (
+                start > 0
+                and self.agent_history[start - 1].get("role") != "user"
+            ):
+                start -= 1
+
+        del self.agent_history[start:end]
+        self.turns = _turns_from_messages(self.agent_history)
+        self._persist_history()
+        self._render(force=True)
+
+    def _transcript_offset(self, turn_index: int, role: str) -> int | None:
+        """Find the transcript index of a rendered turn of the same role.
+
+        `turns` and `agent_history` are both ordered, and `turns` is built
+        from `agent_history`, so the Nth turn of a role maps to the Nth
+        entry of that role. No text matching, so an edited or repeated
+        message cannot be deleted by mistake.
+        """
+        position = sum(
+            1 for t in self.turns[:turn_index] if t.get("role") == role
+        )
+        same_role = [
+            i
+            for i, entry in enumerate(self.agent_history)
+            if entry.get("role") == role
+        ]
+        if position >= len(same_role):
+            return None
+        return same_role[position]
 
     def _persist_history(self) -> None:
         """Write this conversation to disk and refresh the history menu.
@@ -408,36 +528,55 @@ class ChatSession:
         """
         from services import conversation_service as conversations
 
-        state.assistant_history = list(self.agent_history)
         conversation_id = self.conversation_id
         messages = list(self.agent_history)[-conversations.CONVERSATION_MESSAGE_CAP :]
 
-        async def _save() -> None:
-            try:
-                # All disk work off the UI thread: this runs on every turn.
-                existed = await asyncio.to_thread(
-                    conversations.load_conversation, conversation_id
-                )
-                saved = await asyncio.to_thread(
-                    conversations.save_conversation, conversation_id, messages
-                )
-                if not saved:
-                    self._snack("This chat could not be saved")
-                    return
-                rows = conversations.refresh_state()
-                # Announce pruning only when the cap actually bit. Counting
-                # "before + 1 - after" reported a deletion on every save of
-                # an existing chat, telling users their history was being
-                # removed when it was not.
-                if existed is None and len(rows) >= conversations.MAX_CONVERSATIONS:
-                    self._snack(
-                        f"Kept your {conversations.MAX_CONVERSATIONS} most recent "
-                        "chats and removed the oldest one"
-                    )
-            except Exception:
-                logger.exception("conversation save failed")
+        # Schedule the disk write BEFORE touching any observable field.
+        # `state.assistant_history = ...` notifies subscribers and can raise
+        # after teardown, and anything raised before these lines meant the
+        # conversation was never written at all — history silently lost.
+        try:
+            self.page.run_task(self._save_history, conversation_id, messages)
+        except Exception:
+            logger.debug("could not schedule the conversation save")
+        # The mirror is written second and guarded: it is only here so an
+        # observer can see the transcript, and a dead session must never be
+        # able to stop the file write that already happened above.
+        try:
+            state.assistant_history = list(self.agent_history)
+        except Exception:
+            pass
 
-        self.page.run_task(_save)
+    async def _save_history(self, conversation_id: str, messages: list) -> None:
+        """Persist one conversation. Never raises into the caller.
+
+        Async because `page.run_task` refuses a plain function, and a throw
+        here would surface as an unretrieved task exception during
+        teardown — exactly the crash this replaced.
+        """
+        from services import conversation_service as conversations
+
+        try:
+            existed = await asyncio.to_thread(
+                conversations.load_conversation, conversation_id
+            )
+            saved = await asyncio.to_thread(
+                conversations.save_conversation, conversation_id, messages
+            )
+            if not saved:
+                return
+            rows = conversations.refresh_state()
+            # Announce pruning only when the cap actually bit. Counting
+            # "before + 1 - after" reported a deletion on every save of an
+            # existing chat, telling users their history was being removed
+            # when it was not.
+            if existed is None and len(rows) >= conversations.MAX_CONVERSATIONS:
+                self._snack(
+                    f"Kept your {conversations.MAX_CONVERSATIONS} most recent "
+                    "chats and removed the oldest one"
+                )
+        except Exception:
+            logger.exception("conversation save failed")
 
     def _snack(self, message: str) -> None:
         snack = ft.SnackBar(ft.Text(message))
@@ -883,18 +1022,18 @@ class ChatSession:
         elif event == "text_partial" and self._current is not None:
             self._current["text"] = data.get("text", "")
             force = False
-            if now - self._last_partial_flush < 0.2:
+            if now - self._last_text_flush < 0.2:
                 return
-            self._last_partial_flush = now
+            self._last_text_flush = now
         elif event == "thought" and self._current is not None:
             if not self._current.get("thought_started_at"):
                 self._current["thought_started_at"] = now
             buf = (self._current.get("thought") or "") + data.get("text", "")
             self._current["thought"] = buf[:_THROUGHT_CAP]
             force = False
-            if now - self._last_partial_flush < 0.5:
+            if now - self._last_thought_flush < 0.5:
                 return
-            self._last_partial_flush = now
+            self._last_thought_flush = now
         elif event == "step_start" and self._current is not None:
             self._current["steps_rows"].append(
                 {
@@ -1040,13 +1179,29 @@ class ChatSession:
             pass
 
     def refresh_model_chip(self) -> None:
-        """Rebuild the header pill so it tracks live router state.
+        """Rebuild the header pill, but only when it actually changed.
 
-        The chip is a static control inside an imperative View, so it does
-        not re-render itself when the observable router status changes. It
-        is replaced on each render and whenever the chat is opened.
+        The chip is a static control inside an imperative View, so nothing
+        re-renders it when the observable router status changes. It used to
+        be rebuilt on every accepted token, which meant constructing a whole
+        control tree and sending a separate panel update per token for a
+        label that almost never moved. Now it short-circuits unless the
+        router status, model or availability changed.
         """
+        from components.model_picker import model_picker_state
+
         try:
+            snapshot = model_picker_state()
+            signature = (
+                snapshot.label,
+                snapshot.active,
+                snapshot.discovering,
+                snapshot.selected,
+                state.ai_router_status,
+            )
+            if signature == getattr(self, "_pill_signature", None):
+                return
+            self._pill_signature = signature
             new_chip = build_model_pill(self.page)
             self.model_chip.content = new_chip.content
             self.model_chip.bgcolor = new_chip.bgcolor
@@ -1065,6 +1220,10 @@ class ChatSession:
         hard event and the reply looked stuck. emit() already throttles to
         0.2s, so the paint rate stays bounded.
         """
+        if self._closing:
+            # Teardown: no UI work at all. Anything here touches
+            # page.session and raises "destroyed session".
+            return
         controls: list[ft.Control] = []
         if not self.turns:
             controls.append(self._welcome())
@@ -1082,9 +1241,16 @@ class ChatSession:
         try:
             self.page.update()
         except Exception:
+            # The session may already be gone; that is teardown, not a bug.
             pass
         if self._pinned:
-            self.page.run_task(self._scroll_to_bottom)
+            try:
+                self.page.run_task(self._scroll_to_bottom)
+            except Exception:
+                # run_task evaluates page.session while building the
+                # coroutine, so a dead session raises here and would
+                # otherwise leak an un-awaited coroutine into the turn.
+                pass
 
     async def _scroll_to_bottom(self):
         # ScrollableControl.scroll_to is async in flet 1.0
