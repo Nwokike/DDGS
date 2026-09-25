@@ -367,16 +367,20 @@ class ChatSession:
         if task is not None and not task.done():
             task.cancel()
 
-    async def ask_confirm(self, label: str) -> bool:
+    async def ask_confirm(self, label: str, detail: str = "") -> bool:
         """Inline approve/deny gate for file-writing tools. Times out to deny.
 
-        The gate is cleared in a finally block. Leaving it populated after a
-        timeout or a cancellation kept the Allow/No controls on screen for an
-        operation that was already resolved as denied, and clicking Allow
-        then did nothing, which made a real safety gate look broken.
+        `detail` carries the arguments the label hides: the full URL, the
+        crawl interval, the page count, the quality. Without it the card
+        asks the user to bless a recurring background job they cannot see.
+
+        The gate is cleared in a finally block. Leaving it populated after
+        a timeout or a cancellation kept the Allow/No controls on screen for
+        an operation that was already resolved as denied, and clicking
+        Allow then did nothing, which made a real safety gate look broken.
         """
         event = asyncio.Event()
-        self._confirm = (event, {"label": label, "decision": None})
+        self._confirm = (event, {"label": label, "detail": detail, "decision": None})
         self._render(force=True)
         try:
             await asyncio.wait_for(event.wait(), timeout=120)
@@ -484,12 +488,11 @@ class ChatSession:
                 end += 1
             if end < len(self.agent_history):
                 end += 1
-        else:
-            while (
-                start > 0
-                and self.agent_history[start - 1].get("role") != "user"
-            ):
-                start -= 1
+        elif start > 0 and self.agent_history[start - 1].get("role") == "user":
+            # Include the question that asked for this answer, otherwise
+            # regenerate leaves the old question in the transcript and the
+            # resent one is appended alongside it.
+            start -= 1
 
         del self.agent_history[start:end]
         self.turns = _turns_from_messages(self.agent_history)
@@ -531,21 +534,13 @@ class ChatSession:
         conversation_id = self.conversation_id
         messages = list(self.agent_history)[-conversations.CONVERSATION_MESSAGE_CAP :]
 
-        # Schedule the disk write BEFORE touching any observable field.
-        # `state.assistant_history = ...` notifies subscribers and can raise
-        # after teardown, and anything raised before these lines meant the
-        # conversation was never written at all — history silently lost.
+        # Schedule the disk write directly. There is no observable mirror
+        # to update first: writing one used to mean a dead session could
+        # stop the file write before it was ever scheduled.
         try:
             self.page.run_task(self._save_history, conversation_id, messages)
         except Exception:
             logger.debug("could not schedule the conversation save")
-        # The mirror is written second and guarded: it is only here so an
-        # observer can see the transcript, and a dead session must never be
-        # able to stop the file write that already happened above.
-        try:
-            state.assistant_history = list(self.agent_history)
-        except Exception:
-            pass
 
     async def _save_history(self, conversation_id: str, messages: list) -> None:
         """Persist one conversation. Never raises into the caller.
@@ -661,6 +656,21 @@ class ChatSession:
         self.agent_history = list(loaded.get("messages") or [])
         self._remember_active()
         self._render(force=True)
+
+    @property
+    def conversation_id(self) -> str:
+        """The live chat id. One owner: `state.active_conversation`.
+
+        The session used to keep its own copy, so `self.conversation_id`
+        and `state.active_conversation` could disagree — the prune guard
+        protected one while a save wrote the other. Delegating removes the
+        second owner rather than trying to keep them in sync.
+        """
+        return state.active_conversation
+
+    @conversation_id.setter
+    def conversation_id(self, value: str) -> None:
+        state.active_conversation = value
 
     def _remember_active(self) -> None:
         """Remember the open chat so the next launch returns to it."""
@@ -1231,7 +1241,7 @@ class ChatSession:
             controls.append(
                 self._render_user(turn, idx)
                 if turn.get("role") == "user"
-                else self._render_assistant(turn)
+                else self._render_assistant(turn, idx)
             )
         if state.scheduled_scrapes:
             controls.append(self._render_schedules())
@@ -1323,12 +1333,146 @@ class ChatSession:
             expand=True,
         )
 
+    # ── Message actions ─────────────────────────────────────────────────
+    # Deliberately a visible row of small buttons. Long press alone is not
+    # discoverable and has no keyboard equivalent, so it stays as a shortcut
+    # rather than the only way in.
+
+    async def _copy_text(self, text: str) -> None:
+        try:
+            clipboard = ft.Clipboard()
+            if clipboard not in self.page.services:
+                self.page.services.append(clipboard)
+            await clipboard.set(text)
+            self._snack("Copied to clipboard")
+        except Exception:
+            self._snack("Could not copy that", "error")
+
+    def _copy_turn(self, index: int) -> None:
+        if not (0 <= index < len(self.turns)):
+            return
+        self.page.run_task(
+            self._copy_text, str(self.turns[index].get("text") or "")
+        )
+
+    def _edit_turn(self, index: int) -> None:
+        """Prefill the composer with a sent message so it can be changed.
+
+        The message leaves the transcript with it: editing in place would
+        silently rewrite what the assistant answered to, and the model
+        would carry on from a question that no longer exists.
+        """
+        if self.busy or not (0 <= index < len(self.turns)):
+            return
+        turn = self.turns[index]
+        if turn.get("role") != "user":
+            return
+        text = str(turn.get("text") or "")
+        self._delete_turn(index)
+        self.field.value = text
+        try:
+            self.field.update()
+            self.field.focus()
+        except Exception:
+            pass
+
+    def _regenerate(self, index: int) -> None:
+        """Re-ask the question this answer responded to."""
+        if self.busy or not (0 <= index < len(self.turns)):
+            return
+        turn = self.turns[index]
+        if turn.get("role") != "assistant":
+            return
+        question = ""
+        for previous in reversed(self.turns[:index]):
+            if previous.get("role") == "user":
+                question = str(previous.get("text") or "")
+                break
+        if not question:
+            self._snack("There is no question to re-ask")
+            return
+        # Drop the old answer first: it would otherwise sit above the new
+        # one and read as two answers to the same question.
+        self._delete_turn(index)
+        self.send(question)
+
+    def _confirm_delete_turn(self, index: int) -> None:
+        if not (0 <= index < len(self.turns)):
+            return
+
+        def _do_delete(e=None):
+            self.page.pop_dialog()
+            self._delete_turn(index)
+
+        self.page.show_dialog(
+            ft.AlertDialog(
+                title=ft.Text("Delete message?", font_family="Outfit"),
+                content=ft.Text(
+                    "This message and its exchange leave this chat. "
+                    "This cannot be undone."
+                ),
+                actions=[
+                    ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
+                    ft.FilledButton(
+                        "Delete",
+                        on_click=_do_delete,
+                        style=ft.ButtonStyle(
+                            bgcolor=AppColors.ERROR, color=ft.Colors.WHITE
+                        ),
+                    ),
+                ],
+            )
+        )
+
+    def _action_row(self, turn: dict, index: int) -> ft.Row | None:
+        """Copy / edit / regenerate / delete for one message."""
+        role = turn.get("role")
+        buttons: list[ft.Control] = [
+            ft.IconButton(
+                icon=ft.Icons.CONTENT_COPY_ROUNDED,
+                icon_size=tokens.ICON_SM,
+                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                tooltip="Copy",
+                on_click=lambda e, i=index: self._copy_turn(i),
+            )
+        ]
+        if role == "user":
+            buttons.append(
+                ft.IconButton(
+                    icon=ft.Icons.EDIT_ROUNDED,
+                    icon_size=tokens.ICON_SM,
+                    icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                    tooltip="Edit and resend",
+                    on_click=lambda e, i=index: self._edit_turn(i),
+                )
+            )
+        else:
+            buttons.append(
+                ft.IconButton(
+                    icon=ft.Icons.REFRESH_ROUNDED,
+                    icon_size=tokens.ICON_SM,
+                    icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                    tooltip="Regenerate",
+                    on_click=lambda e, i=index: self._regenerate(i),
+                )
+            )
+        buttons.append(
+            ft.IconButton(
+                icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                icon_size=tokens.ICON_SM,
+                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                tooltip="Delete",
+                on_click=lambda e, i=index: self._confirm_delete_turn(i),
+            )
+        )
+        return ft.Row(buttons, spacing=0)
+
     def _render_user(self, turn: dict, index: int) -> ft.Container:
         bubble_width = min(300, (getattr(self.page, "width", None) or 400) * 0.72)
-        return ft.Row(
+        return ft.Column(
             [
                 ft.GestureDetector(
-                    on_long_press=lambda e, i=index: self._delete_turn(i),
+                    on_long_press=lambda e, i=index: self._confirm_delete_turn(i),
                     content=ft.Container(
                         content=ft.Text(
                             turn.get("text", ""),
@@ -1341,12 +1485,17 @@ class ChatSession:
                         bgcolor=AppColors.PRIMARY,
                         width=bubble_width,
                     ),
-                )
+                ),
+                ft.Row(
+                    [self._action_row(turn, index)],
+                    alignment=ft.MainAxisAlignment.END,
+                ),
             ],
-            alignment=ft.MainAxisAlignment.END,
+            spacing=0,
+            horizontal_alignment=ft.CrossAxisAlignment.END,
         )
 
-    def _render_assistant(self, turn: dict) -> ft.Container:
+    def _render_assistant(self, turn: dict, index: int = -1) -> ft.Container:
         kids: list[ft.Control] = []
 
         if (turn.get("thought") or "").strip():
@@ -1453,6 +1602,7 @@ class ChatSession:
         # approval gate row
         if self._confirm and self._confirm[1].get("decision") is None:
             label = self._confirm[1]["label"]
+            detail = str(self._confirm[1].get("detail") or "").strip()
             kids.append(
                 ft.Container(
                     content=ft.Column(
@@ -1461,8 +1611,19 @@ class ChatSession:
                                 label,
                                 size=tokens.FONT_XS,
                                 color=AppColors.WARNING,
-                                max_lines=2,
-                                overflow=ft.TextOverflow.ELLIPSIS,
+                                weight=ft.FontWeight.W_600,
+                            ),
+                            *(
+                                [
+                                    ft.Text(
+                                        detail,
+                                        size=tokens.FONT_XS,
+                                        color=ft.Colors.ON_SURFACE,
+                                        selectable=True,
+                                    ),
+                                ]
+                                if detail
+                                else []
                             ),
                             ft.Row(
                                 [
@@ -1540,10 +1701,24 @@ class ChatSession:
             )
         elif turn.get("error") == "midstream":
             kids.append(
-                ft.Text(
-                    "⚠ Connection lost mid-answer. What arrived was still charged.",
-                    size=tokens.FONT_XS,
-                    color=AppColors.WARNING,
+                ft.Column(
+                    [
+                        ft.Text(
+                            "⚠ Connection lost mid-answer. What arrived was still "
+                            "charged.",
+                            size=tokens.FONT_XS,
+                            color=AppColors.WARNING,
+                        ),
+                        ft.TextButton(
+                            "Ask again",
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            on_click=lambda e: self._retry_last(),
+                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
+                        ),
+                    ],
+                    spacing=2,
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.START,
                 )
             )
         elif turn.get("error") == "rate_limited":
@@ -1609,12 +1784,25 @@ class ChatSession:
             )
         elif turn.get("error") == "unavailable":
             kids.append(
-                ft.Text(
-                    "Assistant unavailable. Classic search, scraping and "
-                    "downloads still work.",
-                    size=tokens.FONT_XS,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                    italic=True,
+                ft.Column(
+                    [
+                        ft.Text(
+                            "Assistant unavailable. Classic search, scraping and "
+                            "downloads still work.",
+                            size=tokens.FONT_XS,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            italic=True,
+                        ),
+                        ft.TextButton(
+                            "Try again",
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            on_click=lambda e: self._retry_last(),
+                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
+                        ),
+                    ],
+                    spacing=2,
+                    tight=True,
+                    horizontal_alignment=ft.CrossAxisAlignment.START,
                 )
             )
         if turn.get("stopped"):
@@ -1650,6 +1838,9 @@ class ChatSession:
             kids.append(ft.Row(pills, spacing=6, wrap=True, run_spacing=4))
 
         # receipt — every assistant turn shows what it cost and who answered
+        if index >= 0:
+            kids.append(self._action_row(turn, index))
+
         if turn.get("cost"):
             receipt = (
                 f"Assistant used {turn.get('steps', 0)} steps · {turn['cost']} credits"

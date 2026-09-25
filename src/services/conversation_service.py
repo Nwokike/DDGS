@@ -146,8 +146,8 @@ def save_conversation(
     that the user has not typed into yet has no history value, and keeping
     those would fill the menu with blank rows.
 
-    Returns True on success. `state.conversations` is refreshed by the
-    caller on the UI loop; this function is pure IO.
+    Returns True on success. Pure IO: the caller re-lists if the menu
+    needs refreshing.
     """
     if not conversation_id:
         return False
@@ -269,9 +269,14 @@ async def clear_legacy_history(storage) -> None:
 
 
 def refresh_state() -> list[dict]:
-    """Reload the summary rows into observable state (UI loop only)."""
-    state.conversations = list_conversations()
-    return state.conversations
+    """Re-read the summary rows.
+
+    Kept as a single call site so callers do not each re-list the
+    directory. The rows are returned rather than parked on observable
+    state: nothing read the old mirror, and an observable write in the
+    save path was one more way a dead session could stop persistence.
+    """
+    return list_conversations()
 
 
 def ensure_active() -> str:

@@ -401,6 +401,46 @@ def _error_text(exc: BaseException) -> str:
     return name if name else "failed"
 
 
+def approval_detail(name: str, args: dict) -> str:
+    """The arguments a user needs before approving a write, as plain text.
+
+    `pretty_label` deliberately shows only a host, so the old approval card
+    asked people to bless a recurring 8-page crawl every 15 minutes on a
+    URL they never saw. This is what the label hides.
+    """
+    url = str(args.get("url") or "").strip()
+    parts: list[str] = []
+    if url:
+        parts.append(url)
+    if name == "download_media":
+        quality = str(args.get("quality") or "").strip()
+        if quality:
+            parts.append(f"quality: {quality}")
+    if name == "scrape_site":
+        pages = args.get("max_pages")
+        if pages:
+            parts.append(f"up to {pages} pages")
+        fmt = str(args.get("format") or "").strip()
+        if fmt:
+            parts.append(f"saved as {fmt}")
+    if name == "save_page":
+        fmt = str(args.get("format") or "markdown")
+        parts.append(f"saved as {fmt}")
+    if name == "schedule_scrape":
+        try:
+            interval = int(args.get("interval_minutes") or 60)
+        except (TypeError, ValueError):
+            interval = 60
+        parts.append(f"every {interval} minutes")
+        pages = args.get("max_pages")
+        if pages:
+            parts.append(f"up to {pages} pages per run")
+    if name == "cancel_scrape":
+        target = url or "a scheduled crawl"
+        parts = [f"cancelling {target}"]
+    return " · ".join(parts)
+
+
 async def run_turn(
     user_text: str,
     history: list[dict],
@@ -523,7 +563,7 @@ async def run_turn(
                     label = pretty_label(name, args)
                     emit("step_start", {"label": label, "id": tc.get("id", "")})
                     if name in _WRITE_TOOLS and ask_confirm is not None:
-                        allowed = await ask_confirm(label)
+                        allowed = await ask_confirm(label, approval_detail(name, args))
                         if not allowed:
                             emit(
                                 "step_error",

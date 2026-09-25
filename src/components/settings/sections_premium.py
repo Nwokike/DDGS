@@ -177,7 +177,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         try:
             clipboard = ft.Clipboard()
             page.services.append(clipboard)
-            await clipboard.set_data(recovery_id)
+            await clipboard.set(recovery_id)
             _snack("Recovery ID copied. Keep it somewhere safe.", "success")
         except Exception as exc:
             _snack(f"Could not copy automatically: {exc}", "error")

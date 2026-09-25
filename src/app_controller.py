@@ -517,7 +517,6 @@ class AppController:
                         "Your previous Assistant chat is now in Chat history",
                         "info",
                     )
-            state.conversations = rows
             # Re-open the chat the user was last in, not merely the newest.
             remembered = ""
             if self.storage is not None:
@@ -531,14 +530,13 @@ class AppController:
                 if remembered and remembered in known
                 else (rows[0]["id"] if rows else conversations.new_conversation_id())
             )
-            active = await asyncio.to_thread(
-                conversations.load_conversation, state.active_conversation
-            )
-            state.assistant_history = list((active or {}).get("messages") or [])
+            # The messages are deliberately NOT loaded here. ChatSession
+            # reads the active conversation itself when it opens; caching a
+            # second copy on observable state was one more owner for the
+            # transcript and one more thing that could disagree with disk.
         except Exception:
             logger.exception("conversation history init failed")
-            state.conversations = []
-            state.assistant_history = list(legacy_history or [])
+            state.active_conversation = conversations.new_conversation_id()
 
     def is_search_running(self, search_type: str) -> bool:
         """True while a live search for this type is still in flight.
