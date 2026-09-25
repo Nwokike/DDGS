@@ -10,6 +10,8 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
+
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
@@ -283,6 +285,10 @@ def test_every_download_kind_checks_the_media_type():
 
 def test_unresolved_youtube_does_not_download_a_watch_page():
     source = (SRC / "components" / "results" / "downloader.py").read_text(encoding="utf-8")
+    if "YouTube Downloading Restricted" in source:
+        # The Play build blocks YouTube downloads behind its own dialog and
+        # returns before the resolver, so this path does not exist there.
+        pytest.skip("this build blocks YouTube downloads by policy")
     assert "yt_unresolved" in source
     assert "Could not fetch this video" in source
     # the fallback must return before the save dialog
