@@ -51,12 +51,129 @@ def _primp_client_kwargs(timeout: float) -> dict[str, Any]:
     return kwargs
 
 
+_MULTIPLIERS = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}
+
+
+def _parse_view_count(text: str) -> int | None:
+    """Parse YouTube's compact view labels.
+
+    Labels are "1,234 views", "1.2M views", "12K views". Joining the digits
+    of the first token, as this did, turned "1.2M views" into 12 and
+    "12K views" into 12 — off by orders of magnitude, and the card showed
+    the fabricated count to the user.
+    """
+    parts = str(text).replace(",", "").split()
+    if not parts:
+        return None
+    head = parts[0].lower()
+    multiplier = 1
+    if head and head[-1] in _MULTIPLIERS:
+        multiplier = _MULTIPLIERS[head[-1]]
+        head = head[:-1]
+    if not head:
+        return None
+    try:
+        return round(float(head) * multiplier)
+    except ValueError:
+        return None
+
+
+
+async def _youtube_video_fallback(
+        self, query: str
+    ) -> tuple[list[SearchResult], str | None]:
+        """Fetch video search results from YouTube InnerTube API when DDGS.videos is rate-limited."""
+        try:
+            import primp
+
+            body = {
+                "context": {
+                    "client": {
+                        "clientName": "WEB",
+                        "clientVersion": "2.20240101.00.00",
+                        "hl": "en",
+                        "gl": "US",
+                    }
+                },
+                "query": query,
+            }
+            async with primp.AsyncClient(**_primp_client_kwargs(10)) as client:
+                resp = await client.post(
+                    "https://www.youtube.com/youtubei/v1/search", json=body
+                )
+            if resp.status_code != 200:
+                return [], f"HTTP {resp.status_code}"
+            data = resp.json()
+            contents = (
+                data.get("contents", {})
+                .get("twoColumnSearchResultsRenderer", {})
+                .get("primaryContents", {})
+                .get("sectionListRenderer", {})
+                .get("contents", [])
+            )
+            items = (
+                contents[0].get("itemSectionRenderer", {}).get("contents", [])
+                if contents
+                else []
+            )
+            parsed = []
+            for item in items:
+                if "videoRenderer" in item:
+                    vr = item["videoRenderer"]
+                    title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
+                    video_id = vr.get("videoId", "")
+                    url = f"https://www.youtube.com/watch?v={video_id}"
+                    duration = vr.get("lengthText", {}).get("simpleText", "")
+                    views_str = vr.get("viewCountText", {}).get("simpleText", "") or ""
+                    views = _parse_view_count(views_str)
+                    publisher = (
+                        vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
+                    )
+                    thumbnail = (
+                        vr.get("thumbnail", {})
+                        .get("thumbnails", [{}])[-1]
+                        .get("url", "")
+                    )
+                    if title and video_id:
+                        parsed.append(
+                            SearchResult(
+                                title=title,
+                                url=url,
+                                snippet=f"{publisher} • {duration}"
+                                if publisher
+                                else title,
+                                search_type="videos",
+                                thumbnail=thumbnail,
+                                duration=duration,
+                                publisher=publisher,
+                                views=views,
+                            )
+                        )
+            return parsed, None
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+            KeyError,
+            IndexError,
+            OSError,
+            RuntimeError,
+            ConnectionError,
+            ImportError,
+            TimeoutError,
+        ) as ex:
+            logger.warning(f"[{LOG_TAG}] YouTube video fallback error: {ex}")
+            return [], str(ex)
+
 class SearchService:
     """Wraps DDGS — every method, every parameter, all logged."""
 
     def __init__(self):
         self._ddgs: DDGS | None = None
         self._is_cancelled = False
+        # Bumped by cancel() so an in-flight search can tell it was
+        # superseded even though the flag was reset by the next start.
+        self._generation = 0
         logger.info(
             f"[{LOG_TAG}] SearchService created. DDGS available: {_DDGS_AVAILABLE}"
         )
@@ -65,9 +182,20 @@ class SearchService:
     def is_available(self) -> bool:
         return _DDGS_AVAILABLE
 
+    def _ddgs_config(self) -> tuple:
+        return (state.proxy, state.verify_ssl, state.threads)
+
     def _build_client(self) -> DDGS:
-        """Create DDGS client with current proxy/timeout/verify settings."""
-        if self._ddgs is not None:
+        """Create DDGS client with current proxy/timeout/verify settings.
+
+        Rebuilt when the settings that built it change. The client used to
+        be cached forever, so adding a proxy or toggling SSL verification
+        after the first search silently had no effect and the user's new
+        configuration was never used.
+        """
+        if self._ddgs is not None and self._ddgs_config() == getattr(
+            self, "_ddgs_config_at_build", None
+        ):
             return self._ddgs
         logger.debug(f"[{LOG_TAG}] Building DDGS client...")
         start = time.perf_counter()
@@ -80,6 +208,7 @@ class SearchService:
             kwargs["timeout"] = 15
 
             self._ddgs = DDGS(**kwargs)
+            self._ddgs_config_at_build = self._ddgs_config()
             if state.threads > 0 and _DDGSClass is not None:
                 # ddgs 9.16 root-imports a lazy proxy whose __setattr__ lands
                 # on the proxy, not the class the search code reads.
@@ -96,7 +225,11 @@ class SearchService:
             raise
 
     def cancel(self):
+        # Bump the generation as well as setting the flag: the flag is reset
+        # by the next search(), so starting search B used to clear A's
+        # cancel and A kept running, then wrote its results over B's.
         self._is_cancelled = True
+        self._generation += 1
         logger.info(f"[{LOG_TAG}] Cancelled")
 
     async def search(
@@ -108,6 +241,7 @@ class SearchService:
         call never clobbers the results screen the user is looking at.
         """
         self._is_cancelled = False
+        generation = self._generation
         progress = SearchProgress(
             query=query, search_type=search_type, total_results=0, is_running=True
         )
@@ -254,8 +388,11 @@ class SearchService:
             # controller caching a partial list, writing it to history, and
             # showing an interstitial as if the search had completed.
             progress.is_cancelled = self._is_cancelled
-            if self._is_cancelled:
+            if self._is_cancelled or generation != self._generation:
+                # Superseded by a newer search or an explicit cancel: the
+                # parse is a truncation of a request nobody is waiting on.
                 progress.error = None
+                progress.is_cancelled = True
                 return progress
             progress.error = None
             if ui:
@@ -439,98 +576,6 @@ class SearchService:
             progress.error = err_str
             if search_type == "videos" and category == "rate_limit":
                 progress.is_rate_limited = True
-
-    async def _youtube_video_fallback(
-        self, query: str
-    ) -> tuple[list[SearchResult], str | None]:
-        """Fetch video search results from YouTube InnerTube API when DDGS.videos is rate-limited."""
-        try:
-            import primp
-
-            body = {
-                "context": {
-                    "client": {
-                        "clientName": "WEB",
-                        "clientVersion": "2.20240101.00.00",
-                        "hl": "en",
-                        "gl": "US",
-                    }
-                },
-                "query": query,
-            }
-            async with primp.AsyncClient(**_primp_client_kwargs(10)) as client:
-                resp = await client.post(
-                    "https://www.youtube.com/youtubei/v1/search", json=body
-                )
-            if resp.status_code != 200:
-                return [], f"HTTP {resp.status_code}"
-            data = resp.json()
-            contents = (
-                data.get("contents", {})
-                .get("twoColumnSearchResultsRenderer", {})
-                .get("primaryContents", {})
-                .get("sectionListRenderer", {})
-                .get("contents", [])
-            )
-            items = (
-                contents[0].get("itemSectionRenderer", {}).get("contents", [])
-                if contents
-                else []
-            )
-            parsed = []
-            for item in items:
-                if "videoRenderer" in item:
-                    vr = item["videoRenderer"]
-                    title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
-                    video_id = vr.get("videoId", "")
-                    url = f"https://www.youtube.com/watch?v={video_id}"
-                    duration = vr.get("lengthText", {}).get("simpleText", "")
-                    views_str = vr.get("viewCountText", {}).get("simpleText", "") or ""
-                    views = None
-                    if views_str:
-                        num_part = "".join(
-                            c for c in views_str.split()[0] if c.isdigit()
-                        )
-                        if num_part:
-                            views = int(num_part)
-                    publisher = (
-                        vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
-                    )
-                    thumbnail = (
-                        vr.get("thumbnail", {})
-                        .get("thumbnails", [{}])[-1]
-                        .get("url", "")
-                    )
-                    if title and video_id:
-                        parsed.append(
-                            SearchResult(
-                                title=title,
-                                url=url,
-                                snippet=f"{publisher} • {duration}"
-                                if publisher
-                                else title,
-                                search_type="videos",
-                                thumbnail=thumbnail,
-                                duration=duration,
-                                publisher=publisher,
-                                views=views,
-                            )
-                        )
-            return parsed, None
-        except (
-            ValueError,
-            TypeError,
-            AttributeError,
-            KeyError,
-            IndexError,
-            OSError,
-            RuntimeError,
-            ConnectionError,
-            ImportError,
-            TimeoutError,
-        ) as ex:
-            logger.warning(f"[{LOG_TAG}] YouTube video fallback error: {ex}")
-            return [], str(ex)
 
     async def _openlibrary_book_fallback(
         self, query: str

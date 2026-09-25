@@ -374,7 +374,15 @@ def _dismiss_then(page: ft.Page, action) -> None:
     try:
         page.run_task(action)
     except Exception:
-        action()
+        # `action` is an async coroutine function. Calling it here would
+        # only build a coroutine nobody awaits, so the user would see a
+        # "coroutine was never awaited" warning and nothing would happen.
+        # The button is simply inert when the page cannot schedule work.
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "could not schedule %r: the page refused the task", action
+        )
 
 
 def _select(page: ft.Page, ctrl, model_id: str) -> None:

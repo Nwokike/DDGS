@@ -1,8 +1,13 @@
-"""Agentic chat turn — DDGS tools, hard caps, one credit per user message.
+"""Agentic chat turn — DDGS tools, hard caps, COST_STEP per model step.
 
-The model gets six read-only tools over our real capabilities (five searches
-+ page fetch). One reserve covers the WHOLE turn regardless of how many tool
-calls run inside it (research recommendation: per-message, never per-tool).
+The model gets 11 tools over our real capabilities: five searches plus
+fetch, save, download, scrape, schedule and cancel. Six are read-only and
+five need the user to approve them first.
+
+Billing is COST_STEP credits per MODEL STEP, not per user message: a turn
+that takes two steps to answer costs 2 * COST_STEP. The Settings copy and
+the receipt are both generated from that constant, so they cannot drift
+away from what is charged.
 
 Emit protocol (the chat screen consumes these, throttled):
     user                {"text"}
@@ -74,7 +79,7 @@ SYSTEM_PROMPT = (
 
 
 def build_tools() -> list[dict]:
-    """OpenAI function schemas for our six read-only tools."""
+    """OpenAI function schemas for our 11 tools (six read-only, five gated)."""
 
     def _fn(name: str, desc: str, props: dict, required: list[str]) -> dict:
         return {
@@ -459,6 +464,26 @@ async def run_turn(
                     if cancel.is_set():
                         raise ChatCancelled()
                     if tools_used >= AGENT_MAX_TOOLS:
+                        # The assistant already asked for these calls in the
+                        # message we appended above, so every one of them
+                        # needs a matching role:tool reply. Breaking here
+                        # left the transcript with tool_calls and no tool
+                        # responses, which the API rejects as invalid.
+                        for remaining in tool_calls[
+                            tool_calls.index(tc) :
+                        ]:
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": remaining.get("id", ""),
+                                    "content": json.dumps(
+                                        {
+                                            "error": "tool limit reached; "
+                                            "nothing else was run"
+                                        }
+                                    ),
+                                }
+                            )
                         break
                     fn = tc.get("function") or {}
                     name = fn.get("name") or ""

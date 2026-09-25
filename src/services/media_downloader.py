@@ -103,6 +103,7 @@ async def download_media(
             )
 
         total = _safe_int(r.headers.get("content-length"))
+        completed = False
         try:
             f = await asyncio.to_thread(open, dest, "wb")
             try:
@@ -117,12 +118,17 @@ async def download_media(
                         on_progress(written, total)
             finally:
                 await asyncio.to_thread(f.close)
-        except DownloadCancelled:
-            # Remove the partial file so we don't leave a broken download behind.
-            try:
-                os.remove(dest)
-            except OSError:
-                pass
+            completed = True
+        except BaseException:
+            # Every failure, not just a cancel: a network drop mid-transfer
+            # or a full disk used to leave a truncated file behind while the
+            # UI reported the download failed. Nothing half-written is worth
+            # keeping.
+            if not completed:
+                try:
+                    os.remove(dest)
+                except OSError:
+                    pass
             raise
 
     logger.info("Downloaded %d bytes to %s", written, dest)

@@ -152,6 +152,10 @@ class AppState:
         self.license_status: str = ""
         self.license_product: str = ""
         self.license_recovery_id: str = ""
+        # Live prices pulled from the Worker's /catalog so the Premium card
+        # never asks anyone to pay an amount it has not shown them.
+        # product_id -> "USD 3.99"
+        self.license_prices: dict = {}
         self.ad_cooldown_end: float = 0.0
         self.chat_open: bool = False
         # True when the Assistant is retained but another screen is on top.

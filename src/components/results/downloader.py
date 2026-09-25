@@ -168,7 +168,6 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
 
     is_image = search_type == "images"
     is_video = search_type == "videos"
-
     if is_image:
         media_url = result.image_url or result.url
         ext = ext_from_url(media_url, "jpg")
@@ -291,10 +290,15 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
                 on_progress=_on_progress,
             )
         else:
+            # Images, audio and documents get the same content-type check
+            # the video branch already had. Without it a broken image host
+            # returning an HTML error page was written to the .jpg the user
+            # had just chosen and the UI reported Download Complete.
             await download_media(
                 media_url,
                 path,
                 referer=result.url,
+                expect_media=True,
                 cancel_event=cancel_event,
                 on_progress=_on_progress,
             )

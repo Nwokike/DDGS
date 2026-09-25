@@ -198,6 +198,31 @@ class AppController:
             logger.info("Connectivity restored")
             self.page.run_task(self.show_snack, "You're back online.", "info")
 
+    async def _load_license_prices(self) -> None:
+        """Fill state.license_prices from the Worker's catalog.
+
+        Without this the Premium card shows "Choose" and no number, so a
+        user is asked to commit before they know what they are committing
+        to. Best effort: a missing price leaves the card on a neutral label
+        rather than failing the section.
+        """
+        from services import license_service as licenses
+
+        if not licenses.is_available(self.page):
+            return
+        try:
+            products = await licenses.fetch_catalog()
+        except Exception as exc:
+            logger.debug("license prices unavailable: %s", exc)
+            return
+        prices = {
+            product.id: product.label
+            for product in products
+            if getattr(product, "id", None) and getattr(product, "amount", 0)
+        }
+        if prices:
+            state.license_prices = prices
+
     async def _init_premium(self) -> None:
         """Resolve Premium at startup from both channels.
 
@@ -220,6 +245,7 @@ class AppController:
                 # bring a fresh day up to the premium cap now.
                 await self._grant_premium_benefits()
             await self._sync_premium_storage()
+            await self._load_license_prices()
             await premium_service.refresh_from_server(self.page)
             if state.is_premium and not was_premium:
                 await self._grant_premium_benefits()
@@ -441,11 +467,29 @@ class AppController:
         self.page.update()
 
     def cancel_search(self):
-        """Cancel all running search tasks."""
-        for task in self._current_search_tasks.values():
+        """Cancel all running search tasks.
+
+        The task itself is cancelled, not only flagged: a network call
+        inside to_thread keeps running otherwise, so the loading screen
+        stayed up until the engine timed out. The flag is still set
+        because the thread checks it between pages.
+        """
+        self.search_service.cancel()
+        for task in list(self._current_search_tasks.values()):
             if hasattr(task, "done") and not task.done():
-                self.search_service.cancel()
+                task.cancel()
         self._current_search_tasks.clear()
+        # Publish a stopped state so the Results screen stops showing its
+        # spinner; nothing else was going to update it.
+        progress = getattr(state, "search_progress", None)
+        if progress is not None and progress.is_running:
+            progress.is_running = False
+            progress.is_cancelled = True
+            progress.error = None
+            try:
+                self.page.update()
+            except Exception:
+                pass
 
     # ── Search ─────────────────────────────────────────────────────────
 
@@ -495,6 +539,17 @@ class AppController:
             logger.exception("conversation history init failed")
             state.conversations = []
             state.assistant_history = list(legacy_history or [])
+
+    def is_search_running(self, search_type: str) -> bool:
+        """True while a live search for this type is still in flight.
+
+        The Results screen needs this: the cached progress on screen has
+        is_running=False, so without it the banner claimed the results were
+        merely "saved" for the whole background wait instead of admitting
+        they were being refreshed.
+        """
+        task = self._current_search_tasks.get(search_type)
+        return task is not None and not getattr(task, "done", lambda: True)()
 
     def _cache_filters(self) -> dict[str, str]:
         """Every input that changes the result set, folded into the key.
@@ -597,6 +652,11 @@ class AppController:
                     state.current_query = query
                     state.search_active = True
                     state.results_from_cache = True
+                    # The overview belongs to the previous query. This
+                    # branch returned before the reset further down, so a
+                    # stale overview was rendered above the new results.
+                    state.ai_overview = None
+                    state.ai_overview_expanded = False
                     await self._refresh(cached)
                     return
                 progress = SearchProgress(

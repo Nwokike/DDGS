@@ -399,13 +399,15 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             ("lifetime", "Pay once, keep it"),
         ):
             rows.append(_divider())
+            price = state.license_prices.get(product_id, "")
             rows.append(
                 _setting_row(
                     ft.Icons.LOCAL_OFFER_ROUNDED,
-                    product_id.capitalize(),
+                    f"{product_id.capitalize()} {price}".rstrip() if price
+                    else product_id.capitalize(),
                     blurb,
                     ft.FilledButton(
-                        "Choose",
+                        price or "Choose",
                         on_click=lambda e, pid=product_id: page.run_task(
                             _checkout, pid
                         ),
