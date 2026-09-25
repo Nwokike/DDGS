@@ -120,10 +120,12 @@ def _turns_from_messages(messages: list[dict]) -> list[dict]:
 class ChatSession:
     """Owns one conversation: local model, rendering, agent turn, approvals.
 
-    The session is bound to a conversation id. Turns are rendered from
-    `turns` for the live view, while `agent_history` (the flat role/content
-    list the agent consumes) is what actually gets persisted, so a reopened
-    chat continues with real context instead of starting cold.
+    The session is bound to a conversation id and keeps ONE transcript:
+    `turns`, the list the user sees. The flat `{"role", "content"}` pairs
+    that get written to disk and handed to the model are projected from it
+    by `conversation_service.flat_from_turns`, never held beside it. A
+    second list in memory is how a deleted message used to survive: the
+    view dropped it, the other list did not, and disk wrote it back.
     """
 
     def __init__(self, page: ft.Page, ctx: dict | None = None):
@@ -134,8 +136,6 @@ class ChatSession:
         self.conversation_id: str = conversations.ensure_active()
         saved = conversations.load_conversation(self.conversation_id) or {}
         self.turns: list[dict] = _turns_from_messages(saved.get("messages") or [])
-        self.agent_history: list[dict] = list(saved.get("messages") or [])
-        self.pending_user = ""
         self.busy = False
         self.cancel = asyncio.Event()
         # Two independent clocks. Sharing one meant a text flush reset the
@@ -313,7 +313,6 @@ class ChatSession:
     def send(self, text: str) -> None:
         if self.busy:
             return
-        self.pending_user = text
         self.cancel = asyncio.Event()
         self.busy = True
         self._set_busy_ui(True)
@@ -370,7 +369,7 @@ class ChatSession:
         try:
             await chat_agent.run_turn(
                 text,
-                list(self.agent_history),
+                self._model_history(),
                 self.emit,
                 self.cancel,
                 on_thought=lambda t: self.emit("thought", {"text": t}),
@@ -478,78 +477,53 @@ class ChatSession:
         if not self.turns:
             return
         self.turns = []
-        self.agent_history = []
         self._persist_history()
         self._render(force=True)
         self._snack("Chat cleared")
 
-    def _delete_turn(self, index: int) -> None:
-        """Delete a message from the transcript, then rebuild the view.
+    def _model_history(self) -> list[dict]:
+        """The flat transcript the agent consumes, projected on demand.
 
-        The old code deleted only from `self.turns` — the render list — and
-        then persisted `self.agent_history`, which was untouched. So the
-        message vanished visually and came straight back from disk on the
-        next switch or restart. A delete has to mutate the canonical
-        transcript; the view is a projection of it, never the other way
-        round.
+        Same function, same order, same trimming as the save path: what the
+        model is told the user said is what the file says the user said.
+        """
+        from services import conversation_service as conversations
+
+        return conversations.flat_from_turns(self.turns)
+
+    def _delete_turn(self, index: int) -> None:
+        """Delete an exchange from the transcript.
+
+        `turns` is the only transcript, so this is the whole operation — the
+        screen and the file are both derived from it. The previous version
+        had to translate a view index into an `agent_history` index first;
+        when that translation was wrong the message vanished on screen and
+        came straight back from disk on the next switch.
         """
         if not (0 <= index < len(self.turns)):
             return
-        turn = self.turns[index]
-        role = turn.get("role")
+        role = self.turns[index].get("role")
         if role not in ("user", "assistant"):
-            # Error/empty rows have no transcript entry: view-only.
-            del self.turns[index]
-            self._render(force=True)
-            return
-        offset = self._transcript_offset(index, role)
-        if offset is None:
+            # Error/empty rows carry no text: a view-only row.
             del self.turns[index]
             self._render(force=True)
             return
 
         # Drop the whole exchange, not one side of it: a question with no
         # answer, or an answer with no question, reads as a glitch.
-        start = offset
-        end = offset + 1
+        start, end = index, index + 1
         if role == "user":
-            while (
-                end < len(self.agent_history)
-                and self.agent_history[end].get("role") != "assistant"
-            ):
+            if end < len(self.turns) and self.turns[end].get("role") == "assistant":
                 end += 1
-            if end < len(self.agent_history):
-                end += 1
-        elif start > 0 and self.agent_history[start - 1].get("role") == "user":
+        elif start > 0 and self.turns[start - 1].get("role") == "user":
             # Include the question that asked for this answer, otherwise
             # regenerate leaves the old question in the transcript and the
             # resent one is appended alongside it.
             start -= 1
 
-        del self.agent_history[start:end]
-        self.turns = _turns_from_messages(self.agent_history)
+        del self.turns[start:end]
         self._persist_history()
         self._render(force=True)
-
-    def _transcript_offset(self, turn_index: int, role: str) -> int | None:
-        """Find the transcript index of a rendered turn of the same role.
-
-        `turns` and `agent_history` are both ordered, and `turns` is built
-        from `agent_history`, so the Nth turn of a role maps to the Nth
-        entry of that role. No text matching, so an edited or repeated
-        message cannot be deleted by mistake.
-        """
-        position = sum(
-            1 for t in self.turns[:turn_index] if t.get("role") == role
-        )
-        same_role = [
-            i
-            for i, entry in enumerate(self.agent_history)
-            if entry.get("role") == role
-        ]
-        if position >= len(same_role):
-            return None
-        return same_role[position]
 
     def _persist_history(self) -> None:
         """Write this conversation to disk and refresh the history menu.
@@ -564,7 +538,9 @@ class ChatSession:
         from services import conversation_service as conversations
 
         conversation_id = self.conversation_id
-        messages = list(self.agent_history)[-conversations.CONVERSATION_MESSAGE_CAP :]
+        messages = conversations.flat_from_turns(self.turns)[
+            -conversations.CONVERSATION_MESSAGE_CAP :
+        ]
 
         # Schedule the disk write directly. There is no observable mirror
         # to update first: writing one used to mean a dead session could
@@ -644,7 +620,6 @@ class ChatSession:
         self.conversation_id = conversations.new_conversation_id()
         state.active_conversation = self.conversation_id
         self.turns = []
-        self.agent_history = []
         self._remember_active()
         self._render(force=True)
 
@@ -685,7 +660,6 @@ class ChatSession:
         self.conversation_id = str(loaded.get("id") or self.conversation_id)
         state.active_conversation = self.conversation_id
         self.turns = _turns_from_messages(loaded.get("messages") or [])
-        self.agent_history = list(loaded.get("messages") or [])
         self._remember_active()
         self._render(force=True)
 
@@ -1170,7 +1144,6 @@ class ChatSession:
                 partial=False,
                 receipt="",
             )
-            self._record_turn(self._current["text"])
             self._persist_history()
             self._refresh_credits_chip()
             self.refresh_model_chip()
@@ -1188,7 +1161,6 @@ class ChatSession:
                 steps=data.get("steps", self._current.get("steps", 0)),
                 cost=data.get("cost", self._current.get("cost", 0)),
             )
-            self._record_turn(self._current.get("text"))
             self._persist_history()
         elif event == "error" and self._current is not None:
             if self._current.get("thought_started_at") and not self._current.get(
@@ -1209,7 +1181,6 @@ class ChatSession:
                 steps=data.get("steps", self._current.get("steps", 0)),
                 cost=data.get("cost", self._current.get("cost", 0)),
             )
-            self._record_turn(self._current.get("text"))
             self._persist_history()
         elif event == "error" and self._current is None:
             self.turns.append(
@@ -1238,32 +1209,6 @@ class ChatSession:
         if event in ("text_final", "error", "stopped"):
             self._refresh_credits_chip()
         self._render(force=force)
-
-    def _record_turn(self, text: str = "") -> None:
-        """Append a question, and any answer the user actually saw.
-
-        Called for success, stop and failure. A stopped or failed turn is
-        still a real exchange: dropping it meant that switching chats or
-        restarting the app lost the question, any partial answer, and the
-        context the model needed to follow up.
-        """
-        if not self.pending_user:
-            return
-        question = self.pending_user
-        answer = str(text or "").strip()
-        if not answer and self._current is not None:
-            answer = str(self._current.get("text") or "").strip()
-        if not question and not answer:
-            self.pending_user = ""
-            return
-        entry = []
-        if question:
-            entry.append({"role": "user", "content": question})
-        if answer:
-            entry.append({"role": "assistant", "content": answer})
-        if entry:
-            self.agent_history = self.agent_history + entry
-        self.pending_user = ""
 
     def _refresh_credits_chip(self) -> None:
         try:

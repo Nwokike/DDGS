@@ -263,31 +263,24 @@ def test_history_changes_are_refused_while_a_reply_streams():
 def test_stopped_and_failed_turns_are_recorded():
     """A stopped or failed exchange is still history.
 
-    Only the success path appended to agent_history, so switching chats or
-    restarting lost the question and any partial answer.
+    Recording used to be a separate append that only the success path ran,
+    so switching chats or restarting lost the question and any partial
+    answer. The screen's transcript is now the record: there is no second
+    write to forget to make.
     """
     from screens.chat_screen import ChatSession
 
-    class Probe(ChatSession):
-        def __init__(self):
-            self.agent_history = []
-            self.pending_user = "why is the sky blue"
-            self._current = {"text": "short answer"}
-
-    probe = Probe()
-    probe._record_turn("short answer")
-    roles = [m["role"] for m in probe.agent_history]
-    assert roles == ["user", "assistant"]
-    assert probe.agent_history[0]["content"] == "why is the sky blue"
+    session = object.__new__(ChatSession)
+    session.turns = [
+        {"role": "user", "text": "why is the sky blue"},
+        {"role": "assistant", "text": "short answer", "stopped": True},
+    ]
+    assert [m["role"] for m in session._model_history()] == ["user", "assistant"]
+    assert session._model_history()[0]["content"] == "why is the sky blue"
 
     # A failure with nothing streamed still keeps the question.
-    probe2 = Probe()
-    probe2._current = {"text": ""}
-    probe2._record_turn("")
-    assert [m["role"] for m in probe2.agent_history] == ["user"]
-    # and it is not recorded twice
-    probe2._record_turn("")
-    assert len(probe2.agent_history) == 1
+    session.turns = [{"role": "user", "text": "why is the sky blue"}]
+    assert [m["role"] for m in session._model_history()] == ["user"]
 
 
 def test_prune_notice_only_fires_when_the_cap_bites():

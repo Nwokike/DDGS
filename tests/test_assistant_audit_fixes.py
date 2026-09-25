@@ -138,7 +138,7 @@ def test_completed_turn_does_not_truncate_to_sixteen_messages():
     """The [-16:] slice silently deleted the user's own history."""
     source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
     assert ")[-16:]" not in source, (
-        "a completed turn must not slice agent_history down to 16 messages"
+        "a completed turn must not slice the stored transcript down to 16 messages"
     )
     from services.conversation_service import CONVERSATION_MESSAGE_CAP
 
