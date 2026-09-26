@@ -9,7 +9,6 @@ dependencies = [
     "ddgs>=9.16.0",
     "flet>=1.0.1",
     "flet-ads>=1.0.1",
-    "flet-billing>=0.1.1",
     "httpx>=0.28.1",
     "lxml>=6.1.3",
 ]

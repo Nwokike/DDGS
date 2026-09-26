@@ -100,20 +100,17 @@ class AppController:
         self.update_service = UpdateService()
         state.ad_service = self.ad_service
 
-        # ── Billing (Android only; flet-billing wraps Play Billing) ──
+        # ── Play Billing ────────────────────────────────────────────────
+        # Not wired, and not a dependency either. The Play Console behind
+        # this package has no Google Payments merchant profile, so there is
+        # nothing to sell and nothing to test — KTV Player ships the same
+        # way, and core/build_channel.py records the policy. Keeping the
+        # package in `project.dependencies` also put a library that no
+        # index serves into every platform's build, so one missing package
+        # took all three down at once. `verify_purchases` and
+        # `_on_purchase_updated` stay: both already return when billing is
+        # None, so restoring Play Billing is this import block again.
         self.billing = None
-        if self.page.platform == ft.PagePlatform.ANDROID:
-            try:
-                from flet_billing import Billing
-
-                # Construction auto-registers the service (flet 1.0.1).
-                self.billing = Billing(
-                    on_purchase_updated=self._on_purchase_updated,
-                    on_error=lambda e: logger.error("billing error: %s", e.message),
-                )
-                self.page.run_task(self.verify_purchases)
-            except Exception as exc:
-                logger.warning("billing unavailable: %s", exc)
         # ── Premium. Built here, not in a task: verify_purchases is
         # scheduled before _init_premium runs, and it reads this attribute.
         from services import premium_service
