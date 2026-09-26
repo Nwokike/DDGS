@@ -1553,11 +1553,11 @@ class ChatSession:
                     padding=ft.Padding(4, 4, 4, 4),
                     ink=True,
                     tooltip="Tap to expand or collapse",
-                    # on_tap_down, not on_click: while the AI is working the
-                    # list auto-scrolls, and a tap judged on RELEASE landed
-                    # on a row that had moved under the finger. Touch fires
-                    # the toggle instantly, scroll or not.
-                    on_tap_down=lambda e, t=turn: self._toggle_thought(t),
+                    # on_click, not on_tap_down: with ink=True the InkWell
+                    # claims the gesture, so on_tap_down never fires and the
+                    # toggle dead-ends. LM Router's ThinkingBlock uses the
+                    # same Container + on_click contract.
+                    on_click=lambda e, t=turn: self._toggle_thought(t),
                 )
             )
         steps_rows = turn.get("steps_rows", [])

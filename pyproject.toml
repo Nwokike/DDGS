@@ -8,6 +8,18 @@ dependencies = [
     "ddgs>=9.16.0",
     "flet>=1.0.1",
     "flet-ads>=1.0.1",
+    # Directly imported by src/ (ai_service, license_service, update_service).
+    # httpx is also a base flet dependency, so this pins the floor without
+    # adding a family.
+    "httpx>=0.28.1",
+    # Imported by src/services/agent_files.py. Ceiling rule (owner's own
+    # builds): pypi.flet.dev tops out at lxml 6.1.1 while PyPI has 6.1.3 -
+    # never raise this floor past the Android ceiling or only the APK job
+    # dies with "No matching distribution found".
+    "lxml>=6.1.1",
+    # Imported by src/services/media_downloader.py and youtube/innertube_client.py.
+    # Floor matches ddgs' own requirement so the two cannot diverge.
+    "primp>=1.3.1",
 ]
 
 [tool.flet]
@@ -41,6 +53,11 @@ key_alias = "upload"
 dev = [
     "pytest>=9.1.1",
     "ruff>=0.16.8",
+    # `uv run flet run` / `flet build` need flet-cli + flet-desktop, which
+    # flet otherwise pip-installs into the venv at runtime. Kept OUT of
+    # [project].dependencies so `flet build` never resolves desktop packages
+    # for Android. Exact pin: the extras must track the flet SDK version.
+    "flet[cli,desktop]==1.0.1",
 ]
 
 [tool.ruff]

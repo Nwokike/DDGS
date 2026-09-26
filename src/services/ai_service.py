@@ -42,7 +42,9 @@ logger = logging.getLogger(__name__)
 #    api.kiri.ng/chat; no new secret to register) ─────────────────────────
 GATEWAY_URL = "https://api.kiri.ng"
 GATEWAY_SECRET = "mobile-v1"
-USER_AGENT = "DDGSApp/2.0.0"
+from components.settings.version import _APP_VERSION
+
+USER_AGENT = f"DDGSApp/{_APP_VERSION}"
 
 # ── Embedded/attached router ──────────────────────────────────────────────
 ROUTER_HOST = "127.0.0.1"

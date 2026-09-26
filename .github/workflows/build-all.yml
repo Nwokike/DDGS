@@ -28,7 +28,7 @@ env:
 jobs:
   # ─── 0. Quality gate: nothing builds or publishes until this passes ────
   # KTV Player gates every job behind ruff + pytest; DDGS ran neither in CI
-  # on any branch, so 173 local tests guarded exactly nothing — including
+  # on any branch, so local tests guarded exactly nothing — including
   # the Play-channel assertions that only run on the playstore branch.
   quality:
     runs-on: ubuntu-latest
@@ -38,8 +38,97 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install dependencies
-        run: uv sync
+      - name: Install dependencies (frozen lockfile, includes dev group)
+        run: uv sync --frozen
+      - name: Version consistency (pyproject is the source; version.json may be held back)
+        run: |
+          uv run python - <<'PY'
+          import json, os, re, sys, tomllib
+
+          pp = tomllib.load(open("pyproject.toml", "rb"))
+          py = pp["project"]["version"]
+          felb = str(pp["tool"]["flet"]["build_number"])
+          sys.path.insert(0, "src")
+          from components.settings.version import _APP_VERSION
+          from services import update_service as us
+          from services.ai_service import USER_AGENT
+
+          env_v, env_b = os.environ["BUILD_VERSION"], os.environ["BUILD_NUMBER"]
+          errs = []
+
+          # Hard: the artifact's version/build and every derived in-app copy
+          # agree with pyproject, which is the single source of truth.
+          if env_v != py:
+              errs.append(f"BUILD_VERSION {env_v!r} != pyproject {py!r}")
+          if str(env_b) != felb:
+              errs.append(f"BUILD_NUMBER {env_b!r} != tool.flet.build_number {felb!r}")
+          if _APP_VERSION != py:
+              errs.append(f"settings.version._APP_VERSION {_APP_VERSION!r} != pyproject {py!r}")
+          if us._APP_VERSION != py or str(us._APP_BUILD) != felb:
+              errs.append(f"update_service {_APP_VERSION}/{us._APP_BUILD} != {py}/{felb}")
+          if USER_AGENT != f"DDGSApp/{py}":
+              errs.append(f"USER_AGENT {USER_AGENT!r} != 'DDGSApp/{py}'")
+
+          # Hard: this workflow's own hand-typed defaults and env fallbacks.
+          wf = open(".github/workflows/build-all.yml", encoding="utf-8").read()
+          defaults = re.findall(r'^\s+default: "([^"]+)"', wf, re.MULTILINE)
+          if len(defaults) != 2 or defaults[0] != py or defaults[1] != felb:
+              errs.append(f"workflow input defaults {defaults!r} != [{py!r}, {felb!r}]")
+          fallbacks = re.findall(r"\|\| '([^']+)'", wf)
+          if fallbacks != [py, felb]:
+              errs.append(f"workflow env fallbacks {fallbacks!r} != [{py!r}, {felb!r}]")
+
+          # Hard: the literal fallbacks in app code (reachable exactly when
+          # pyproject is unreadable, which is when they must be right).
+          def literals(path, name, cast=str):
+              hits = re.findall(
+                  rf'{name} = ("[^"]+"|\d+)', open(path, encoding="utf-8").read()
+              )
+              return [cast(h.strip(chr(34))) for h in hits]
+
+          v_fall = literals("src/components/settings/version.py", "_APP_VERSION")
+          if not v_fall or v_fall[-1] != py:
+              errs.append(f"version.py fallback {v_fall!r} does not end at {py!r}")
+          u_fall = literals("src/services/update_service.py", "_APP_VERSION")
+          if not u_fall or u_fall[-1] != py:
+              errs.append(f"update_service fallback {u_fall!r} does not end at {py!r}")
+          b_fall = literals("src/services/update_service.py", "_APP_BUILD", int)
+          if not b_fall or b_fall[-1] != int(felb):
+              errs.append(f"update_service build fallback {b_fall!r} does not end at {felb}")
+
+          # version.json: behind = the owner's hold (expected until the Play
+          # AAB ships); synced must match the build; ahead is impossible.
+          vj = json.load(open("version.json"))
+          def vt(s):
+              return tuple(int(x) for x in s.split("."))
+
+          vj_v = vj["version"]
+          if vj_v == py:
+              if str(vj["build_number"]) != felb:
+                  errs.append(
+                      f"version.json synced to {vj_v} but build_number "
+                      f"{vj['build_number']} != {felb}"
+                  )
+              else:
+                  print(f"versions synced: {py} (build {felb})")
+          elif vt(vj_v) < vt(py):
+              print(
+                  f"NOTICE: version.json held back at {vj_v} "
+                  f"(build {vj['build_number']}) while app is {py} - "
+                  "expected until the Play Store AAB upload, then commit version.json."
+              )
+          else:
+              errs.append(
+                  f"version.json {vj_v} is AHEAD of pyproject {py} - update notes "
+                  "point at an app version that does not exist"
+              )
+
+          if errs:
+              print("Version drift:", file=sys.stderr)
+              print("
+".join(f"  - {e}" for e in errs), file=sys.stderr)
+              sys.exit(1)
+          PY
       - name: Ruff
         run: uv run ruff check src tests
       - name: Tests
@@ -143,7 +232,6 @@ jobs:
 
       - name: Generate Icon for Installer
         run: |
-          uv pip install pillow
           uv run python -c "from PIL import Image; Image.open('src/assets/icon.png').save('src/assets/icon.ico', format='ICO', sizes=[(256, 256)])"
 
       - name: Build Windows Installer (Inno Setup)

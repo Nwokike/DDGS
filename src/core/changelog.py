@@ -1,6 +1,7 @@
 """Bundled changelog shown by the version dialog when the app is up to
 date - works fully offline. One entry per release; keep the entry for the
-current APP_VERSION in sync when bumping (guarded by tests)."""
+current app version (components.settings.version._APP_VERSION) in sync
+when bumping (guarded by tests)."""
 
 CHANGELOG: dict[str, str] = {
     "2.0.0": (

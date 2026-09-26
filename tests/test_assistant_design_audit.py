@@ -860,13 +860,14 @@ def test_starters_show_scraping_and_save_formats():
     assert any("save it as Markdown" in p for p in prompts), prompts
 
 
-def test_thought_toggle_fires_on_touch_not_on_release():
-    """While the AI works, auto-scroll moves rows under the finger; a tap
-    judged on RELEASE was lost. The toggle fires on touch instead."""
+def test_thought_toggle_uses_the_container_on_click_contract():
+    """on_tap_down dead-ends on an ink=True Container: the InkWell claims
+    the gesture and the toggle never fires (owner-reported regression).
+    LM Router's ThinkingBlock uses the same Container + on_click contract."""
     source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
     toggle = "self._toggle_thought(t)"
-    assert f"on_tap_down=lambda e, t=turn: {toggle}" in source
-    assert f"on_click=lambda e, t=turn: {toggle}" not in source
+    assert f"on_click=lambda e, t=turn: {toggle}" in source
+    assert f"on_tap_down=lambda e, t=turn: {toggle}" not in source
 
 
 def test_credit_changes_poke_the_imperative_chat_header():
@@ -878,3 +879,52 @@ def test_credit_changes_poke_the_imperative_chat_header():
     controller = (SRC / "app_controller.py").read_text(encoding="utf-8")
     grant_block = controller.split("async def _grant_premium_benefits", 1)[1]
     assert "_refresh_credits_chip" in grant_block, "premium grant must poke the pill"
+
+
+def test_thought_header_click_expands_and_collapses_end_to_end():
+    """Drive the REAL handler the thought Container binds: the toggle must
+    flip thought_open and the expanded render must contain the reasoning
+    text (owner-reported regression, verified without the input layer)."""
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    turn = {
+        "role": "assistant",
+        "text": "the answer",
+        "thought": "step one: ripeness",
+        "thought_open": False,
+        "steps_rows": [],
+        "cards": [],
+        "related": [],
+        "error": None,
+        "partial": False,
+        "stopped": False,
+        "cost": 1,
+        "steps": 1,
+        "model": "auto",
+        "served_by": "router",
+        "receipt": "",
+    }
+    session.turns = [turn]
+
+    def find_header(control):
+        if (
+            getattr(control, "tooltip", None) == "Tap to expand or collapse"
+            and getattr(control, "on_click", None) is not None
+        ):
+            return control
+        for child in getattr(control, "controls", None) or []:
+            found = find_header(child)
+            if found:
+                return found
+        content = getattr(control, "content", None)
+        if content is not None:
+            return find_header(content)
+        return None
+
+    header = find_header(session._render_assistant(turn, 0))
+    assert header is not None, "the thought header must exist and be clickable"
+    header.on_click(None)          # what a physical tap invokes
+    assert turn["thought_open"] is True, "the toggle must flip"
+    header2 = find_header(session._render_assistant(turn, 0))
+    header2.on_click(None)
+    assert turn["thought_open"] is False, "the toggle must flip back"

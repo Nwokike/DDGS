@@ -1,20 +1,36 @@
 <p align="center">
-  <img src="src/assets/icon.png" alt="DDGS" width="320" />
+  <img src="src/assets/icon.png" alt="DDGS" width="160" />
 </p>
 
 <h1 align="center">Search everything. Download anything.</h1>
 
 <p align="center">
-  Private search across 10 engines — download videos &amp; images,<br>
-  scrape any page as Markdown, HTML or text, no account, no tracking.
+  Automated private search across 10 engines: download videos &amp; images,<br>
+  scrape any page as Markdown, HTML or text, and let the Assistant do the work.
 </p>
 
 <p align="center">
   <a href="https://play.google.com/store/apps/details?id=ng.kiri.ddgs"><img src="https://img.shields.io/badge/Google_Play-3DDC84?style=for-the-badge&logo=google-play&logoColor=white" alt="Google Play Store" /></a>
   <a href="#download"><img src="https://img.shields.io/badge/Download_Windows_EXE-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows EXE" /></a>
   <a href="#download"><img src="https://img.shields.io/badge/Download_Linux_DEB-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux DEB" /></a>
-  <a href="#download"><img src="https://img.shields.io/badge/Download_Linux_RPM-E91E63?style=for-the-badge&logo=redhat&logoColor=white" alt="Linux RPM" /></a>
+  <img src="https://img.shields.io/badge/Built_with-Flet_1.0.1-00B0FF?style=for-the-badge&logo=flutter&logoColor=white" alt="Flet 1.0.1" />
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" />
 </p>
+
+---
+
+## Core Capabilities
+
+| Capability | What it does |
+| :--- | :--- |
+| **Video downloads** | Quality picker (best / 1080p / 720p / 480p / 360p), live progress, cancel-safe. YouTube resolves to the direct file in the GitHub edition |
+| **Image downloads** | One tap from any image result, filenames cleaned automatically |
+| **Any-format scraping** | Extract a page as Markdown, HTML, rich text, plain text or raw source and save it to a file |
+| **10 search engines** | DuckDuckGo, Google, Brave, Yahoo, Startpage, Mojeek, Wikipedia, Grokipedia (web), Bing (images/news), Anna's Archive (books) |
+| **Pro filters** | Image size/color/type, video resolution/duration, 13 regions, safe search, time filters, up to 100 results |
+| **The Assistant** | An agent that searches, fetches, saves and schedules for you, with an approve gate before anything is written |
+| **Credits** | 50/day free, 500/day with Premium; a receipt on every answer; low balance never blocks work mid-turn |
+| **Local-first** | History, settings and logs stay on your device. No account, no sign-up |
 
 ---
 
@@ -25,225 +41,169 @@
 | Feature | Google Play Store | GitHub (APK / Windows / Linux) |
 | :--- | :---: | :---: |
 | Private multi-source search (web, images, videos, news, books) | ✅ | ✅ |
-| Scrape any page → Markdown / HTML / rich text / plain text / raw source, saved to file | ✅ | ✅ |
+| Scrape any page → Markdown / HTML / rich text / plain text / raw source | ✅ | ✅ |
 | Download images to your device | ✅ | ✅ |
-| Video downloads with quality picker (best / 1080p / 720p / 480p / 360p) | ✅ (non-YouTube sources) | ✅ |
+| Video downloads with quality picker | ✅ (non-YouTube sources) | ✅ |
 | **YouTube video downloads** | ❌ disabled to comply with Play policy | ✅ **full** |
-| Desktop builds (Windows / Linux) + in-app updates from GitHub | — (Android only) | ✅ |
-| DDGS Premium — ad-free + 500 AI credits/day (Android) | ✅ in-app purchase | ✅ same Play purchase works in the GitHub APK |
+| Desktop builds (Windows / Linux) + in-app updates from GitHub | N/A (Android only) | ✅ |
+| **DDGS Premium**: ad-free + 500 AI credits/day | ❌ not sold (free with ads) | ✅ in-app checkout: card, bank transfer, USDC |
 
-> **The Play Store edition** exists for users who can't install apps from
-> elsewhere and carries the restrictions Google Play requires. **Most users who
-> can should use the GitHub build** — it's the full, unrestricted experience
-> (the same app, signed with the same key).
+> **Most users who can should use the GitHub build**: it is the full, unrestricted experience, signed with the same key. The Play edition exists for users who can only install from the store and carries the restrictions Google Play requires.
 
 | Platform | Download | Notes |
 | :---: | :---: | :--- |
-| 🤖 **Android (full)** | [![Android APK](https://img.shields.io/badge/GitHub_APK-414141?style=flat-square&logo=github&logoColor=white)](#android-builds-github-edition) | **Full version** — all sources, including YouTube downloads |
-| 🤖 **Android (Play)** | [![Play Store](https://img.shields.io/badge/Google_Play-414141?style=flat-square&logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=ng.kiri.ddgs) | Policy edition — YouTube downloads disabled |
-| 🪟 **Windows** | [![Windows Release](https://img.shields.io/badge/Download_Windows_Release-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.exe) | Automated standalone setup installer with desktop shortcut |
-| 🐧 **Linux (Debian/Ubuntu)** | [![Linux DEB](https://img.shields.io/badge/Download_Linux_DEB-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.deb) | Tailored for Ubuntu, Debian, Linux Mint & Pop!_OS |
-| 🎩 **Linux (Fedora/RHEL)** | [![Linux RPM](https://img.shields.io/badge/Download_Linux_RPM-E91E63?style=flat-square&logo=redhat&logoColor=white)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.rpm) | Tailored for Fedora, openSUSE, RHEL & CentOS |
-| 📦 **Linux (Universal)** | [![Linux TAR.GZ](https://img.shields.io/badge/Download_Linux_TAR.GZ-9C27B0?style=flat-square&logo=linux&logoColor=white)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.tar.gz) | Portable archive for Arch, Alpine, Steam Deck & all distros |
+| 🤖 **Android (full)** | [![Android APK](https://img.shields.io/badge/GitHub_APK-414141?style=flat-square&logo=github&logoColor=white)](#android-builds-github-edition) | **Full version**: all sources, including YouTube downloads |
+| 🤖 **Android (Play)** | [![Play Store](https://img.shields.io/badge/Google_Play-414141?style=flat-square&logo=google-play&logoColor=white)](https://play.google.com/store/apps/details?id=ng.kiri.ddgs) | Policy edition: YouTube downloads disabled |
+| 🪟 **Windows** | [![Windows Release](https://img.shields.io/badge/Download_Windows_Release-0078D6?style=flat-square&logo=windows&logoColor=white)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.exe) | Standalone setup installer with desktop shortcut |
+| 🐧 **Linux (Debian/Ubuntu)** | [![Linux DEB](https://img.shields.io/badge/Download_Linux_DEB-FCC624?style=flat-square&logo=linux&logoColor=black)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.deb) | Ubuntu, Debian, Linux Mint, Pop!_OS |
+| 🎩 **Linux (Fedora/RHEL)** | [![Linux RPM](https://img.shields.io/badge/Download_Linux_RPM-E91E63?style=flat-square&logo=redhat&logoColor=white)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.rpm) | Fedora, openSUSE, RHEL, CentOS |
+| 📦 **Linux (Universal)** | [![Linux TAR.GZ](https://img.shields.io/badge/Download_Linux_TAR.GZ-9C27B0?style=flat-square&logo=linux&logoColor=white)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.tar.gz) | Portable archive for any distro |
 
-### Android builds (GitHub edition)
+<details>
+<summary><b>Android builds (GitHub edition): per-architecture APKs</b></summary>
 
 | Variant | Download | Notes |
 | :--- | :---: | :--- |
-| 📱 **ARM64** (most phones) | [**ddgs-arm64-v8a.apk**](https://github.com/Nwokike/DDGS/releases/latest/download/ddgs-arm64-v8a.apk) | Modern 64-bit Android devices — **full downloads** |
-| 📱 **ARMv7** (older phones) | [**ddgs-armeabi-v7a.apk**](https://github.com/Nwokike/DDGS/releases/latest/download/ddgs-armeabi-v7a.apk) | Legacy 32-bit Android devices |
-| 💻 **x86_64** (emulators) | [**ddgs-x86_64.apk**](https://github.com/Nwokike/DDGS/releases/latest/download/ddgs-x86_64.apk) | Chromebooks & Android emulators |
+| 📱 **ARM64** (most phones) | [**ddgs-arm64-v8a.apk**](https://github.com/Nwokike/DDGS/releases/latest/download/ddgs-arm64-v8a.apk) | Modern 64-bit Android, **full downloads** |
+| 📱 **ARMv7** (older phones) | [**ddgs-armeabi-v7a.apk**](https://github.com/Nwokike/DDGS/releases/latest/download/ddgs-armeabi-v7a.apk) | Legacy 32-bit devices |
+| 💻 **x86_64** (emulators) | [**ddgs-x86_64.apk**](https://github.com/Nwokike/DDGS/releases/latest/download/ddgs-x86_64.apk) | Chromebooks, Android emulators |
 
----
-
-## What you can do
-
-### 📥 Download videos and images — not just view them
-
-Open any video result and tap **Download Video**: pick your quality
-(best / 1080p / 720p / 480p / 360p), choose where to save it, watch real
-progress with a cancel button, and get the file on your device — YouTube
-downloads are resolved to the direct file in the full edition, and other
-video sources are fetched as-is. Image results save with one tap through the
-same save dialog. Filenames are cleaned up automatically, and a cancelled
-download never leaves a broken file behind.
-
-### 🕷️ Scrape any page, save it in any format
-
-Paste a URL into the **Extract** tab (or open any result) and get the page
-back as clean, structured content — **Markdown, HTML, rich text, plain text,
-or raw source** — read it in the built-in reader (links are tappable, with a
-back stack), switch formats on the fly, and save it to your device as a file.
-
-> **For developers &amp; agent builders:** DDGS is a scraper you can point at
-> any URL. Pull clean **Markdown or HTML** straight out of a page and pipe it
-> into your notes workflow, CMS, archive, or AI agent — no browser automation,
-> no boilerplate, one tap from search result to file.
-
-### 🔍 Private search across 10 engines
-
-One search box queries **DuckDuckGo, Google, Brave, Yahoo, Startpage, Mojeek,
-Wikipedia and Grokipedia** for web results, plus **Bing** for images/news and
-**Anna's Archive** for books — across **web, images, videos, news and books**.
-No account, no sign-up, no profiling. Searches go directly from your device to
-the sources you choose, and your history stays on your device (clear it any
-time).
-
-### 🎛️ Pro filters without the complexity
-
-- **Image filters** — size, color, type (photo/clipart/GIF/transparent/line), layout, license
-- **Video filters** — resolution, duration, license
-- **13 regions**, safe search (off/moderate/strict), time filters (day/week/month/year)
-- Result count up to 100, and your own choice of search source per category
-
-### 🔗 Share, copy, open — one tap
-
-Every result opens in a sheet with **Open · Copy URL · Share** — the native
-share sheet sends the result to any app on your device. Search history reruns
-with a single tap.
-
-**Free with ads** — ads keep DDGS free; they never see your queries, and your
-history and logs never leave your device.
-
-Runs on **Android, Windows and Linux** (light/dark/system theme, offline
-detection, in-app updates).
-
-### ✨ The Assistant (new in 2.0)
-
-Flip the compact **Assistant** switch in the home header and an **Ask
-Assistant** button appears. Tap it for a chat with an agent that **acts, not
-just explains**:
-
-- **Searches for you** — web, images, videos, news, books — and streams the
-  answer with tappable citations, collapsible tool steps, related-search pills
-  and a thinking indicator while the model works.
-- **Shows you what it found** — result blocks with **"View N results in
-  Results"** open the real results screen (Assistant minimizes; tap the button
-  again to re-expand). Single taps open the normal result sheet with
-  download/share/open.
-- **Acts with approval** — save any page as Markdown/HTML/text, download video
-  (YouTube included) or images, crawl a site and save every page, or schedule a
-  recurring crawl — each asks once before writing anything.
-- **Cheap to try** — the passive search **overview** and **page summaries are
-  free**. Only agentic chat steps cost credits: **2 credits per model step**
-  (one step = one model call), with a receipt on every answer. A message can
-  use several steps and is **never blocked mid-way** by a low balance.
-- **Your router, your keys** — requests hit your in-app **Kiri router** first
-  (free models, queries exit from *your* IP) and fall back to the Kiri gateway
-  only if it is down. The model picker lists exactly the models that were
-  **active at attach**, each with live latency and rate-limit hints; `auto` is
-  the default and takes over when a chosen model is rate-limited.
-
-**DDGS Premium (Android, in-app):** **$3.99/mo · $24.99/yr · $49.99
-lifetime** — ad-free everywhere and **500 assistant credits/day**. Manual
-search, scraping and downloads never use credits.
+</details>
 
 ---
 
 ## Screenshots
 
-### Mobile Home Dashboard
+<p align="center">
+  <img src="screenshots/home_desktop.png" width="90%" alt="Home, dark mode" />
+</p>
+<p align="center"><em>Search-first home: category tabs, instant fetch bar, recent searches, capability cards</em></p>
+
+<p align="center">
+  <img src="screenshots/results_desktop.png" width="90%" alt="Results with Assistant overview" />
+</p>
+<p align="center"><em>Results with the Assistant overview: cited answer, source chips, related searches, flat result rows</em></p>
+
+<details>
+<summary><b>More screenshots (Extract mode + mobile)</b></summary>
+
+<p align="center">
+  <img src="screenshots/home_extract_desktop.png" width="90%" alt="Extract mode, light theme" />
+</p>
+<p align="center"><em>Extract mode in light theme: paste any URL and read it as Markdown, HTML or text</em></p>
 
 <table>
   <tr>
-    <td width="50%"><img src="screenshots/home_light_mobile.png" width="100%" alt="Home Dashboard Light" /></td>
-    <td width="50%"><img src="screenshots/home_dark_mobile.png" width="100%" alt="Home Dashboard Dark" /></td>
+    <td width="50%"><img src="screenshots/home_light_mobile.png" width="100%" alt="Home Light" /></td>
+    <td width="50%"><img src="screenshots/home_dark_mobile.png" width="100%" alt="Home Dark" /></td>
   </tr>
   <tr>
-    <td align="center"><em>Home Dashboard (Light Mode) — Clean search categories grid and parameters bar.</em></td>
-    <td align="center"><em>Home Dashboard (Dark Mode) — Sleek slate-black interface displaying recent queries.</em></td>
+    <td align="center"><em>Home (light)</em></td>
+    <td align="center"><em>Home (dark)</em></td>
   </tr>
 </table>
 
-### Search Results Views
-
 <table>
   <tr>
-    <td width="33%"><img src="screenshots/results_text_dark_mobile.png" width="100%" alt="Text Search Results" /></td>
-    <td width="33%"><img src="screenshots/results_images_dark_mobile.png" width="100%" alt="Image Search Results" /></td>
-    <td width="33%"><img src="screenshots/results_videos_dark_mobile.png" width="100%" alt="Video Search Results" /></td>
+    <td width="50%"><img src="screenshots/results_images_dark_mobile.png" width="100%" alt="Image results" /></td>
+    <td width="50%"><img src="screenshots/results_videos_dark_mobile.png" width="100%" alt="Video results" /></td>
   </tr>
   <tr>
-    <td align="center"><em>Web Search — Clean card-based metasearch results with integrated sponsored ads.</em></td>
-    <td align="center"><em>Image Grid — 2-column scrollable image search with dimension overlays.</em></td>
-    <td align="center"><em>Video Index — Rich streaming lists with video duration tags and view counts.</em></td>
+    <td align="center"><em>Image grid with one-tap save</em></td>
+    <td align="center"><em>Video results with duration and views</em></td>
   </tr>
 </table>
 
-### Page Extraction & News Results
-
 <table>
   <tr>
-    <td width="50%"><img src="screenshots/extract_results_dark_mobile.png" width="100%" alt="Web Page Extraction" /></td>
-    <td width="50%"><img src="screenshots/results_news_dark_mobile.png" width="100%" alt="News Results" /></td>
+    <td width="50%"><img src="screenshots/extract_results_dark_mobile.png" width="100%" alt="Reader" /></td>
+    <td width="50%"><img src="screenshots/results_news_dark_mobile.png" width="100%" alt="News results" /></td>
   </tr>
   <tr>
-    <td align="center"><em>Page Extraction — Rendered Markdown reader with source link browser launching.</em></td>
-    <td align="center"><em>News Results — Live news feed with publisher details and thumbnails.</em></td>
+    <td align="center"><em>Built-in reader with format switch</em></td>
+    <td align="center"><em>News with publishers and timestamps</em></td>
   </tr>
 </table>
 
-### Advanced Settings & History
-
 <table>
   <tr>
-    <td width="33%"><img src="screenshots/settings_rules_dark_mobile.png" width="100%" alt="Settings - Search Rules" /></td>
-    <td width="33%"><img src="screenshots/settings_backends_downloads_dark_mobile.png" width="100%" alt="Settings - Sources & Downloads" /></td>
-    <td width="33%"><img src="screenshots/settings_network_performance_dark_mobile.png" width="100%" alt="Settings - Network & Terminal" /></td>
+    <td width="33%"><img src="screenshots/settings_rules_dark_mobile.png" width="100%" alt="Search rules" /></td>
+    <td width="33%"><img src="screenshots/settings_backends_downloads_dark_mobile.png" width="100%" alt="Sources and downloads" /></td>
+    <td width="33%"><img src="screenshots/settings_network_performance_dark_mobile.png" width="100%" alt="Network and diagnostics" /></td>
   </tr>
   <tr>
-    <td align="center"><em>Theme & Rules — Safe-search toggles, max results slider, and region filters.</em></td>
-    <td align="center"><em>Sources & Downloads — Preferred video qualities and page-save formats.</em></td>
-    <td align="center"><em>Proxies & Diagnostics — Network proxy configurations and live activity logs terminal.</em></td>
+    <td align="center"><em>Search rules</em></td>
+    <td align="center"><em>Sources &amp; downloads</em></td>
+    <td align="center"><em>Proxy &amp; live terminal</em></td>
   </tr>
 </table>
 
 <p align="center">
-  <img src="screenshots/history_light_mobile.png" width="45%" alt="Search History" />
+  <img src="screenshots/history_light_mobile.png" width="45%" alt="Search history" />
 </p>
-<p align="center"><em>Local Search History (Light Mode) — Chronological log of recent search queries and extraction runs with clear-all controls and instant rerun shortcuts.</em></p>
+
+</details>
+
+---
+
+## The Assistant
+
+Turn on **Assistant mode** in Settings and an **Ask Assistant** button appears on the search screen. It is an agent that **acts, not just explains**:
+
+- **Searches and cites**: web, images, videos, news, books, streamed with tappable citations, collapsible tool steps and related searches.
+- **Acts with approval**: save pages as Markdown/HTML/text, download video (YouTube included) or images, crawl a site, schedule recurring crawls. Each asks once before writing.
+- **1 credit per model step** with a receipt on every answer. Overviews and page summaries are free; manual search, scraping and downloads never use credits; a low balance never stops a turn mid-way.
+- **Runs on your router**: requests go to the in-app Kiri router first (free models, your IP) and fall back to Kiri's gateway only if it is down. The model picker shows the live catalog with rate hints; `auto` rotates across healthy models for you.
+
+**DDGS Premium:** **$3.99/mo · $24.99/yr · $49.99 lifetime** (direct APK and desktop). Premium raises credits to **500/day** and removes ads on mobile.
 
 ---
 
 ## Privacy & Security
 
-DDGS is built on a strict **Privacy-First** philosophy:
-
-1. **No account, ever** — no sign-up, no login cookies, no personal data collection.
-2. **Searches go direct** — queries travel straight from your device to the search sources you chose. We don't run a server in the middle and we don't profile you; no ad profiling by us either.
-3. **Everything stays on-device** — history, settings and logs live in local storage on your device and can be cleared from Settings at any time.
-4. **Transparent network calls** — the app checks for updates (once per launch) and, on the free ad-supported build, loads ads. When you use the Assistant, your query and short source excerpts (or the page text for a summary) go to your in-app Kiri router first; if it is down they fall back to Kiri's gateway. We instruct no training.
-5. **Fully configurable** — proxy support and an SSL-verification toggle for restricted networks; you choose the engines, region and safe-search level.
+1. **No account, ever.** No sign-up, no login, no personal data collection.
+2. **Searches go direct**: your device to the sources you chose. No server in the middle, no profiling by us.
+3. **Everything stays on-device**: history, settings and logs, clearable from Settings.
+4. **Transparent network calls**: update check once per launch, ads on the free build, and Assistant queries to your in-app router first (Kiri gateway fallback), with no training on your data.
+5. **Configurable**: proxy support, SSL toggle, your choice of engines, region and safe search.
 
 ---
 
 ## Legal Disclaimer
 
-DDGS is a metasearch and content-extraction tool that queries public search
-engines and retrieves publicly available pages. It does not store, cache, or
-redistribute search results. **Only download or save content you have the
-right to** — respect the terms of service and copyright of the sites you
-visit, and note that some sources (including YouTube) restrict downloading in
-their terms. Users are solely responsible for compliance with target sites'
-Terms of Service and local privacy regulations (e.g. GDPR, CCPA). The authors
-take no responsibility for misuse of this tool.
+DDGS is a metasearch and content-extraction tool for public search engines and publicly available pages. It does not store, cache or redistribute results. **Only download or save content you have the right to**: respect each site's terms and copyright (including YouTube's restrictions on downloading). Users are solely responsible for compliance with target sites' Terms of Service and local privacy regulations. The authors take no responsibility for misuse of this tool.
 
 ---
 
-<details>
-<summary><b>For developers — architecture, performance &amp; stack</b></summary>
+## Development
 
-### Architecture
+```bash
+uv sync --frozen     # install exactly what uv.lock pins (includes dev tools)
+uv run ruff check src tests
+uv run pytest -q     # 220 tests
+uv run flet run      # desktop app
+```
+
+CI builds every platform on a `v*` tag: quality gate (frozen sync, version
+consistency, ruff, pytest) then Android split APKs, Windows installer and
+Linux DEB/RPM/TAR. The Play AAB builds from the `playstore` branch with the
+build channel stamped in.
+
+**Version policy:** `pyproject.toml` is the single source of truth; CI fails
+on any drift. `version.json` (the in-app update feed) is deliberately held
+back until the Play AAB upload ships: CI prints a NOTICE while it lags and
+fails if it ever runs ahead of the app.
+
+<details>
+<summary><b>Architecture, stack &amp; performance</b></summary>
 
 | Layer | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Frontend** | Flet 1.0 (Flutter engine) | Cross-platform UI with clean responsive views and smooth page transitions |
-| **Search Core** | `ddgs` (DDGS library) | Metasearch engine aggregating results from 10 providers |
-| **HTTP Client** | `primp` (Rust-based) | Fast async HTTP/2 client with browser emulation and TLS fingerprinting |
-| **Local Storage** | JSON file / SharedPreferences | Local key-value storage for settings and history (SharedPreferences on web) |
-| **Async Runtime** | `asyncio` + `threading` | Thread-safe progress reporting with cancellation support |
-
-### Visual Flow
+| **Frontend** | Flet 1.0.1 (Flutter engine) | Cross-platform UI |
+| **Search Core** | `ddgs` 9.16.0 | Metasearch across 10 providers |
+| **HTTP Client** | `primp` (Rust) | Async HTTP/2 with browser emulation |
+| **Local Storage** | JSON file / SharedPreferences | Settings and history on-device |
+| **Async Runtime** | `asyncio` + `threading` | Cancellable progress reporting |
 
 ```mermaid
 graph TB
@@ -264,22 +224,13 @@ graph TB
         Others["📡 Wikipedia, Startpage, Mojeek, Grokipedia, AnnasArchive & more"]
     end
 
-    subgraph DEBUG ["🔧 PRIMP CRASH DETECTION"]
-        Logs["📝 File + stdout logging"]
-        Logcat["📱 ADB logcat monitoring"]
-    end
-
     Engine ==>|primp HTTP/2| DDG
     Engine ==>|primp HTTP/2| Google
     Engine ==>|primp HTTP/2| Brave
     Engine ==>|primp HTTP/2| Bing
     Engine ==>|primp HTTP/2| Yahoo
     Engine ==>|primp HTTP/2| Others
-    Engine -.->|DDGS_CALL_FAILED| Logs
-    Engine -.->|PRIMP_CRASH_DETECTED| Logcat
 ```
-
-### Search Performance Guide
 
 | Search Type | Backend | Typical Results |
 | :--- | :---: | :--- |
@@ -289,9 +240,6 @@ graph TB
 | **News** | DuckDuckGo / Bing / Yahoo | 20-50 results in 1-3 seconds |
 | **Books** | Anna's Archive | 10-20 results in 2-4 seconds |
 | **Page Extract** | Direct HTTP fetch | Instant content extraction |
-
-<img src="https://img.shields.io/badge/Built_with-Flet_1.0-00B0FF?style=for-the-badge&logo=flutter&logoColor=white" alt="Flet" />
-<img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
 
 </details>
 
