@@ -1009,6 +1009,18 @@ class AppController:
             await state.credit_service.add_credits(
                 PREMIUM_DAILY_CREDITS - state.credits_remaining
             )
+            # The chat header is imperative: refresh its pill now or the
+            # grant only shows on the next chat render.
+            refresh = getattr(
+                getattr(self.page, "_chat_session", None),
+                "_refresh_credits_chip",
+                None,
+            )
+            if callable(refresh):
+                try:
+                    refresh()
+                except Exception:
+                    pass
         return True
 
 

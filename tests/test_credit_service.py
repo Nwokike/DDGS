@@ -84,11 +84,13 @@ def test_spend_direct_and_add(svc):
     run(go())
 
 
-def test_daily_reset_preserves_surplus(svc):
+def test_daily_reset_returns_to_the_cap(svc):
+    """No ad-credit rollover (owner's call): the reset goes back to the
+    cap exactly, so yesterday's surplus cannot linger."""
     async def go():
         await svc._storage.set(STORAGE_CREDITS, "70")
         await svc._storage.set(STORAGE_LAST_RESET, "1970-01-01")
-        assert await svc.initialize() == 70  # 70 > 50 cap → kept
+        assert await svc.initialize() == DAILY_FREE_CREDITS
 
     run(go())
 

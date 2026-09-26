@@ -60,8 +60,6 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         model_status_subtitle,
         show_model_picker,
     )
-    from services import ai_service as _ai
-
     rows: list[ft.Control] = []
 
     # ── Assistant mode ──────────────────────────────────────────────────
@@ -107,7 +105,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         _setting_row(
             ft.Icons.BOLT_ROUNDED,
             f"{state.credits_remaining} of {cap} credits left today",
-            "Resets at 00:00 UTC. Ad-earned credits carry over",
+            "Resets at 00:00 UTC",
         )
     )
     rows.append(_divider())
@@ -127,16 +125,6 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                 size=FONT_SM,
                 color=ft.Colors.ON_SURFACE_VARIANT,
             ),
-        )
-    )
-
-    # ── Data routing ────────────────────────────────────────────────────
-    rows.append(_divider())
-    rows.append(
-        _setting_row(
-            ft.Icons.PRIVACY_TIP_ROUNDED,
-            "Where your messages go",
-            _ai.ROUTER_DISCLOSURE,
         )
     )
 

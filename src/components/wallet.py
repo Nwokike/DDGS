@@ -151,6 +151,17 @@ def show_wallet_dialog(page: ft.Page) -> None:
     async def _on_watch_success():
         new_balance = await _credits().add_credits(AD_TOPUP_CREDITS)
         state.credits_remaining = new_balance
+        # The chat header is an imperative view, not a state subscriber:
+        # poke its pill or the balance behind this dialog stays stale until
+        # the next chat render.
+        refresh = getattr(
+            getattr(page, "_chat_session", None), "_refresh_credits_chip", None
+        )
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                pass
         balance_text.value = str(new_balance)
         balance_text.color = _credit_color(new_balance)
         cooldown_label.value = f"+{AD_TOPUP_CREDITS} credits added!"
@@ -265,7 +276,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
                 _row(
                     ft.Icons.PLAY_CIRCLE_ROUNDED,
                     topup_label,
-                    "Unused credits carry over",
+                    "",
                     ft.Icon(
                         ft.Icons.PLAY_CIRCLE_ROUNDED,
                         size=tokens.ICON_SM,

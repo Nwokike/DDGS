@@ -303,7 +303,12 @@ def test_concurrent_credits_are_not_lost():
     from services.credit_service import CreditService
 
     async def scenario():
-        service = CreditService(_Store({"ddgs_credits": "100"}))
+        from datetime import UTC, datetime
+
+        today = datetime.now(tz=UTC).date().isoformat()
+        service = CreditService(
+            _Store({"ddgs_credits": "100", "ddgs_last_reset": today})
+        )
         await service.initialize()
         await asyncio.gather(*[service.add_credits(1) for _ in range(20)])
         balance = await service.get_balance()
@@ -853,3 +858,23 @@ def test_starters_show_scraping_and_save_formats():
     assert len(prompts) >= 5, "the owner asked for more starters"
     assert any("Scrape" in p and "HTML" in p for p in prompts), prompts
     assert any("save it as Markdown" in p for p in prompts), prompts
+
+
+def test_thought_toggle_fires_on_touch_not_on_release():
+    """While the AI works, auto-scroll moves rows under the finger; a tap
+    judged on RELEASE was lost. The toggle fires on touch instead."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    toggle = "self._toggle_thought(t)"
+    assert f"on_tap_down=lambda e, t=turn: {toggle}" in source
+    assert f"on_click=lambda e, t=turn: {toggle}" not in source
+
+
+def test_credit_changes_poke_the_imperative_chat_header():
+    """Settlement already refreshes via emit; the two credits that change
+    OUTSIDE the chat (ad top-up, premium grant) must poke the pill too."""
+    wallet = (SRC / "components" / "wallet.py").read_text(encoding="utf-8")
+    watch_block = wallet.split("async def _on_watch_success", 1)[1]
+    assert "_refresh_credits_chip" in watch_block, "ad top-up must poke the pill"
+    controller = (SRC / "app_controller.py").read_text(encoding="utf-8")
+    grant_block = controller.split("async def _grant_premium_benefits", 1)[1]
+    assert "_refresh_credits_chip" in grant_block, "premium grant must poke the pill"

@@ -56,18 +56,6 @@ PROBE_MISS_TTL = 30.0
 ANSWER_MAX_TOKENS = 1400
 TEMPERATURE = 0.4
 
-# Single source of truth for the data-routing disclosure. It lives in
-# Settings next to the Assistant controls, not on the chat surface: a
-# consumer tapping "Ask" does not need router internals in their face, but
-# anyone configuring the feature should be able to read exactly what leaves
-# the device.
-ROUTER_DISCLOSURE = (
-    "Your messages and any page text you ask about are sent to the Kiri "
-    "router running in this app. If that router is unavailable, they are "
-    "sent to Kiri Gateway instead. We instruct no training on your data."
-)
-
-
 class AIUnavailable(Exception):
     """No AI source could answer - callers degrade silently."""
 

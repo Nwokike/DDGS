@@ -1,7 +1,7 @@
 """Local credit economy service - SpanInsight's model, DDGS keys.
 
-50 free AI credits daily (200 when premium), UTC date-change reset that
-preserves surplus (ad-earned credits survive). Transaction-keyed reservations
+50 free AI credits daily (500 when premium), UTC date-change reset back
+to the cap (no rollover, by design). Transaction-keyed reservations
 prevent overlapping commit/rollback corruption; auto-rollback after
 ROLLBACK_SECONDS (240s, was documented as 60s and never matched the code).
 
@@ -248,7 +248,7 @@ class CreditService:
         return DAILY_FREE_CREDITS
 
     async def _check_daily_reset(self) -> None:
-        """UTC date change tops the balance up to the cap, preserving surplus."""
+        """UTC date change resets the balance to the daily cap."""
         from core.state import state
 
         today = datetime.now(tz=UTC).date().isoformat()
@@ -266,11 +266,10 @@ class CreditService:
             # but the second pass must find the work already done).
             if self._reset_day == today:
                 return
-            # Re-read under the lock: the clock is checked outside it, but
-            # two concurrent entries could both pass and both top up.
-            current = await self._get_credits()
+            # The cap read and the write happen under one lock: two
+            # concurrent entries on a day boundary must not both apply it.
             daily_cap = await self.get_daily_cap()
-            new_balance = max(current, daily_cap)
+            new_balance = daily_cap  # flat reset: no ad-credit rollover
             await self._storage.set(STORAGE_CREDITS, str(new_balance))
             await self._storage.set(STORAGE_LAST_RESET, today)
             state.credits_remaining = new_balance
