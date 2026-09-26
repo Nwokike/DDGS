@@ -5,21 +5,24 @@ description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    # Two indexes, two ceilings. Desktop resolves against PyPI, where
-    # cryptography is at 50.x. `flet build` adds
-    # --extra-index-url https://pypi.flet.dev for the Android wheels, and
-    # that index stops at 48.0.0 — so a floor above 48 installs fine on
-    # Windows and Linux and matches nothing at all on Android, which is
-    # how the whole APK job was lost. The APIs this app uses (SPKI public
-    # key load, encode_dss_signature, ECDSA over SHA-256) are unchanged
-    # across the range, so the floor is the oldest Android wheel Flet
-    # ships rather than the newest PyPI release.
+    # Two indexes, two ceilings. `flet build` installs against PyPI plus
+    # --extra-index-url https://pypi.flet.dev, and the second index is the
+    # only one carrying Android wheels. Desktop takes the newest PyPI has
+    # (cryptography 50.x, lxml 6.1.3); Android takes the newest Flet has
+    # (48.0.0 and 6.1.1). A floor above an index's ceiling resolves on
+    # Windows and Linux and matches nothing at all on Android, so pip
+    # reports "No matching distribution found" and only the APK job dies —
+    # which is how two jobs looked green while the release stayed empty.
+    # Neither floor may be raised past its Android ceiling without checking
+    # pypi.flet.dev first. The APIs in use (SPKI public-key load,
+    # encode_dss_signature, ECDSA over SHA-256; lxml.etree/lxml.html) are
+    # unchanged across both ranges.
     "cryptography>=43.0.1",
     "ddgs>=9.16.0",
     "flet>=1.0.1",
     "flet-ads>=1.0.1",
     "httpx>=0.28.1",
-    "lxml>=6.1.3",
+    "lxml>=6.1.1",
 ]
 
 [tool.flet]
