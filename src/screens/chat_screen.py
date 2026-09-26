@@ -242,6 +242,13 @@ class ChatSession:
                 self.model_chip,
                 self.credits_chip,
                 self._history_button_control(),
+                ft.IconButton(
+                    icon=ft.Icons.ADD_ROUNDED,
+                    icon_size=18,
+                    icon_color=AppColors.PRIMARY,
+                    tooltip="New chat",
+                    on_click=lambda e: self.new_conversation(),
+                ),
                 ft.Container(width=6),
             ],
             bgcolor=ft.Colors.TRANSPARENT,
@@ -708,16 +715,18 @@ class ChatSession:
             self._snack("All chats deleted")
 
     def _history_button_control(self) -> ft.IconButton:
-        """The hamburger. It opens a modal rebuilt from disk every time.
+        """Past conversations get a history icon, not a hamburger: the
+        hamburger implies navigation or settings, and this sheet is only
+        the chat log (LM Router's header pair, history + plus).
 
-        A popup menu froze its items when the session was created, so a
-        deleted chat kept showing until the whole screen refreshed. A
-        modal is also the right surface: 50 chats do not fit a dropdown,
-        and a truncated list means the older files you can still open are
-        invisible.
+        It stays a modal rebuilt from disk every time: a popup menu froze
+        its items when the session was created, so a deleted chat kept
+        showing until the whole screen refreshed. A modal is also the right
+        surface: 50 chats do not fit a dropdown, and a truncated list means
+        the older files you can still open are invisible.
         """
         return ft.IconButton(
-            icon=ft.Icons.MENU_ROUNDED,
+            icon=ft.Icons.HISTORY_ROUNDED,
             icon_size=18,
             icon_color=AppColors.PRIMARY,
             tooltip="Chat history",

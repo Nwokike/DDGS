@@ -809,3 +809,13 @@ def test_wallet_builds_its_watch_button_once():
     assert source.count("ft.Icons.PLAY_CIRCLE_ROUNDED") <= 3, (
         "the icon belongs to the builder, not every state"
     )
+
+
+def test_appbar_pair_is_history_icon_plus_new_chat():
+    """The hamburger implied navigation; the sheet is the chat log, so the
+    header carries LM Router's pair: history icon + new-chat plus."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "ft.Icons.HISTORY_ROUNDED" in source
+    assert "ft.Icons.MENU_ROUNDED" not in source, "no hamburger left"
+    assert 'tooltip="New chat"' in source
+    assert "self.new_conversation()" in source, "the plus starts a chat"
