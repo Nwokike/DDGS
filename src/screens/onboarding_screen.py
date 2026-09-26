@@ -142,7 +142,7 @@ def OnboardingScreen() -> Control:
             if not agreed:
                 snack = ft.SnackBar(
                     ft.Text(
-                        "Please accept the Privacy Policy & Terms of Service to continue."
+                        "Accept the Privacy Policy & Terms of Service to continue."
                     ),
                     bgcolor=AppColors.ERROR,
                 )

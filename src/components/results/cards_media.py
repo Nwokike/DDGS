@@ -43,7 +43,7 @@ def _image_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
                 ),
                 ft.Text(
                     f"{r.width}x{r.height}" if r.width else "",
-                    size=10,
+                    size=tokens.FONT_XS,
                     color=AppColors.PRIMARY if is_dark else AppColors.PRIMARY_DARK,
                     weight=ft.FontWeight.BOLD,
                 ),
@@ -92,7 +92,7 @@ def _video_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
                             ft.Container(
                                 content=ft.Text(
                                     r.duration or "",
-                                    size=10,
+                                    size=tokens.FONT_XS,
                                     color=ft.Colors.WHITE,
                                     weight=ft.FontWeight.BOLD,
                                 ),

@@ -177,7 +177,7 @@ def _history_row(
                 ),
                 ft.Text(
                     timestamp,
-                    size=10,
+                    size=tokens.FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     font_family="Outfit",
                 ),

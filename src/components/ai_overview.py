@@ -15,7 +15,7 @@ import flet as ft
 
 from components.results.downloader import launch_url
 from components.wallet import show_wallet_dialog
-from core import theme, tokens
+from core import theme, tokens, ui
 from core.state import state
 from core.theme import AppColors
 
@@ -80,25 +80,9 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
                     }
                 ),
             ),
-            *(
-                [
-                    ft.IconButton(
-                        icon=ft.Icons.EXPAND_LESS_ROUNDED
-                        if expanded
-                        else ft.Icons.EXPAND_MORE_ROUNDED,
-                        icon_size=18,
-                        tooltip="Show less" if expanded else "Read full report",
-                        on_click=lambda e: setattr(
-                            state, "ai_overview_expanded", not expanded
-                        ),
-                    )
-                ]
-                if ov.text
-                else []
-            ),
             ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,
-                icon_size=16,
+                icon_size=tokens.ICON_SM,
                 tooltip="Hide Assistant overviews",
                 on_click=lambda e: ctrl and ctrl.save("ai_mode", False),
             ),
@@ -148,34 +132,25 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
                 )
             )
     if ov.error == "credits":
-        body.extend(
-            [
-                ft.Text(
-                    "Out of free Assistant overviews. Results below are unaffected.",
-                    size=tokens.FONT_XS,
-                    color=AppColors.WARNING,
-                ),
-                ft.TextButton(
-                    "Get credits",
-                    on_click=lambda e: show_wallet_dialog(page),
-                    style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
-                ),
-            ]
+        body.append(
+            ui.notice(
+                "Out of free Assistant overviews. Results below are unaffected.",
+                level="warning",
+                action_label="Get credits",
+                on_action=lambda e: show_wallet_dialog(page),
+            )
         )
     elif ov.error == "midstream":
         body.append(
-            ft.Text(
-                "⚠ Connection lost mid-overview. Tap Ask Assistant to retry.",
-                size=tokens.FONT_XS,
-                color=AppColors.WARNING,
+            ui.notice(
+                "Connection lost mid-overview. Tap Ask Assistant to retry.",
+                level="warning",
             )
         )
     elif ov.error == "unavailable":
         body.append(
-            ft.Text(
+            ui.notice(
                 "Assistant unavailable. Showing classic results.",
-                size=tokens.FONT_XS,
-                color=ft.Colors.ON_SURFACE_VARIANT,
                 italic=True,
             )
         )
@@ -221,7 +196,7 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
                                 ),
                                 ft.Text(
                                     _domain(s.get("url", "")),
-                                    size=9,
+                                    size=tokens.FONT_XS,
                                     color=ft.Colors.ON_SURFACE_VARIANT,
                                     max_lines=1,
                                 ),
@@ -236,12 +211,12 @@ def build_ai_overview(page: ft.Page) -> ft.Control:
                 ft.Container(
                     content=ft.Text(
                         str(i + 1),
-                        size=10,
+                        size=tokens.FONT_XS,
                         weight=ft.FontWeight.W_700,
                         color=AppColors.PRIMARY,
                     ),
-                    padding=ft.Padding(6, 2, 6, 2),
-                    border_radius=4,
+                    padding=ft.Padding(10, 6, 10, 6),
+                    border_radius=6,
                     bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY),
                     ink=True,
                     tooltip=(s.get("title") or "")[:80],

@@ -211,38 +211,42 @@ def build_tools() -> list[dict]:
 
 
 def pretty_label(name: str, args: dict) -> str:
-    """User-legible tool label - never raw JSON."""
+    """User-legible tool label: verb first, no quotes, no trailing ellipsis.
+
+    The renderer shows labels verbatim, so every decorative element that
+    used to be stripped back off in chat_screen is gone at the source.
+    """
     query = str(args.get("query") or "").strip()
     url = str(args.get("url") or "").strip()
     if name == "search_web":
-        return f"Searching the web for “{query}”…"
+        return f"Searching the web: {query[:80]}"
     if name == "search_images":
-        return f"Searching images for “{query}”…"
+        return f"Searching images: {query[:80]}"
     if name == "search_videos":
-        return f"Searching videos for “{query}”…"
+        return f"Searching videos: {query[:80]}"
     if name == "search_news":
-        return f"Searching news for “{query}”…"
+        return f"Searching news: {query[:80]}"
     if name == "search_books":
-        return f"Searching books for “{query}”…"
+        return f"Searching books: {query[:80]}"
     if name == "fetch_page":
         host = url.split("/")[2] if "//" in url else url
-        return f"Fetching {host[:50]}…"
+        return f"Fetching {host[:50]}"
     if name == "save_page":
         fmt = str(args.get("format") or "markdown")
         host = url.split("/")[2] if "//" in url else url
-        return f"Saving {host[:40]} as {fmt}…"
+        return f"Saving {host[:40]} as {fmt}"
     if name == "download_media":
         host = url.split("/")[2] if "//" in url else url
-        return f"Downloading media from {host[:40]}…"
+        return f"Downloading media from {host[:40]}"
     if name == "scrape_site":
         host = url.split("/")[2] if "//" in url else url
-        return f"Crawling {host[:40]} and saving pages…"
+        return f"Crawling {host[:40]}"
     if name == "schedule_scrape":
         host = url.split("/")[2] if "//" in url else url
-        return f"Scheduling a crawl of {host[:40]}…"
+        return f"Scheduling a crawl of {host[:40]}"
     if name == "cancel_scrape":
-        return "Canceling scheduled crawl…"
-    return f"Working ({name})…"
+        return "Cancelling scheduled crawl"
+    return f"Running {name}"
 
 
 def _fmt(args: dict) -> str:

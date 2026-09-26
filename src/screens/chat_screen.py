@@ -1,13 +1,15 @@
 """Assistant chat - the agentic surface (FAB entry).
 
 Imperative View (reader pattern): built once, refreshed from session state
-with >=0.2s throttled streaming, pinned-to-bottom auto-scroll. Agent loop
-lives in services/chat_agent; this file owns presentation:
-  - "Assistant used N steps · 2N credits" receipts
-  - collapsible tool steps + thinking
-  - result blocks with "View N results in Results" (minimizes the Assistant)
-  - approve/deny gates before any file-writing tool
-  - long-press a message to delete; Clear chat in the app bar
+with >=0.2s throttled streaming inside a ListView that flet auto-scrolls
+(suspended while the user scrolls up). Agent loop lives in
+services/chat_agent; this file owns presentation:
+  - one meta line per finished turn: steps, credits, model, step expander
+  - live tool steps collapse when the turn ends; thinking starts collapsed
+  - flat result rows with one "Open N results" action
+  - approve/deny card before any file-writing tool (auto-denies in 2m)
+  - long-press a message for copy/edit/regenerate/delete; Clear chat in
+    the app bar
   - scheduled crawls listed with cancel
 """
 
@@ -22,7 +24,7 @@ import flet as ft
 from components.model_picker import build_model_pill
 from components.results.downloader import launch_url
 from components.wallet import show_wallet_dialog
-from core import tokens
+from core import tokens, ui
 from core.state import SearchResult, state
 from core.theme import AppColors
 
@@ -41,11 +43,17 @@ _KIND_ICONS = {
 # 900 characters used to hide the reasoning the user asked to see.
 _THROUGHT_CAP = 8000
 
-_SUGGESTIONS = [
-    "What happened in tech this week?",
-    "Explain a topic like I'm 12",
-    "Find me the best free privacy tools",
+_SUGGESTION_ROWS = [
+    (ft.Icons.NEWSPAPER_ROUNDED, "What happened in tech this week?"),
+    (ft.Icons.SHIELD_ROUNDED, "Find me the best free privacy tools"),
+    (ft.Icons.LIGHTBULB_ROUNDED, "Explain a topic like I'm 12"),
+    (ft.Icons.DOWNLOAD_ROUNDED, "Download a video or image from a link"),
 ]
+
+
+def _describe_prompt(url: str) -> str:
+    """The one describe-this-page prompt; it used to be written three times."""
+    return f"Describe this page for me: {url}"
 
 
 def _thought_seconds(turn: dict) -> int:
@@ -143,69 +151,45 @@ class ChatSession:
         # for 500ms every time a text token landed.
         self._last_text_flush = 0.0
         self._last_thought_flush = 0.0
-        self._pinned = True  # auto-scroll only while the user sits at the bottom
         self._current: dict | None = None
         # Set once teardown starts; every UI touch afterwards is a no-op.
         self._closing = False
         self._confirm: tuple[asyncio.Event, dict] | None = None
 
         # ── Controls ────────────────────────────────────────────────
-        self._list = ft.Column(
-            [], spacing=tokens.SPACE_SM, expand=True, scroll=ft.ScrollMode.AUTO
+        # ListView with auto_scroll: flet suspends pinning while the user
+        # scrolls up and resumes at the end. The old hand-rolled pin detector
+        # read attributes flet 1.0.1 does not have, so it never yielded and
+        # yanked the list to the bottom mid-read.
+        self._list = ft.ListView(
+            controls=[],
+            spacing=tokens.SPACE_LG,
+            expand=True,
+            auto_scroll=True,
+            padding=ft.Padding.symmetric(horizontal=12),
         )
         self.field = ft.TextField(
-            hint_text="Ask the assistant. It can search and fetch for you.",
+            hint_text="Ask anything",
             expand=True,
             dense=True,
             min_lines=1,
-            max_lines=4,
+            max_lines=5,
+            shift_enter=True,
+            fill_color=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
             content_padding=ft.Padding(12, 8, 12, 8),
             border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_LG),
         )
+        # One circular button, two faces: send when idle, stop when busy.
+        # The transcript's "Working" ring covers first-token liveness.
         self.send_btn = ft.IconButton(
             icon=ft.Icons.SEND_ROUNDED,
-            icon_color=AppColors.PRIMARY,
+            icon_color=ft.Colors.WHITE,
             tooltip="Send",
-            on_click=lambda e: self._send_from_field(),
-        )
-        # A spinner around the stop glyph. Before this, a long first-token
-        # wait left a static red square and the only sign the app was alive
-        # was that square - the user could not tell "working" from "stuck".
-        # A progress ring turns the same button into both a status and a
-        # control, which is where they belong on a phone.
-        stop_glyph = ft.Container(
-            content=ft.Stack(
-                [
-                    ft.ProgressRing(
-                        width=22,
-                        height=22,
-                        stroke_width=3,
-                        color=AppColors.ERROR,
-                        bgcolor=ft.Colors.with_opacity(0.18, AppColors.ERROR),
-                    ),
-                    ft.Container(
-                        content=ft.Icon(
-                            ft.Icons.STOP_ROUNDED,
-                            size=11,
-                            color=AppColors.ERROR,
-                        ),
-                        width=22,
-                        height=22,
-                        alignment=ft.Alignment.CENTER,
-                    ),
-                ]
+            style=ft.ButtonStyle(
+                shape=ft.CircleBorder(),
+                bgcolor=AppColors.PRIMARY,
             ),
-            width=44,
-            height=44,
-            alignment=ft.Alignment.CENTER,
-        )
-        self.stop_btn = ft.Container(
-            content=stop_glyph,
-            tooltip="Stop",
-            visible=False,
-            ink=True,
-            border_radius=ft.BorderRadius.all(22),
-            on_click=lambda e: self.stop(),
+            on_click=lambda e: self._on_composer_button(e),
         )
         self.field.on_submit = lambda e: self._send_from_field()
 
@@ -266,18 +250,12 @@ class ChatSession:
 
         composer = ft.Container(
             content=ft.Row(
-                [self.field, self.send_btn, self.stop_btn],
+                [self.field, self.send_btn],
                 vertical_alignment=ft.CrossAxisAlignment.END,
                 spacing=2,
             ),
             padding=ft.Padding(10, 6, 10, 10),
         )
-
-        # Pinned detection: flip off when the user scrolls away from the end.
-        try:
-            self._list.on_scroll = self._on_scroll
-        except Exception:
-            pass
 
         self.view = ft.View(
             route="/chat",
@@ -464,14 +442,6 @@ class ChatSession:
         except Exception:
             # The session may already be gone; that is teardown, not a bug.
             pass
-        if self._pinned:
-            try:
-                self.page.run_task(self._scroll_to_bottom)
-            except Exception:
-                # run_task evaluates page.session before scheduling, so a
-                # destroyed session raises here and would otherwise leak an
-                # un-awaited scroll coroutine and kill the whole turn.
-                pass
 
     def _clear_chat(self) -> None:
         if not self.turns:
@@ -624,7 +594,10 @@ class ChatSession:
         self._render(force=True)
 
     def _toggle_thought(self, turn: dict) -> None:
-        turn["thought_open"] = not bool(turn.get("thought_open", True))
+        turn["thought_open"] = not bool(turn.get("thought_open", False))
+
+    def _toggle_steps(self, turn: dict) -> None:
+        turn["steps_open"] = not bool(turn.get("steps_open"))
         self._render(force=True)
 
     def _retry_last(self) -> None:
@@ -761,65 +734,18 @@ class ChatSession:
         accent: bool = False,
         on_click=None,
     ) -> ft.Container:
-        """One line of the history modal, in the credits-dialog row style.
+        """One line of the history modal; the shape lives in core.ui.
 
-        The old sheet tinted the active row with a filled block, which is
-        what made the list read as a stack of dark slabs. The active chat
-        is marked by colour and weight instead.
+        The active chat is marked by colour and weight, not a filled block.
         """
-        icon_box = ft.Container(
-            content=ft.Icon(
-                icon,
-                size=tokens.ICON_MD,
-                color=(
-                    ft.Colors.PRIMARY
-                    if accent
-                    else ft.Colors.ON_SURFACE_VARIANT
-                ),
-            ),
-            width=36,
-            height=36,
-            border_radius=10,
-            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-            alignment=ft.Alignment.CENTER,
-        )
-        kids: list[ft.Control] = [
-            icon_box,
-            ft.Column(
-                [
-                    ft.Text(
-                        title,
-                        size=tokens.FONT_MD,
-                        weight=ft.FontWeight.W_600 if accent else ft.FontWeight.W_500,
-                        font_family="Outfit",
-                        color=ft.Colors.PRIMARY if accent else None,
-                        max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
-                    ft.Text(
-                        subtitle,
-                        size=tokens.FONT_XS,
-                        color=ft.Colors.with_opacity(0.6, ft.Colors.ON_SURFACE),
-                        max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS,
-                    ),
-                ],
-                spacing=2,
-                expand=True,
-            ),
-        ]
-        if trailing is not None:
-            kids.append(trailing)
-        return ft.Container(
-            content=ft.Row(
-                kids,
-                spacing=tokens.SPACE_MD,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=ft.Padding(0, tokens.SPACE_XS, 0, tokens.SPACE_XS),
+        return ui.setting_row(
+            icon,
+            title,
+            subtitle,
+            trailing,
+            accent=accent,
             on_click=on_click,
-            ink=on_click is not None,
-            border_radius=tokens.RADIUS_MD,
+            subtitle_lines=1,
         )
 
     def _open_history_dialog(self) -> None:
@@ -1031,23 +957,23 @@ class ChatSession:
         )
 
     def _set_busy_ui(self, busy: bool) -> None:
-        self.send_btn.visible = not busy
-        self.stop_btn.visible = busy
+        """One button, two faces: send when idle, stop when busy."""
+        self.send_btn.icon = ft.Icons.STOP_ROUNDED if busy else ft.Icons.SEND_ROUNDED
+        self.send_btn.tooltip = "Stop" if busy else "Send"
+        self.send_btn.style = ft.ButtonStyle(
+            shape=ft.CircleBorder(),
+            bgcolor=AppColors.ERROR if busy else AppColors.PRIMARY,
+        )
         try:
             self.send_btn.update()
-            self.stop_btn.update()
         except Exception:
             pass
 
-    def _on_scroll(self, e) -> None:
-        try:
-            offset = getattr(self._list, "scroll_offset", None) or 0
-            extent = getattr(self._list, "scroll_extent", None) or 0
-            viewport = getattr(self._list, "viewport", None) or 0
-            if isinstance(offset, (int, float)) and isinstance(extent, (int, float)):
-                self._pinned = offset + viewport >= extent - 64
-        except Exception:
-            pass
+    def _on_composer_button(self, e=None) -> None:
+        if self.busy:
+            self.stop()
+        else:
+            self._send_from_field()
 
     # ── Emit protocol ──────────────────────────────────────────────────────
 
@@ -1265,27 +1191,17 @@ class ChatSession:
         # Cheap, and keeps the pill honest as the router comes up.
         self.refresh_model_chip()
         try:
-            self.page.update()
+            # Patch the transcript only: a 5Hz whole-page push redrew the
+            # app bar and composer for every streamed token.
+            self._list.update()
         except Exception:
             # The session may already be gone; that is teardown, not a bug.
             pass
-        if self._pinned:
-            try:
-                self.page.run_task(self._scroll_to_bottom)
-            except Exception:
-                # run_task evaluates page.session while building the
-                # coroutine, so a dead session raises here and would
-                # otherwise leak an un-awaited coroutine into the turn.
-                pass
-
-    async def _scroll_to_bottom(self):
-        # ScrollableControl.scroll_to is async in flet 1.0
-        try:
-            await self._list.scroll_to(offset=-1, duration=200)
-        except Exception:
-            pass
 
     def _welcome(self) -> ft.Container:
+        # Four tappable starter rows, not a paragraph over pills: options
+        # are prepopulated (NN/G), so the empty state teaches capability by
+        # offering actions the user can fire immediately.
         kids: list[ft.Control] = [
             ft.Container(
                 content=ft.Icon(_CHAT, size=44, color=AppColors.PRIMARY),
@@ -1293,59 +1209,48 @@ class ChatSession:
                 margin=ft.Margin(0, 40, 0, 8),
             ),
             ft.Text(
-                "Ask me anything",
+                "What I can do",
                 size=tokens.FONT_LG,
                 weight=ft.FontWeight.W_700,
                 font_family="Outfit",
-            ),
-            ft.Text(
-                "I can search across 10 engines, fetch and save pages, and "
-                "download media myself, and show you what I find.",
-                size=tokens.FONT_SM,
-                color=ft.Colors.ON_SURFACE_VARIANT,
                 text_align=ft.TextAlign.CENTER,
-                style=ft.TextStyle(height=1.4),
             ),
-            ft.Container(height=tokens.SPACE_SM),
         ]
-        chips: list[ft.Control] = []
+        starters: list[tuple[ft.IconData, str, str]] = []
         if self.ctx.get("url"):
-            chips.append(
-                ft.Container(
-                    content=ft.Text(
-                        f"📄 Describe this page: {_domain(str(self.ctx['url']))}",
-                        size=tokens.FONT_XS,
-                        color=AppColors.PRIMARY,
-                    ),
-                    padding=ft.Padding(10, 6, 10, 6),
-                    border_radius=tokens.RADIUS_PILL,
-                    border=ft.Border.all(
-                        1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)
-                    ),
-                    ink=True,
-                    on_click=lambda e: self.send(
-                        f"Describe this page for me: {self.ctx.get('url')}"
-                    ),
+            url = str(self.ctx.get("url") or "")
+            starters.append(
+                (
+                    ft.Icons.LANGUAGE_ROUNDED,
+                    f"Describe this page: {_domain(url)}",
+                    _describe_prompt(url),
                 )
             )
-        for suggestion in _SUGGESTIONS:
-            chips.append(
-                ft.Container(
-                    content=ft.Text(
-                        suggestion, size=tokens.FONT_XS, color=AppColors.PRIMARY
-                    ),
-                    padding=ft.Padding(10, 6, 10, 6),
-                    border_radius=tokens.RADIUS_PILL,
-                    border=ft.Border.all(
-                        1, ft.Colors.with_opacity(0.3, AppColors.PRIMARY)
-                    ),
-                    ink=True,
-                    on_click=lambda e, q=suggestion: self.send(q),
-                )
+        for icon, prompt in _SUGGESTION_ROWS[: 4 - len(starters)]:
+            starters.append((icon, prompt, prompt))
+        kids.append(
+            ft.Column(
+                [
+                    ui.setting_row(
+                        icon,
+                        label,
+                        trailing=ft.Icon(
+                            ft.Icons.CHEVRON_RIGHT_ROUNDED,
+                            size=tokens.ICON_SM,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        on_click=lambda e, q=prompt: self.send(q),
+                    )
+                    for icon, label, prompt in starters
+                ],
+                spacing=0,
+                tight=True,
             )
-        kids.append(ft.Row(chips, spacing=6, wrap=True, run_spacing=6))
+        )
         return ft.Container(
-            content=ft.Column(kids, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            content=ft.Column(
+                kids, horizontal_alignment=ft.CrossAxisAlignment.STRETCH
+            ),
             expand=True,
         )
 
@@ -1440,55 +1345,116 @@ class ChatSession:
             )
         )
 
-    def _action_row(self, turn: dict, index: int) -> ft.Row | None:
-        """Copy / edit / regenerate / delete for one message."""
-        role = turn.get("role")
-        buttons: list[ft.Control] = [
-            ft.IconButton(
-                icon=ft.Icons.CONTENT_COPY_ROUNDED,
-                icon_size=tokens.ICON_SM,
-                icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                tooltip="Copy",
-                on_click=lambda e, i=index: self._copy_turn(i),
-            )
+    def _message_actions(self, turn: dict, index: int) -> None:
+        """Long-press sheet with the actions a message offers.
+
+        Research pattern: actions are revealed, not parked under every
+        message. The always-visible icon rows are gone; this is their only
+        entry point now.
+        """
+        if index < 0 or self._closing:
+            return
+        entries = [
+            ("Copy", lambda: self._copy_turn(index)),
         ]
-        if role == "user":
-            buttons.append(
-                ft.IconButton(
-                    icon=ft.Icons.EDIT_ROUNDED,
-                    icon_size=tokens.ICON_SM,
-                    icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                    tooltip="Edit and resend",
-                    on_click=lambda e, i=index: self._edit_turn(i),
-                )
-            )
+        if turn.get("role") == "user":
+            entries.append(("Edit and resend", lambda: self._edit_turn(index)))
         else:
-            buttons.append(
-                ft.IconButton(
-                    icon=ft.Icons.REFRESH_ROUNDED,
-                    icon_size=tokens.ICON_SM,
-                    icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                    tooltip="Regenerate",
-                    on_click=lambda e, i=index: self._regenerate(i),
-                )
-            )
-        buttons.append(
-            ft.IconButton(
-                icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
-                icon_size=tokens.ICON_SM,
-                icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                tooltip="Delete",
-                on_click=lambda e, i=index: self._confirm_delete_turn(i),
+            entries.append(("Regenerate", lambda: self._regenerate(index)))
+        entries.append(("Delete", lambda: self._confirm_delete_turn(index)))
+
+        def _run(action):
+            def _handler(e):
+                try:
+                    self.page.pop_dialog()
+                except Exception:
+                    pass
+                action()
+
+            return _handler
+
+        button_style = ft.ButtonStyle(alignment=ft.Alignment.CENTER_LEFT)
+        self.page.show_dialog(
+            ft.AlertDialog(
+                title=ft.Text("Message", font_family="Outfit"),
+                content=ft.Column(
+                    [
+                        ft.TextButton(label, style=button_style, on_click=_run(action))
+                        for label, action in entries
+                    ],
+                    spacing=0,
+                    tight=True,
+                ),
+                actions=[
+                    ft.TextButton(
+                        "Close", on_click=lambda e: self._close_dialog_quietly()
+                    )
+                ],
             )
         )
-        return ft.Row(buttons, spacing=0)
+
+    def _close_dialog_quietly(self) -> None:
+        try:
+            self.page.pop_dialog()
+        except Exception:
+            pass
+
+    def _meta_row(self, turn: dict) -> ft.Control | None:
+        """One 12px meta line: steps, cost, model - and the step expander."""
+        steps = int(turn.get("steps") or 0)
+        cost = int(turn.get("cost") or 0)
+        parts: list[str] = []
+        if steps:
+            parts.append(f"{steps} step{'' if steps == 1 else 's'}")
+        if cost:
+            parts.append(f"{cost} credit{'' if cost == 1 else 's'}")
+        if turn.get("model"):
+            parts.append(str(turn["model"]))
+        if not parts:
+            return None
+        if turn.get("served_by") == "gateway":
+            parts[-1] = f"{parts[-1]} (gateway)"
+        if turn.get("stopped"):
+            parts.append("stopped early")
+        meta = ft.Text(
+            " · ".join(parts),
+            size=tokens.FONT_SM,
+            color=ft.Colors.with_opacity(0.6, ft.Colors.ON_SURFACE),
+        )
+        steps_rows = turn.get("steps_rows") or []
+        if not steps_rows:
+            return ft.Container(content=meta, padding=ft.Padding(4, 2, 4, 0))
+        expanded = bool(turn.get("steps_open"))
+        return ft.Container(
+            content=ft.Row(
+                [
+                    meta,
+                    ft.Container(expand=True),
+                    ft.Icon(
+                        ft.Icons.EXPAND_LESS_ROUNDED
+                        if expanded
+                        else ft.Icons.EXPAND_MORE_ROUNDED,
+                        size=tokens.ICON_SM,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                ],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            padding=ft.Padding(4, 2, 4, 0),
+            ink=True,
+            tooltip="Hide steps" if expanded else "Show steps",
+            on_click=lambda e, t=turn: self._toggle_steps(t),
+        )
 
     def _render_user(self, turn: dict, index: int) -> ft.Container:
-        bubble_width = min(300, (getattr(self.page, "width", None) or 400) * 0.72)
+        bubble_width = min(300, (getattr(self.page, "width", None) or 400) * 0.78)
         return ft.Column(
             [
                 ft.GestureDetector(
-                    on_long_press=lambda e, i=index: self._confirm_delete_turn(i),
+                    on_long_press=lambda e, t=turn, i=index: self._message_actions(
+                        t, i
+                    ),
                     content=ft.Container(
                         content=ft.Text(
                             turn.get("text", ""),
@@ -1502,10 +1468,6 @@ class ChatSession:
                         width=bubble_width,
                     ),
                 ),
-                ft.Row(
-                    [self._action_row(turn, index)],
-                    alignment=ft.MainAxisAlignment.END,
-                ),
             ],
             spacing=0,
             horizontal_alignment=ft.CrossAxisAlignment.END,
@@ -1515,7 +1477,9 @@ class ChatSession:
         kids: list[ft.Control] = []
 
         if (turn.get("thought") or "").strip():
-            thinking_open = bool(turn.get("thought_open", True))
+            # Collapsed by default: reasoning is metadata, not the answer
+            # (Claude/ChatGPT show it as a one-line chevron).
+            thinking_open = bool(turn.get("thought_open", False))
             still_thinking = bool(turn.get("partial")) and not turn.get("text")
             elapsed = _thought_seconds(turn)
             label = (
@@ -1533,7 +1497,7 @@ class ChatSession:
                             size=tokens.ICON_SM,
                             color=AppColors.WARNING
                             if still_thinking
-                            else AppColors.SUCCESS,
+                            else ft.Colors.ON_SURFACE_VARIANT,
                         ),
                         ft.Text(
                             label,
@@ -1558,69 +1522,76 @@ class ChatSession:
                     ft.Text(
                         turn["thought"].strip(),
                         size=tokens.FONT_XS,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        color=ft.Colors.with_opacity(0.7, ft.Colors.ON_SURFACE),
                         selectable=True,
                     )
                 )
             kids.append(
                 ft.Container(
                     content=ft.Column(block, spacing=4, tight=True),
-                    bgcolor=ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
-                    border_radius=tokens.RADIUS_SM,
-                    padding=ft.Padding(8, 8, 8, 8),
+                    padding=ft.Padding(4, 4, 4, 4),
                     ink=True,
                     tooltip="Tap to expand or collapse",
                     on_click=lambda e, t=turn: self._toggle_thought(t),
                 )
             )
-        for row in turn.get("steps_rows", []):
-            if row["state"] == "running":
-                icon = ft.Row(
-                    [ft.ProgressRing(width=12, height=12, stroke_width=2)], tight=True
-                )
-            elif row["state"] == "error":
-                icon = ft.Icon(
-                    ft.Icons.ERROR_OUTLINE_ROUNDED, size=14, color=AppColors.ERROR
-                )
-            else:
-                icon = ft.Icon(
-                    ft.Icons.CHECK_CIRCLE_ROUNDED, size=14, color=AppColors.SUCCESS
-                )
-            label = row["label"]
-            outcome = str(row.get("outcome") or "").strip()
-            if row["state"] == "done" and outcome:
-                # The consequence of a write tool: the saved filename, the
-                # page count, how many schedules were cancelled.
-                label = f"{label.removesuffix('…')}: {outcome}"
-            elif row["state"] == "done" and row.get("count"):
-                label = label.removesuffix("…")
-                label += f": {row['count']} results"
-            if row["state"] == "error":
-                # Show what actually went wrong. "no results" for a denied
-                # write, a network failure and an empty search told the user
-                # nothing they could act on.
-                detail = str(row.get("error") or "").strip()
-                if not detail:
-                    detail = "no results"
-                elif len(detail) > 90:
-                    detail = detail[:90].rstrip() + "…"
-                label = f"{label.rstrip('…')}: {detail}"
-            kids.append(
-                ft.Row(
-                    [
-                        icon,
-                        ft.Text(
-                            label,
-                            size=tokens.FONT_XS,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
+        steps_rows = turn.get("steps_rows", [])
+        running = bool(turn.get("partial"))
+        if steps_rows and (running or turn.get("steps_open")):
+            # Live or expanded: indented, muted, one line per step. The
+            # finished turn folds them into the meta line below.
+            for row in steps_rows:
+                if row["state"] == "running":
+                    icon = ft.Row(
+                        [ft.ProgressRing(width=12, height=12, stroke_width=2)],
+                        tight=True,
+                    )
+                elif row["state"] == "error":
+                    icon = ft.Icon(
+                        ft.Icons.ERROR_OUTLINE_ROUNDED,
+                        size=tokens.ICON_SM,
+                        color=AppColors.ERROR,
+                    )
+                else:
+                    icon = ft.Icon(
+                        ft.Icons.CHECK_CIRCLE_ROUNDED,
+                        size=tokens.ICON_SM,
+                        color=AppColors.SUCCESS,
+                    )
+                label = row["label"]
+                outcome = str(row.get("outcome") or "").strip()
+                if row["state"] == "done" and outcome:
+                    # The consequence of a write tool: the saved filename,
+                    # the page count, how many schedules were cancelled.
+                    label = f"{label}: {outcome}"
+                elif row["state"] == "done" and row.get("count"):
+                    label = f"{label}: {row['count']} results"
+                elif row["state"] == "error":
+                    # Show what actually went wrong: "no results" for a
+                    # denied write told the user nothing actionable.
+                    detail = str(row.get("error") or "").strip() or "no results"
+                    if len(detail) > 90:
+                        detail = detail[:90].rstrip() + "…"
+                    label = f"{label}: {detail}"
+                kids.append(
+                    ft.Container(
+                        content=ft.Row(
+                            [
+                                icon,
+                                ft.Text(
+                                    label,
+                                    size=tokens.FONT_SM,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                ),
+                            ],
+                            spacing=6,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         ),
-                    ],
-                    spacing=6,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        padding=ft.Padding(12, 0, 0, 0),
+                    )
                 )
-            )
 
-        # approval gate row
+        # approval gate card
         if self._confirm and self._confirm[1].get("decision") is None:
             label = self._confirm[1]["label"]
             detail = str(self._confirm[1].get("detail") or "").strip()
@@ -1630,8 +1601,7 @@ class ChatSession:
                         [
                             ft.Text(
                                 label,
-                                size=tokens.FONT_XS,
-                                color=AppColors.WARNING,
+                                size=tokens.FONT_SM,
                                 weight=ft.FontWeight.W_600,
                             ),
                             *(
@@ -1639,7 +1609,7 @@ class ChatSession:
                                     ft.Text(
                                         detail,
                                         size=tokens.FONT_XS,
-                                        color=ft.Colors.ON_SURFACE,
+                                        color=ft.Colors.ON_SURFACE_VARIANT,
                                         selectable=True,
                                     ),
                                 ]
@@ -1648,15 +1618,14 @@ class ChatSession:
                             ),
                             ft.Row(
                                 [
-                                    ft.FilledButton(
+                                    ft.OutlinedButton(
                                         "Allow",
-                                        icon=ft.Icons.CHECK_ROUNDED,
                                         on_click=lambda e: self._confirm_decision(
                                             "allow"
                                         ),
                                     ),
-                                    ft.TextButton(
-                                        "No",
+                                    ft.OutlinedButton(
+                                        "Deny",
                                         on_click=lambda e: self._confirm_decision(
                                             "deny"
                                         ),
@@ -1664,13 +1633,20 @@ class ChatSession:
                                 ],
                                 spacing=8,
                             ),
+                            ft.Text(
+                                "Auto-denies in 2m",
+                                size=tokens.FONT_XS,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
+                            ),
                         ],
-                        spacing=4,
+                        spacing=6,
                         tight=True,
                     ),
-                    padding=ft.Padding(10, 6, 10, 6),
+                    padding=ft.Padding(10, 8, 10, 8),
                     border_radius=tokens.RADIUS_MD,
-                    bgcolor=ft.Colors.with_opacity(0.08, AppColors.WARNING),
+                    border=ft.Border.all(
+                        1, ft.Colors.with_opacity(0.5, AppColors.WARNING)
+                    ),
                 )
             )
 
@@ -1704,98 +1680,45 @@ class ChatSession:
 
         if turn.get("error") == "credits":
             kids.append(
-                ft.Row(
-                    [
-                        ft.Text(
-                            "Out of assistant credits. Assistant replies need credits.",
-                            size=tokens.FONT_XS,
-                            color=AppColors.WARNING,
-                        ),
-                        ft.TextButton(
-                            "Get credits",
-                            on_click=lambda e: show_wallet_dialog(self.page),
-                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
-                        ),
-                    ],
-                    spacing=4,
+                ui.notice(
+                    "Out of assistant credits.",
+                    level="warning",
+                    action_label="Get credits",
+                    on_action=lambda e: show_wallet_dialog(self.page),
                 )
             )
         elif turn.get("error") == "midstream":
             kids.append(
-                ft.Column(
-                    [
-                        ft.Text(
-                            "⚠ Connection lost mid-answer. What arrived was still "
-                            "charged.",
-                            size=tokens.FONT_XS,
-                            color=AppColors.WARNING,
-                        ),
-                        ft.TextButton(
-                            "Ask again",
-                            icon=ft.Icons.REFRESH_ROUNDED,
-                            on_click=lambda e: self._retry_last(),
-                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
-                        ),
-                    ],
-                    spacing=2,
-                    tight=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.START,
+                ui.notice(
+                    "Connection lost mid-answer. What arrived was still charged.",
+                    level="warning",
+                    action_label="Try again",
+                    action_icon=ft.Icons.REFRESH_ROUNDED,
+                    on_action=lambda e: self._retry_last(),
                 )
             )
         elif turn.get("error") == "empty":
             kids.append(
-                ft.Column(
-                    [
-                        ft.Text(
-                            "That model replied with nothing. You were not "
-                            "charged for it.",
-                            size=tokens.FONT_XS,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                        ),
-                        ft.TextButton(
-                            "Ask again",
-                            icon=ft.Icons.REFRESH_ROUNDED,
-                            on_click=lambda e: self._retry_last(),
-                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
-                        ),
-                    ],
-                    spacing=2,
-                    tight=True,
-                    alignment=ft.MainAxisAlignment.START,
+                ui.notice(
+                    "That model replied with nothing. You were not charged for it.",
+                    action_label="Try again",
+                    action_icon=ft.Icons.REFRESH_ROUNDED,
+                    on_action=lambda e: self._retry_last(),
                 )
             )
         elif turn.get("error") == "unavailable":
             kids.append(
-                ft.Column(
-                    [
-                        ft.Text(
-                            str(turn.get("error_message") or "")
-                            or "Assistant unavailable. Classic search, scraping "
-                            "and downloads still work.",
-                            size=tokens.FONT_XS,
-                            color=ft.Colors.ON_SURFACE_VARIANT,
-                            italic=True,
-                        ),
-                        ft.TextButton(
-                            "Try again",
-                            icon=ft.Icons.REFRESH_ROUNDED,
-                            on_click=lambda e: self._retry_last(),
-                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
-                        ),
-                    ],
-                    spacing=2,
-                    tight=True,
-                    horizontal_alignment=ft.CrossAxisAlignment.START,
+                ui.notice(
+                    str(turn.get("error_message") or "")
+                    or "Assistant unavailable. Classic search, scraping "
+                    "and downloads still work.",
+                    action_label="Try again",
+                    action_icon=ft.Icons.REFRESH_ROUNDED,
+                    on_action=lambda e: self._retry_last(),
                 )
             )
         if turn.get("stopped"):
-            kids.append(
-                ft.Text(
-                    "⏹ Stopped.",
-                    size=tokens.FONT_XS,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                )
-            )
+            kids.append(ui.notice("Stopped."))
 
         if turn.get("related"):
             pills = [
@@ -1820,40 +1743,36 @@ class ChatSession:
             ]
             kids.append(ft.Row(pills, spacing=6, wrap=True, run_spacing=4))
 
-        # receipt - every assistant turn shows what it cost and who answered
-        if index >= 0:
-            kids.append(self._action_row(turn, index))
-
-        if turn.get("cost"):
-            receipt = (
-                f"Assistant used {turn.get('steps', 0)} steps · {turn['cost']} credits"
-            )
-            if turn.get("model"):
-                receipt += f" · {turn['model']}"
-            if turn.get("served_by") == "gateway":
-                receipt += " (gateway)"
-            if turn.get("stopped"):
-                receipt += " (stopped early)"
-            kids.append(
-                ft.Text(
-                    receipt,
-                    size=9,
-                    color=ft.Colors.with_opacity(0.6, ft.Colors.ON_SURFACE),
-                )
-            )
+        # Meta line: what it cost, who answered, plus the step expander.
+        # Actions moved to a long-press sheet (see _message_actions).
+        if index >= 0 and turn.get("cost"):
+            meta = self._meta_row(turn)
+            if meta is not None:
+                kids.append(meta)
         elif turn.get("receipt"):
-            kids.append(ft.Text(turn["receipt"], size=9, color=AppColors.WARNING))
+            kids.append(
+                ui.notice(str(turn["receipt"]), level="warning")
+            )
 
         return ft.Container(
-            content=ft.Column(kids, spacing=tokens.SPACE_XS, tight=True),
+            content=ft.Column(kids, spacing=6, tight=True),
             padding=ft.Padding(4, 2, 4, 2),
+            on_long_press=lambda e, t=turn, i=index: self._message_actions(t, i),
         )
 
-    def _render_cards(self, block: dict) -> ft.Container:
+    def _render_cards(self, block: dict) -> ft.Control:
         results: list[SearchResult] = block.get("results") or []
         kind = block.get("kind", "web")
         rows: list[ft.Control] = []
-        for r in results[:8]:
+        for i, r in enumerate(results[:8]):
+            if i:
+                rows.append(
+                    ft.Divider(
+                        height=1,
+                        thickness=1,
+                        color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
+                    )
+                )
             thumb = (r.thumbnail or r.image_url or "") if r else ""
             rows.append(
                 ft.GestureDetector(
@@ -1872,8 +1791,8 @@ class ChatSession:
                                             _KIND_ICONS.get(
                                                 kind, ft.Icons.LANGUAGE_ROUNDED
                                             ),
-                                            size=14,
-                                            color=AppColors.PRIMARY,
+                                            size=tokens.ICON_SM,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
                                         ),
                                     ),
                                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -1881,13 +1800,13 @@ class ChatSession:
                                 if thumb
                                 else ft.Icon(
                                     _KIND_ICONS.get(kind, ft.Icons.LANGUAGE_ROUNDED),
-                                    size=14,
-                                    color=AppColors.PRIMARY,
+                                    size=tokens.ICON_SM,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
                                 )
                             ),
                             ft.Text(
                                 r.title or r.url,
-                                size=tokens.FONT_XS,
+                                size=tokens.FONT_SM,
                                 max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS,
                                 expand=True,
@@ -1895,7 +1814,7 @@ class ChatSession:
                             ),
                             ft.Text(
                                 _domain(r.url or ""),
-                                size=9,
+                                size=tokens.FONT_XS,
                                 color=ft.Colors.ON_SURFACE_VARIANT,
                                 max_lines=1,
                             ),
@@ -1905,41 +1824,33 @@ class ChatSession:
                     ),
                 )
             )
-        body = ft.Column(rows, spacing=4, tight=True, scroll=ft.ScrollMode.AUTO)
-        return ft.Container(
-            content=ft.Column(
-                [
-                    ft.Text(
-                        f"Found {len(results)} {kind} result"
-                        f"{'' if len(results) == 1 else 's'}",
-                        size=tokens.FONT_XS,
-                        weight=ft.FontWeight.W_700,
-                        color=AppColors.PRIMARY,
-                    ),
-                    body,
-                    *(
-                        [
-                            ft.TextButton(
-                                f"View {len(results)} results in Results",
-                                icon=ft.Icons.LIST_ROUNDED,
-                                on_click=lambda e, rs=results, k=kind: self._open_results(
-                                    rs, k
-                                ),
-                                style=ft.ButtonStyle(
-                                    padding=ft.Padding(0, 0, 0, 0)
-                                ),
-                            )
-                        ]
-                        if results
-                        else []
-                    ),
-                ],
-                spacing=3,
-                tight=True,
-            ),
-            padding=ft.Padding(10, 6, 10, 6),
-            border_radius=tokens.RADIUS_MD,
-            bgcolor=ft.Colors.with_opacity(0.05, AppColors.PRIMARY),
+        return ft.Column(
+            [
+                ft.Text(
+                    f"Found {len(results)} {kind} result"
+                    f"{'' if len(results) == 1 else 's'}",
+                    size=tokens.FONT_XS,
+                    weight=ft.FontWeight.W_600,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+                *rows,
+                *(
+                    [
+                        ft.TextButton(
+                            f"Open {len(results)} results",
+                            icon=ft.Icons.LIST_ROUNDED,
+                            on_click=lambda e, rs=results, k=kind: self._open_results(
+                                rs, k
+                            ),
+                            style=ui.ZERO_PAD,
+                        )
+                    ]
+                    if results
+                    else []
+                ),
+            ],
+            spacing=4,
+            tight=True,
         )
 
     def _render_schedules(self) -> ft.Container:
@@ -2047,7 +1958,7 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         existing.restore()
         if ctx and ctx.get("auto"):
             if ctx.get("url"):
-                existing.send(f"Describe this page for me: {ctx['url']}")
+                existing.send(_describe_prompt(ctx['url']))
             elif ctx.get("question"):
                 existing.send(ctx["question"])
         return
@@ -2062,6 +1973,6 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         pass
     if ctx and ctx.get("auto"):
         if ctx.get("url"):
-            session.send(f"Describe this page for me: {ctx['url']}")
+            session.send(_describe_prompt(ctx['url']))
         elif ctx.get("question"):
             session.send(ctx["question"])

@@ -278,9 +278,9 @@ def test_relative_time_reads_naturally():
         ("ready", False, "", "Loading models...", True),
         # Ready, fetched, and genuinely nothing to choose from: that is an
         # answer, not a wait, so it must not spin forever.
-        ("ready", True, "", "No chat models yet", False),
-        ("stopped", True, "auto", "Router stopped", False),
-        ("unavailable", True, "auto", "Router unavailable", False),
+        ("ready", True, "", "Offline", False),
+        ("stopped", True, "auto", "Offline", False),
+        ("unavailable", True, "auto", "Offline", False),
     ],
 )
 def test_picker_label_per_router_state(status, fetched, selected, expected, spinner):
@@ -329,7 +329,7 @@ def test_picker_does_not_claim_a_model_missing_from_the_catalog():
     ai_service._catalog_fetched_at = time.monotonic()
     ps = model_picker_state()
     assert ps.active is False
-    assert ps.label == "No chat models yet"
+    assert ps.label == "Offline"
 
 
 def test_picker_offers_an_action_when_the_router_is_down():

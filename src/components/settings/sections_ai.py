@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import flet as ft
 
+from core import ui
 from core.constants import (
     COST_STEP,
     DAILY_FREE_CREDITS,
@@ -17,23 +18,14 @@ from core.constants import (
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import (
-    FONT_MD,
     FONT_SM,
-    FONT_XS,
-    ICON_MD,
     ICON_SM,
     RADIUS_SM,
-    SPACE_MD,
-    SPACE_XS,
-    SPACE_XXS,
 )
 
 PREMIUM_PRODUCTS = ["premium_monthly", "premium_yearly", "premium_lifetime"]
 
-_OPACITY_BACKDROP = 0.08
 _OPACITY_DIM = 0.6
-_ICON_BACKDROP = 36
-_ICON_BACKDROP_RADIUS = 10
 
 
 def _divider() -> ft.Divider:
@@ -48,67 +40,11 @@ def _setting_row(
     icon: ft.IconData,
     title: str,
     subtitle: str,
-    trailing: ft.Control,
+    trailing: ft.Control | None = None,
     stacked: bool = False,
 ) -> ft.Container:
-    """Icon backdrop + title/subtitle + trailing control, Sherlock style."""
-    icon_box = ft.Container(
-        content=ft.Icon(
-            icon,
-            size=ICON_MD,
-            color=ft.Colors.ON_SURFACE_VARIANT,
-        ),
-        width=_ICON_BACKDROP,
-        height=_ICON_BACKDROP,
-        border_radius=_ICON_BACKDROP_RADIUS,
-        bgcolor=ft.Colors.with_opacity(_OPACITY_BACKDROP, ft.Colors.ON_SURFACE),
-        alignment=ft.Alignment.CENTER,
-    )
-    text_col = ft.Column(
-        controls=[
-            ft.Text(
-                title,
-                size=FONT_MD,
-                weight=ft.FontWeight.W_500,
-                font_family="Outfit",
-            ),
-            ft.Text(
-                subtitle,
-                size=FONT_XS,
-                color=ft.Colors.with_opacity(_OPACITY_DIM, ft.Colors.ON_SURFACE),
-            ),
-        ],
-        spacing=SPACE_XXS,
-        expand=True,
-    )
-
-    if stacked:
-        trailing_line = ft.Row(
-            controls=[
-                ft.Container(width=_ICON_BACKDROP + SPACE_MD),
-                trailing,
-            ],
-            spacing=0,
-        )
-        content = ft.Column(
-            controls=[
-                ft.Row(
-                    controls=[icon_box, text_col],
-                    spacing=SPACE_MD,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                trailing_line,
-            ],
-            spacing=SPACE_XS,
-        )
-    else:
-        content = ft.Row(
-            controls=[icon_box, text_col, trailing],
-            spacing=SPACE_MD,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-
-    return ft.Container(content=content, padding=ft.Padding(0, SPACE_XS, 0, SPACE_XS))
+    """Sherlock settings row; the shape lives in core.ui."""
+    return ui.setting_row(icon, title, subtitle, trailing, stacked=stacked)
 
 
 def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
@@ -172,11 +108,6 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
             ft.Icons.BOLT_ROUNDED,
             f"{state.credits_remaining} of {cap} credits left today",
             "Resets at 00:00 UTC. Ad-earned credits carry over",
-            ft.Icon(
-                ft.Icons.BOLT_ROUNDED,
-                size=ICON_SM,
-                color=AppColors.ACCENT,
-            ),
         )
     )
     rows.append(_divider())
@@ -206,11 +137,6 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
             ft.Icons.PRIVACY_TIP_ROUNDED,
             "Where your messages go",
             _ai.ROUTER_DISCLOSURE,
-            ft.Icon(
-                ft.Icons.INFO_OUTLINE_ROUNDED,
-                size=ICON_SM,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-            ),
         )
     )
 
@@ -221,10 +147,13 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         rows.append(_divider())
         for task in state.scheduled_scrapes:
             next_in = max(0, int((task.get("next_run") or 0) - _time.time()))
+            crawl_url = str(task.get("url", ""))
+            if len(crawl_url) > 48:
+                crawl_url = crawl_url[:45] + "..."
             rows.append(
                 _setting_row(
                     ft.Icons.SCHEDULE_ROUNDED,
-                    task.get("url", ""),
+                    crawl_url,
                     f"Every {task.get('interval_minutes', 60)} min · "
                     f"next in {next_in // 60}m {next_in % 60}s · "
                     f"{task.get('pages_saved', 0)} pages last run",

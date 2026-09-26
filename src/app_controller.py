@@ -822,7 +822,7 @@ class AppController:
         sanitized = sanitize_url(url)
         if not sanitized:
             await self.show_snack(
-                "Invalid URL format. Please provide a valid web link.",
+                "Invalid URL. Paste a full web link.",
                 "error",
             )
             return

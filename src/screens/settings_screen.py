@@ -17,6 +17,7 @@ from core.styles import build_banner_ad
 from core.theme import AppColors
 from core.tokens import (
     FONT_LG,
+    FONT_XS,
     ICON_MD,
 )
 
@@ -188,7 +189,7 @@ def SettingsScreen() -> Control:
             ft.Container(
                 content=ft.Text(
                     "Dux Distributed Global Search (DDGS)",
-                    size=10,
+                    size=FONT_XS,
                     text_align=ft.TextAlign.CENTER,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),

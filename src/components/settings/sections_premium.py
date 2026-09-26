@@ -29,25 +29,21 @@ import time
 import flet as ft
 
 from components.results.downloader import launch_url
+from core import ui
 from core.constants import DAILY_FREE_CREDITS, PREMIUM_DAILY_CREDITS
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import (
     BORDER_RADIUS_MD,
-    FONT_MD,
     FONT_XS,
     ICON_MD,
     ICON_SM,
     SPACE_XS,
-    SPACE_XXS,
 )
 from services import license_service
 from services.premium_service import page_has_ads
 
-_OPACITY_BACKDROP = 0.08
 _OPACITY_DIM = 0.6
-_ICON_BACKDROP = 36
-_ICON_BACKDROP_RADIUS = 10
 
 EMAIL_RE = re.compile(r"^\S+@\S+\.\S+$")
 
@@ -134,51 +130,8 @@ def _divider() -> ft.Divider:
 
 
 def _setting_row(icon, title, subtitle, trailing, stacked=False) -> ft.Container:
-    """Sherlock settings row: icon backdrop, title + subtitle, control."""
-    icon_box = ft.Container(
-        content=ft.Icon(icon, size=ICON_MD, color=ft.Colors.ON_SURFACE_VARIANT),
-        width=_ICON_BACKDROP,
-        height=_ICON_BACKDROP,
-        border_radius=_ICON_BACKDROP_RADIUS,
-        bgcolor=ft.Colors.with_opacity(_OPACITY_BACKDROP, ft.Colors.ON_SURFACE),
-        alignment=ft.Alignment.CENTER,
-    )
-    text_col = ft.Column(
-        controls=[
-            ft.Text(
-                title,
-                size=FONT_MD,
-                weight=ft.FontWeight.W_500,
-                font_family="Outfit",
-            ),
-            ft.Text(
-                subtitle,
-                size=FONT_XS,
-                color=ft.Colors.with_opacity(_OPACITY_DIM, ft.Colors.ON_SURFACE),
-            ),
-        ],
-        spacing=SPACE_XXS,
-        expand=True,
-    )
-    if stacked:
-        content = ft.Column(
-            controls=[
-                ft.Row(
-                    controls=[icon_box, text_col],
-                    spacing=16,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
-                ft.Row(controls=[ft.Container(width=_ICON_BACKDROP + 16), trailing]),
-            ],
-            spacing=SPACE_XS,
-        )
-    else:
-        content = ft.Row(
-            controls=[icon_box, text_col, trailing],
-            spacing=16,
-            vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        )
-    return ft.Container(content=content, padding=ft.Padding(0, SPACE_XS, 0, SPACE_XS))
+    """Sherlock settings row; the shape lives in core.ui."""
+    return ui.setting_row(icon, title, subtitle, trailing, stacked=stacked)
 
 
 def _field(label: str, value: str = "") -> ft.TextField:

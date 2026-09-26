@@ -63,3 +63,38 @@ def test_current_version_has_a_changelog_entry():
 
     assert _APP_VERSION in CHANGELOG, "add an entry when bumping the version"
     assert notes_for(_APP_VERSION)
+
+
+def test_font_floor_holds_everywhere():
+    """No user-facing text below 11pt: the token floor and no raw literals
+    sneaking under it."""
+    import re
+
+    from core.tokens import FONT_XS
+
+    assert FONT_XS >= 11, "the smallest token IS the floor"
+    offenders = []
+    for path in _app_files():
+        for lineno, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), 1
+        ):
+            if re.search(r"\bsize=9\b|\bsize=10\b", line):
+                offenders.append(f"{path.relative_to(SRC)}:{lineno}")
+    assert not offenders, "sub-11px font literals: " + ", ".join(offenders)
+
+
+def test_no_banned_glyphs_in_any_string():
+    """No emoji in product chrome: the pictographs and warning marks are
+    replaced by icons and plain words."""
+    banned = "📄⚠⏹⏳🎉"
+    offenders = []
+    for path in _app_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and any(ch in node.value for ch in banned)
+            ):
+                offenders.append(f"{path.relative_to(SRC)}:{node.lineno}")
+    assert not offenders, "banned glyphs in strings: " + ", ".join(offenders)

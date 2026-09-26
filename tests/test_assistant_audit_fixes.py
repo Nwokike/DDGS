@@ -351,11 +351,11 @@ def test_tool_errors_are_not_flattened_to_no_results():
     code = "".join(line.split("#", 1)[0] for line in source.splitlines())
     # "no results" is allowed only as the fallback when the tool gave no
     # detail; what must not happen is a real error being replaced by it.
-    assert 'detail = "no results"' in code, "keep the empty-result fallback"
-    assert 'if not detail' in code, "the fallback must be conditional"
-    assert "row.get(\"error\") or \"\").strip()" in code, (
+    assert 'or "no results"' in code, "keep the empty-result fallback"
+    assert 'row.get("error") or ""' in code, (
         "the tool's actual error must be read and shown"
     )
+    assert "detail[:90]" in code, "long detail must stay truncated"
 
 
 # ── minimising must not cancel work ──────────────────────────────────────

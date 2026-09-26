@@ -393,8 +393,8 @@ def test_a_stopped_router_outranks_a_stale_catalog():
     ai_service._catalog_fetched_at = time.monotonic()
     try:
         for status, expected in (
-            ("stopped", "Router stopped"),
-            ("unavailable", "Router unavailable"),
+            ("stopped", "Offline"),
+            ("unavailable", "Offline"),
         ):
             state.ai_router_status = status
             state.ai_model = "ling-3.0-flash"
@@ -490,28 +490,37 @@ def test_step_done_carries_the_outcome():
     assert '"outcome": tool_outcome(name, model_out)' in source
 
 
-# ── stop shows a live indicator ──────────────────────────────────────────
-def test_stop_button_is_a_spinner_not_a_bare_icon():
-    """A static red square was the only sign the app was alive."""
+# ── one composer button that morphs into stop ───────────────────────────
+def test_composer_button_morphs_between_send_and_stop():
+    """The two-button pair (with its spinner ring) is one circular button
+    now: send when idle, stop when busy. First-token liveness moved to the
+    transcript's Working ring, which this also pins."""
+    from core.theme import AppColors
+
     ChatSession, Page = _session_stub()
     session = ChatSession(Page())
-    assert isinstance(session.stop_btn, ft.Container), "needs content for a ring"
-    assert session.stop_btn.on_click is not None, "it must still stop"
-    assert session.stop_btn.visible is False, "hidden until busy"
-    assert session.stop_btn.tooltip == "Stop"
 
-    def walk(control, found):
-        if isinstance(control, ft.ProgressRing):
-            found.append(control)
-        for child in getattr(control, "controls", None) or []:
-            walk(child, found)
-        content = getattr(control, "content", None)
-        if content is not None and hasattr(content, "controls"):
-            walk(content, found)
+    btn = session.send_btn
+    assert btn.tooltip == "Send"
+    assert btn.icon == ft.Icons.SEND_ROUNDED
 
-    rings: list = []
-    walk(session.stop_btn.content, rings)
-    assert rings, "the stop button must contain a progress ring"
+    session._set_busy_ui(True)
+    assert btn.tooltip == "Stop", "busy state must offer stop"
+    assert btn.icon == ft.Icons.STOP_ROUNDED
+    assert btn.style.bgcolor == AppColors.ERROR, "stop is the red face"
+
+    session._set_busy_ui(False)
+    assert btn.tooltip == "Send"
+    assert btn.style.bgcolor == AppColors.PRIMARY
+
+    # Idle click with an empty field is a no-op that does not start a turn.
+    session._on_composer_button()
+    assert session.busy is False
+
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert '"Working…"' in source, (
+        "first-token liveness now lives in the transcript's Working ring"
+    )
 
 
 # ── the model must be able to show a picture, not just describe it ───────
@@ -713,3 +722,90 @@ def test_history_marks_the_open_chat_and_reads_disk_every_time(
     titles = conversations.list_conversations()
     assert len(titles) >= 2
     assert {t["title"] for t in titles} >= {"Alpha chat", "Beta chat"}
+
+
+# ── Phase 3 design guards ───────────────────────────────────────────────
+def test_transcript_uses_listview_with_auto_scroll():
+    """The hand-rolled pin detector read attributes flet 1.0.1 does not
+    have, so auto-scroll never yielded; ListView.auto_scroll is the real
+    mechanism and the old hack must not return."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "ft.ListView(" in source
+    assert "auto_scroll=True" in source
+    assert "scroll_offset" not in source, "the dead pin detector must stay dead"
+    assert "_on_scroll" not in source
+    assert "self._pinned" not in source
+
+
+def test_composer_is_one_morphing_button_with_shift_enter():
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "shift_enter=True" in source, "Enter sends, Shift+Enter newlines"
+    assert "stop_btn" not in source, "the second composer button is gone"
+    assert "_on_composer_button" in source
+    assert "hint_text=\"Ask anything\"" in source
+
+
+def test_message_actions_are_revealed_not_parked():
+    """No always-visible icon rows: actions open from a long-press sheet."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "_action_row" not in source
+    assert "def _message_actions" in source
+    assert source.count("on_long_press") >= 2, "both message roles take long-press"
+
+
+def test_step_labels_are_written_once_at_the_source():
+    """pretty_label owns the format: no smart quotes, no trailing ellipsis,
+    and the renderer no longer strips either."""
+    from services.chat_agent import pretty_label
+
+    label = pretty_label("search_web", {"query": "privacy tools"})
+    assert label == "Searching the web: privacy tools", label
+    assert "…" not in label and "“" not in label
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "removesuffix" not in source, "the renderer must show labels verbatim"
+    assert "Assistant used" not in source, "the receipt is the meta line now"
+
+
+def test_finished_steps_fold_into_the_meta_line():
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "def _meta_row" in source
+    assert "steps_open" in source
+    assert "def _toggle_steps" in source
+
+
+def test_empty_state_offers_tappable_starters():
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "_SUGGESTION_ROWS" in source
+    assert "I can search across" not in source, "the run-on paragraph is gone"
+    assert "Ask me anything" not in source
+
+
+def test_overview_has_one_expand_affordance():
+    """The header expand icon duplicated the at-cut 'Read full report'
+    button; the button stays, the header icon goes."""
+    source = (SRC / "components" / "ai_overview.py").read_text(encoding="utf-8")
+    assert '"Read full report"' in source
+    assert 'tooltip="Show less"' not in source, "the duplicate header toggle is gone"
+
+
+def test_summary_sheet_has_no_nested_scroller():
+    source = (SRC / "components" / "ai_summary.py").read_text(encoding="utf-8")
+    assert "height=240" not in source, "the fixed column height is gone"
+    assert "ScrollMode" not in source, "no scroll-within-scroll on a phone"
+    assert '"Get credits"' in source, "the credits branch offers the action"
+
+
+def test_model_picker_selection_is_a_single_signal():
+    source = (SRC / "components" / "model_picker.py").read_text(encoding="utf-8")
+    assert "with_opacity(0.05" not in source, "no bg + bold + color triple"
+    assert '"No models match' in source, "the filter needs an empty state"
+    assert '_reloading["active"]' in source, "the dialog re-entry guard stays"
+    assert "Offline" in source, "the two-state resting label"
+
+
+def test_wallet_builds_its_watch_button_once():
+    source = (SRC / "components" / "wallet.py").read_text(encoding="utf-8")
+    assert source.count("_watch_content(") >= 3, "one shape, three labels"
+    assert source.count("ft.Icons.PLAY_CIRCLE_ROUNDED") <= 3, (
+        "the icon belongs to the builder, not every state"
+    )

@@ -11,7 +11,7 @@ import time
 
 import flet as ft
 
-from core import tokens
+from core import tokens, ui
 from core.state import state
 from core.theme import AppColors
 
@@ -42,60 +42,70 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
             page_url = url or (title if str(title).startswith("http") else "")
             ctrl.open_chat({"url": page_url, "title": title, "auto": True})
 
-    sheet = ft.BottomSheet(
-        content=ft.Container(
-            content=ft.Column(
+    def _open_wallet(e=None):
+        """Credits route: close this sheet, open the credits dialog."""
+        from components.wallet import show_wallet_dialog
+
+        _close()
+        show_wallet_dialog(page)
+
+    column = ft.Column(
+        [
+            ft.Row(
                 [
-                    ft.Row(
-                        [
-                            ft.Icon(
-                                ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                                size=18,
-                                color=AppColors.ACCENT,
-                            ),
-                            ft.Text(
-                                "Assistant summary",
-                                size=tokens.FONT_SM,
-                                weight=ft.FontWeight.W_700,
-                                font_family="Outfit",
-                            ),
-                            ft.Container(expand=True),
-                            ft.IconButton(
-                                icon=ft.Icons.CLOSE_ROUNDED,
-                                icon_size=18,
-                                on_click=lambda e: _close(),
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.END,
+                    ft.Icon(
+                        ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+                        size=tokens.ICON_SM,
+                        color=AppColors.ACCENT,
                     ),
                     ft.Text(
-                        (title or "")[:120],
-                        size=tokens.FONT_XS,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                        max_lines=1,
-                        overflow=ft.TextOverflow.ELLIPSIS,
+                        "Assistant summary",
+                        size=tokens.FONT_SM,
+                        weight=ft.FontWeight.W_700,
+                        font_family="Outfit",
                     ),
-                    ft.Divider(height=8, thickness=1),
-                    ft.Container(
-                        content=ft.Column([body], scroll=ft.ScrollMode.AUTO),
-                        height=240,
-                    ),
-                    ft.Row(
-                        [
-                            ft.TextButton(
-                                "Ask Assistant about this page",
-                                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                                on_click=_ask_ai,
-                            ),
-                        ],
-                        spacing=6,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ft.Container(expand=True),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_ROUNDED,
+                        icon_size=tokens.ICON_SM,
+                        on_click=lambda e: _close(),
                     ),
                 ],
-                spacing=8,
-                tight=True,
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            width=420,
+            ft.Text(
+                (title or "")[:120],
+                size=tokens.FONT_XS,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                max_lines=1,
+                overflow=ft.TextOverflow.ELLIPSIS,
+            ),
+            ft.Divider(height=8, thickness=1),
+            # No fixed height and no inner scroller: the summary is capped
+            # at five bullets, so the sheet sizes to its content instead of
+            # nesting a scroll inside a scroll.
+            body,
+            ft.Row(
+                [
+                    ft.TextButton(
+                        "Ask Assistant about this page",
+                        icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+                        on_click=_ask_ai,
+                        style=ui.ZERO_PAD,
+                    ),
+                ],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        ],
+        spacing=8,
+        tight=True,
+    )
+    sheet = ft.BottomSheet(
+        content=ft.Container(
+            content=column,
+            width=min(480, (getattr(page, "width", None) or 420) - 24),
             padding=ft.Padding(16, 12, 16, 16),
         ),
         open=True,
@@ -128,30 +138,25 @@ def show_ai_summary(page: ft.Page, title: str, content: str, url: str = "") -> N
             )
             body.value = buffer["text"] or "(empty summary)"
         except ai_service.NotEnoughCredits as exc:
-            body.value = (
-                f"Assistant summary unavailable ({exc.balance} left). "
-                "close this and open the credit pill for options. "
-                "Manual reading and downloads are unaffected."
-            )
+            body.value = f"Out of Assistant credits ({exc.balance} left)."
             body.color = AppColors.WARNING
+            column.controls.append(
+                ft.TextButton(
+                    "Get credits",
+                    style=ui.ZERO_PAD,
+                    on_click=lambda e: (_close(), _open_wallet()),
+                )
+            )
         except ai_service.AIMidStream:
-            body.value = buffer["text"] + "\n\n⚠ Connection lost mid-summary."
+            body.value = (buffer["text"] + "\n\nConnection lost mid-summary.").strip()
             body.color = AppColors.WARNING
-        except ai_service.AIUnavailable:
-            body.value = (
-                "Assistant unavailable right now. The full page text is untouched."
-            )
-            body.color = ft.Colors.ON_SURFACE_VARIANT
         except Exception:
-            body.value = (
-                "Assistant unavailable right now. The full page text is untouched."
-            )
+            # AIUnavailable and anything unexpected share one honest line.
+            body.value = "Assistant unavailable. The full page text is untouched."
             body.color = ft.Colors.ON_SURFACE_VARIANT
         try:
             page.update()
         except Exception:
             pass
 
-    # state import kept for parity with other components (cooldown lives on it)
-    _ = state
     page.run_task(_run)

@@ -24,6 +24,10 @@ from core.state import state
 from core.theme import AppColors
 
 _CHAT = ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED
+_DIALOG_TITLE = "Assistant model"
+# One refresh at a time; re-entering the picker while a refresh runs used
+# to stack dialogs.
+_reloading = {"active": False}
 
 
 @dataclass(frozen=True)
@@ -42,17 +46,10 @@ class PickerState:
 def model_picker_state() -> PickerState:
     """Derive the picker's label, models and empty-state copy from state.
 
-    Mirrors LM Router's label ladder:
-      chosen + in catalog -> its name
-      starting            -> "Starting router..."
-      router stopped      -> "Router stopped"
-      models but no match -> "No chat models yet"
-      otherwise           -> "Loading models..."
-
+    Two resting states (research): the chosen model's name, or "Offline".
+    "Starting router..." and "Loading models..." are the only transients.
     The chosen name only counts once it is actually present in the catalog
-    we hold. Otherwise a saved preference would be shown while the router
-    is still starting, which is the stale-label problem this ladder exists
-    to avoid.
+    we hold, so a saved preference can never outlive the router itself.
     """
     from services import ai_service
 
@@ -68,22 +65,17 @@ def model_picker_state() -> PickerState:
         (m for m in models if str(m.get("id") or "") == str(selected or "")),
         None,
     )
-    # A stopped or unavailable router outranks a stale catalog. The catalog
-    # is only a snapshot, so once the router is down the pill used to keep
-    # showing a model name forever, and the "Start router" action never
-    # appeared because `models` was non-empty.
+    # A stopped or unavailable router outranks a stale catalog: the catalog
+    # is only a snapshot, so once the router is down the pill must not keep
+    # showing a model name forever.
     if status in ("stopped", "unavailable"):
-        label = "Router stopped" if status == "stopped" else "Router unavailable"
+        label = "Offline"
     elif current is not None:
         label = "Auto" if str(current.get("id")) == "auto" else str(current["id"])
     elif status == "starting":
         label = "Starting router..."
-    elif status == "stopped":
-        label = "Router stopped"
-    elif status == "unavailable":
-        label = "Router unavailable"
     elif fetched:
-        label = "No chat models yet"
+        label = "Offline"
     else:
         label = "Loading models..."
 
@@ -145,7 +137,7 @@ def _pill_state(ps: PickerState) -> tuple[str, ft.Control | None]:
 def build_model_pill(
     page: ft.Page,
     *,
-    on_open: callable | None = None,
+    on_open=None,
 ) -> ft.Container:
     """The chat-header pill. Opens the dialog; label reflects live state."""
     ps = model_picker_state()
@@ -212,9 +204,17 @@ def show_model_picker(page: ft.Page) -> None:
         async def _load_and_show() -> None:
             from services import ai_service as _ai
 
-            if ps.action == "Start router":
-                await _ai.ensure_router(verify=True)
-            await _ai.refresh_catalog()
+            if _reloading["active"]:
+                # One refresh at a time: re-entering used to stack dialogs
+                # when the router stayed down.
+                return
+            _reloading["active"] = True
+            try:
+                if ps.action == "Start router":
+                    await _ai.ensure_router(verify=True)
+                await _ai.refresh_catalog()
+            finally:
+                _reloading["active"] = False
             show_model_picker(page)
 
         _show_empty_dialog(page, ps, _load_and_show)
@@ -222,6 +222,9 @@ def show_model_picker(page: ft.Page) -> None:
 
     filter_box = {"q": ""}
     list_col = ft.Column([], spacing=2, scroll=ft.ScrollMode.AUTO, tight=True)
+
+    def _fit() -> None:
+        list_col.height = min(400, max(56, 52 * len(list_col.controls) + 8))
 
     def _rows() -> list[ft.Control]:
         out: list[ft.Control] = []
@@ -238,26 +241,20 @@ def show_model_picker(page: ft.Page) -> None:
                         [
                             ft.Icon(
                                 _CHAT if model_id == "auto" else ft.Icons.MEMORY_ROUNDED,
-                                size=16,
-                                color=AppColors.PRIMARY
-                                if selected
-                                else ft.Colors.ON_SURFACE_VARIANT,
+                                size=tokens.ICON_SM,
+                                color=ft.Colors.ON_SURFACE_VARIANT,
                             ),
                             ft.Column(
                                 [
                                     ft.Text(
                                         "Auto" if model_id == "auto" else model_id,
                                         size=tokens.FONT_SM,
-                                        weight=ft.FontWeight.W_700
-                                        if selected
-                                        else ft.FontWeight.W_500,
-                                        color=AppColors.PRIMARY
-                                        if selected
-                                        else ft.Colors.ON_SURFACE,
+                                        weight=ft.FontWeight.W_500,
+                                        color=ft.Colors.ON_SURFACE,
                                     ),
                                     ft.Text(
                                         entry.get("hint", ""),
-                                        size=9,
+                                        size=tokens.FONT_XS,
                                         color=ft.Colors.ON_SURFACE_VARIANT,
                                         max_lines=2,
                                         overflow=ft.TextOverflow.ELLIPSIS,
@@ -270,7 +267,7 @@ def show_model_picker(page: ft.Page) -> None:
                                 [
                                     ft.Icon(
                                         ft.Icons.CHECK_ROUNDED,
-                                        size=16,
+                                        size=tokens.ICON_SM,
                                         color=AppColors.PRIMARY,
                                     )
                                 ]
@@ -283,10 +280,18 @@ def show_model_picker(page: ft.Page) -> None:
                     padding=ft.Padding(8, 6, 8, 6),
                     ink=True,
                     border_radius=tokens.RADIUS_SM,
-                    bgcolor=ft.Colors.with_opacity(0.05, AppColors.PRIMARY)
-                    if selected
-                    else None,
                     on_click=lambda e, mid=model_id: _select(page, ctrl, mid),
+                )
+            )
+        if filter_box["q"] and not out:
+            out.append(
+                ft.Container(
+                    content=ft.Text(
+                        f"No models match \"{filter_box['q']}\"",
+                        size=tokens.FONT_XS,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                    ),
+                    padding=ft.Padding(8, 12, 8, 12),
                 )
             )
         return out
@@ -294,25 +299,22 @@ def show_model_picker(page: ft.Page) -> None:
     def _apply_filter(e=None) -> None:
         filter_box["q"] = (e.control.value or "").lower() if e is not None else ""
         list_col.controls = _rows()
-        list_col.height = min(400, max(56, 52 * len(list_col.controls) + 8))
+        _fit()
         try:
             page.update()
         except Exception:
             pass
 
     list_col.controls = _rows()
-    list_col.height = min(400, max(56, 52 * len(list_col.controls) + 8))
+    _fit()
 
     search = ft.SearchBar(
         bar_hint_text="Filter models",
-        bar_leading=ft.Icon(
-            ft.Icons.SEARCH_ROUNDED, size=18, color=ft.Colors.ON_SURFACE_VARIANT
-        ),
         on_change=_apply_filter,
     )
 
     dlg = ft.AlertDialog(
-        title=ft.Text("Assistant model", font_family="Outfit"),
+        title=ft.Text(_DIALOG_TITLE, font_family="Outfit"),
         content=ft.Container(
             content=ft.Column([search, list_col], spacing=6, tight=True),
             width=360,
@@ -353,14 +355,6 @@ def _show_empty_dialog(page: ft.Page, ps: PickerState, on_action) -> None:
     ]
     actions: list[ft.Control] = []
     if ps.action:
-        controls.append(
-            ft.Text(
-                ps.action,
-                size=tokens.FONT_SM,
-                weight=ft.FontWeight.W_600,
-                color=AppColors.PRIMARY,
-            )
-        )
         actions.append(
             ft.FilledButton(
                 ps.action,
@@ -372,7 +366,7 @@ def _show_empty_dialog(page: ft.Page, ps: PickerState, on_action) -> None:
 
     page.show_dialog(
         ft.AlertDialog(
-            title=ft.Text("Assistant model", font_family="Outfit"),
+            title=ft.Text(_DIALOG_TITLE, font_family="Outfit"),
             content=ft.Container(
                 content=ft.Column(controls, spacing=8, tight=True), width=320
             ),
