@@ -17,7 +17,15 @@ def show_update_dialog(page: ft.Page, update_data: dict) -> None:
     title_text = update_data.get("title", "Announcement" if is_announcement else f"New Version {update_data.get('version','')} Available!")
     release_notes = update_data.get("release_notes", "")
     playstore_url = update_data.get("playstore_url", "")
-    action_url = update_data.get("action_url") or "https://github.com/Nwokike/DDGS"
+    # Server-driven, never hard-coded: the feed chooses where "Learn More"
+    # goes. Falling back to a literal GitHub URL meant every announcement
+    # pointed at the repo whatever version.json said, and lost the
+    # Play-edition disclosure main carries.
+    action_url = (
+        update_data.get("action_url")
+        or update_data.get("github_url")
+        or playstore_url
+    )
     is_android = page.platform == ft.PagePlatform.ANDROID
     def _dismiss(e): page.pop_dialog()
     actions: list[ft.Control] = []
@@ -32,6 +40,16 @@ def show_update_dialog(page: ft.Page, update_data: dict) -> None:
     if release_notes:
         if not is_announcement: content_controls.extend([ft.Text("What's New:", size=12, weight=ft.FontWeight.W_600, color=AppColors.PRIMARY), ft.Container(height=4)])
         content_controls.append(ft.Markdown(release_notes, selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB, on_tap_link=lambda e: asyncio.create_task(launch_url(e.data, page))))
+    if is_android and not is_announcement:
+        content_controls.append(ft.Container(height=8))
+        content_controls.append(
+            ft.Text(
+                "Feature note: the Play Store edition blocks YouTube downloads; the GitHub build includes full downloads.",
+                size=11,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                style=ft.TextStyle(height=1.3),
+            )
+        )
     icon_data = ft.Icons.CAMPAIGN_ROUNDED if is_announcement else ft.Icons.ROCKET_LAUNCH_ROUNDED
     icon_color = AppColors.ACCENT if is_announcement else AppColors.PRIMARY
     dlg = ft.AlertDialog(modal=is_mandatory, title=ft.Row([ft.Icon(icon_data, color=icon_color, size=24), ft.Text(title_text, size=14, weight=ft.FontWeight.BOLD, font_family="Outfit", expand=True)], spacing=8), content=ft.Container(content=ft.Column(controls=content_controls, tight=True, spacing=0, scroll=ft.ScrollMode.AUTO), width=360), actions=actions, actions_alignment=ft.MainAxisAlignment.END)
