@@ -5,7 +5,16 @@ description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch 
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "cryptography>=50.0.1",
+    # Two indexes, two ceilings. Desktop resolves against PyPI, where
+    # cryptography is at 50.x. `flet build` adds
+    # --extra-index-url https://pypi.flet.dev for the Android wheels, and
+    # that index stops at 48.0.0 — so a floor above 48 installs fine on
+    # Windows and Linux and matches nothing at all on Android, which is
+    # how the whole APK job was lost. The APIs this app uses (SPKI public
+    # key load, encode_dss_signature, ECDSA over SHA-256) are unchanged
+    # across the range, so the floor is the oldest Android wheel Flet
+    # ships rather than the newest PyPI release.
+    "cryptography>=43.0.1",
     "ddgs>=9.16.0",
     "flet>=1.0.1",
     "flet-ads>=1.0.1",
