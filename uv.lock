@@ -212,7 +212,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cryptography", specifier = ">=50.0.1" },
+    { name = "cryptography", specifier = ">=43.0.1" },
     { name = "ddgs", specifier = ">=9.16.0" },
     { name = "flet", specifier = ">=1.0.1" },
     { name = "flet-ads", specifier = ">=1.0.1" },
