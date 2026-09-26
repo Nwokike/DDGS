@@ -72,6 +72,13 @@ class _Premium:
     available = True
 
 
+_ALL_PRICES = {
+    "monthly": "$3.99 USD",
+    "yearly": "$24.99 USD",
+    "lifetime": "$49.99 USD",
+}
+
+
 def _build(monkeypatch, *, premium=True, prices=None, recovery="", is_premium=False):
     from components.settings import sections_premium as mod
     from core import build_channel
@@ -130,7 +137,7 @@ def _walk_controls(control, found):
 
 def test_the_card_carries_no_form_of_its_own(monkeypatch):
     """Email/name/phone/recovery were a permanent block in Settings."""
-    _, _, card = _build(monkeypatch, prices={"monthly": "$3.99 USD"})
+    _, _, card = _build(monkeypatch, prices=_ALL_PRICES)
     texts: list = []
     fields: list = []
     _collect(card, texts, fields)
@@ -262,7 +269,13 @@ def test_the_recovery_id_row_only_exists_when_there_is_one(monkeypatch):
     assert "Your recovery ID" in " ".join(t2)
 
 
-def test_an_empty_catalog_says_so_instead_of_hiding_the_plans(monkeypatch):
+def test_an_empty_catalog_offers_no_buy_rows_at_all(monkeypatch):
+    """KTV Player's rule: no catalog, no buttons to buy with.
+
+    Three live rows labelled "Choose" sit *under* a heading saying the
+    service is unreachable, and they start a real payment for a price the
+    customer was never shown.
+    """
     _, _, card = _build(monkeypatch, prices=None)
     texts: list = []
     fields: list = []
@@ -270,9 +283,8 @@ def test_an_empty_catalog_says_so_instead_of_hiding_the_plans(monkeypatch):
     rendered = " ".join(texts)
     assert "Unlock options unavailable" in rendered
     assert "Could not reach the license service" in rendered
-    # The rows are still there, offering a neutral label rather than a
-    # number the app does not have.
-    assert "Choose" in rendered
+    for unavailable in ("Monthly", "Yearly", "Lifetime", "Choose"):
+        assert unavailable not in rendered, f"{unavailable} must not be offered"
 
 
 def test_a_premium_holder_sees_no_price_rows(monkeypatch):

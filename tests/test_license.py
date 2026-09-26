@@ -355,6 +355,11 @@ def test_play_build_never_offers_a_purchase_control(monkeypatch):
 
     state.is_premium = False
     state.license_recovery_id = ""
+    state.license_prices = {
+        "monthly": "$3.99 USD",
+        "yearly": "$24.99 USD",
+        "lifetime": "$49.99 USD",
+    }
     card = build_premium_section(Page())
 
     blob: list[str] = []
@@ -451,7 +456,8 @@ def test_direct_build_offers_the_purchase_flow(monkeypatch):
     # The recovery flow is the Restore row: KTV Player's design keeps the
     # ID itself off the card until there is one to show.
     assert "Restore purchases" in rendered, "a direct build needs the recovery flow"
-    assert "Choose" in rendered, "a direct build must offer plans to buy"
+    assert "$3.99 USD" in rendered, "a direct build must offer plans to buy"
+    assert "Monthly" in rendered
     assert "recovery ID" not in rendered, "an empty ID field is not a menu item"
 
     # With an ID on file the card shows it, so the owner can copy it.

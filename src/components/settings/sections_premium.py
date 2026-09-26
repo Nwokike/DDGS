@@ -452,22 +452,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         else:
             _snack(f"That licence is {status.status}", "warning")
 
-    async def _play_buy(product_id: str) -> None:
-        if billing is None:
-            return
-        try:
-            result = await billing.query_products([product_id])
-            if not result.products:
-                _snack("Product not found. Create it in Play Console first.")
-                return
-            ok = await billing.buy_non_consumable(
-                product_id, offer_token=result.products[0].offer_token
-            )
-            if not ok:
-                _snack("Purchase could not start.")
-        except Exception as exc:
-            _snack(f"Billing error: {exc}", "error")
-
     if license_ok and not state.license_prices:
         _retry_prices(page, premium)
 
@@ -544,24 +528,31 @@ def build_premium_section(page: ft.Page) -> ft.Container:
     # Product rows, the recovery ID and Restore are the whole card; the
     # typing lives in dialogs. Nothing is pre-expanded.
     if license_ok and not state.is_premium:
-        for product_id, blurb in _PLANS:
-            price = state.license_prices.get(product_id, "")
-            rows.append(_divider())
-            rows.append(
-                _setting_row(
-                    ft.Icons.LOCK_OPEN_ROUNDED
-                    if product_id == "lifetime"
-                    else ft.Icons.AUTORENEW_ROUNDED,
-                    product_id.capitalize(),
-                    blurb,
-                    _buy_button(
-                        price or "Choose",
-                        lambda e, pid=product_id: _ask_email(pid),
-                    ),
-                    stacked=narrow,
+        if state.license_prices:
+            for product_id, blurb in _PLANS:
+                price = state.license_prices.get(product_id, "")
+                if not price:
+                    continue
+                rows.append(_divider())
+                rows.append(
+                    _setting_row(
+                        ft.Icons.LOCK_OPEN_ROUNDED
+                        if product_id == "lifetime"
+                        else ft.Icons.AUTORENEW_ROUNDED,
+                        product_id.capitalize(),
+                        blurb,
+                        _buy_button(
+                            price,
+                            lambda e, pid=product_id: _ask_email(pid),
+                        ),
+                        stacked=narrow,
+                    )
                 )
-            )
-        if not state.license_prices:
+        else:
+            # KTV Player renders no buy rows at all when the catalog did not
+            # load. Three live buttons labelled "Choose" let a customer start
+            # a payment for a price they were never shown, under a heading
+            # that says the service is unreachable.
             rows.append(_divider())
             rows.append(
                 _setting_row(
@@ -605,44 +596,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 ft.OutlinedButton(
                     "Restore",
                     on_click=_ask_recovery,
-                ),
-                stacked=narrow,
-            )
-        )
-
-    # ── Play channel (Play-distributed builds only) ─────────────────────
-    if play_ok and not license_ok:
-        for product_id, label, blurb in (
-            ("premium_monthly", "$3.99 / month", "Billed every month by Google Play"),
-            ("premium_yearly", "$24.99 / year", "Two months free versus monthly"),
-            ("premium_lifetime", "$49.99", "Pay once, keep it"),
-        ):
-            rows.append(_divider())
-            rows.append(
-                _setting_row(
-                    ft.Icons.LOCAL_OFFER_ROUNDED,
-                    label,
-                    blurb,
-                    _buy_button(
-                        "Subscribe" if "month" in product_id else "Buy",
-                        lambda e, pid=product_id: page.run_task(_play_buy, pid),
-                    ),
-                    stacked=narrow,
-                )
-            )
-        rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.RESTORE_ROUNDED,
-                "Restore purchases",
-                "Billed through Google Play. Cancel anytime in the Play Store",
-                ft.TextButton(
-                    "Restore",
-                    on_click=lambda e: page.run_task(
-                        controller.verify_purchases
-                        if controller
-                        else (lambda: None)
-                    ),
                 ),
                 stacked=narrow,
             )

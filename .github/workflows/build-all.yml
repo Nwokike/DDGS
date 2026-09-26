@@ -26,8 +26,28 @@ env:
   BUILD_NUMBER: ${{ inputs.build_number || '6' }}
 
 jobs:
-  # ─── 0. Create Release Tag & Placeholder ───────────────
+  # ─── 0. Quality gate: nothing builds or publishes until this passes ────
+  # KTV Player gates every job behind ruff + pytest; DDGS ran neither in CI
+  # on any branch, so 173 local tests guarded exactly nothing — including
+  # the Play-channel assertions that only run on the playstore branch.
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync
+      - name: Ruff
+        run: uv run ruff check src tests
+      - name: Tests
+        run: uv run pytest -q
+
+  # ─── 1. Create Release Tag & Placeholder ───────────────
   prepare-release:
+    needs: [quality]
     runs-on: ubuntu-latest
     outputs:
       TAG_NAME: ${{ steps.tag_info.outputs.TAG_NAME }}
