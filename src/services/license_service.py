@@ -123,6 +123,12 @@ class KiriLicenseService:
         self.products: list[LicenseProduct] = []
         self.claims: LicenseClaims | None = None
         self._unlocked = False
+        # The last status the Worker or a signed token actually reported.
+        # `unlocked` is a boolean and cannot say *why* something is off, so
+        # without this the Premium card had no way to distinguish "never
+        # bought" from "expired" or "refunded" and showed the buy pitch to a
+        # lapsed customer.
+        self.status: str = ""
 
     # -- local state ---------------------------------------------------------
 
@@ -131,19 +137,28 @@ class KiriLicenseService:
         return self._unlocked
 
     async def recovery_id(self) -> str:
-        return str(await self._get(SETTING_RECOVERY_ID)) or ""
+        # `str(None) or ""` returns the literal "None": str() runs first and
+        # its result is truthy, so the fallback never fires. An empty stored
+        # value then reads as a real recovery ID, refresh() POSTs
+        # {"recovery_id": "None"}, the Worker answers 404, and a standing
+        # unlock is dropped on a routine launch. KTV Player returns "" and
+        # makes no request at all.
+        return str((await self._get(SETTING_RECOVERY_ID)) or "")
 
     async def cached_product(self) -> str:
-        return str(await self._get(SETTING_PRODUCT)) or ""
+        return str((await self._get(SETTING_PRODUCT)) or "")
 
     async def _get(self, key: str):
+        """Read one stored licence value. Missing key -> None.
+
+        A *failed* read is not a missing key and must not be reported as
+        one: `apply_cached_token` would take the no-token branch and revoke
+        a paid session over a locked settings file. The error propagates so
+        the caller can preserve the verdict it already has.
+        """
         if self.storage is None:
             return None
-        try:
-            return await self.storage.get(key)
-        except Exception:
-            logger.debug("licence setting read failed", exc_info=True)
-            return None
+        return await self.storage.get(key)
 
     async def _store(
         self,
@@ -152,17 +167,21 @@ class KiriLicenseService:
         token: str | None = None,
         product: str | None = None,
     ) -> None:
+        """Persist licence values. Failures propagate, never log-and-continue.
+
+        The load-bearing write is the recovery ID right after /checkout —
+        the only way back in after a data wipe. Swallowing a failure there
+        hands the UI a valid order, lets the user complete the payment, and
+        loses the one artifact that would restore it, with no message.
+        """
         if self.storage is None:
             return
-        try:
-            if recovery_id is not None:
-                await self.storage.set(SETTING_RECOVERY_ID, recovery_id)
-            if token is not None:
-                await self.storage.set(SETTING_TOKEN, token)
-            if product is not None:
-                await self.storage.set(SETTING_PRODUCT, product)
-        except Exception:
-            logger.warning("Could not store the licence", exc_info=True)
+        if recovery_id is not None:
+            await self.storage.set(SETTING_RECOVERY_ID, recovery_id)
+        if token is not None:
+            await self.storage.set(SETTING_TOKEN, token)
+        if product is not None:
+            await self.storage.set(SETTING_PRODUCT, product)
 
     async def _apply(self, status: str, claims: LicenseClaims | None) -> None:
         """Record a verified entitlement and let the app re-evaluate.
@@ -172,6 +191,7 @@ class KiriLicenseService:
         only be granted or dropped in one place.
         """
         self._unlocked = status in ("active", "grace") and claims is not None
+        self.status = str(status or "")
         logger.info(
             "Kiri license status=%s product=%s unlocked=%s",
             status,
@@ -190,12 +210,24 @@ class KiriLicenseService:
         rather than left to fail on every launch — a token we cannot verify
         is a token we do not honour.
         """
-        token = await self._get(SETTING_TOKEN)
+        try:
+            token = await self._get(SETTING_TOKEN)
+        except Exception:
+            # A failed read is not an absent token. Taking the no-token
+            # branch here revokes a paid session over a locked settings
+            # file, which is exactly the verdict this method must not
+            # infer. Keep what we already decided.
+            logger.warning(
+                "Could not read the stored licence; keeping the current verdict",
+                exc_info=True,
+            )
+            return self._unlocked
         if not token:
             self._unlocked = False
             # Nothing left to verify, so stale claims must not survive to
             # be reused by a later status reply.
             self.claims = None
+            self.status = ""
             self._notify_change()
             return False
         try:
@@ -204,6 +236,10 @@ class KiriLicenseService:
             logger.info("Cached Kiri license rejected (%s)", ex.reason)
             self._unlocked = False
             self.claims = None
+            # An expired token is a known state worth showing; anything else
+            # (bad signature, wrong app, malformed) tells the card nothing
+            # about the licence, so it must not invent one.
+            self.status = "expired" if ex.reason == "expired" else ""
             self._notify_change()
             return False
         self.claims = claims

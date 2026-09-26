@@ -8,6 +8,7 @@ module asserts exactly that.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import sys
 from pathlib import Path
@@ -55,7 +56,7 @@ class _Controller:
     def __init__(self, premium):
         self.premium = premium
 
-    async def _grant_premium_benefits(self):
+    async def _grant_premium_benefits(self, *, first_time=False):
         return False
 
     async def _sync_premium_storage(self):
@@ -69,6 +70,13 @@ class _Premium:
     """Stands in for PremiumService; only `available` matters to the card."""
 
     available = True
+
+
+_ALL_PRICES = {
+    "monthly": "$3.99 USD",
+    "yearly": "$24.99 USD",
+    "lifetime": "$49.99 USD",
+}
 
 
 def _build(monkeypatch, *, premium=True, prices=None, recovery="", is_premium=False):
@@ -129,7 +137,7 @@ def _walk_controls(control, found):
 
 def test_the_card_carries_no_form_of_its_own(monkeypatch):
     """Email/name/phone/recovery were a permanent block in Settings."""
-    _, _, card = _build(monkeypatch, prices={"monthly": "$3.99 USD"})
+    _, _, card = _build(monkeypatch, prices=_ALL_PRICES)
     texts: list = []
     fields: list = []
     _collect(card, texts, fields)
@@ -163,7 +171,9 @@ def test_tapping_a_plan_opens_the_checkout_dialog(monkeypatch):
     assert "Name (optional)" in labels
     assert "Phone (optional)" in labels
 
-    # Continue must be wired to an async checkout, not a no-op.
+    # Continue must be wired to an async checkout, not a no-op, and must go
+    # through the one-at-a-time guard: a second tap on Continue creates a
+    # second real order at the Worker, with a second recovery ID.
     cont = next(
         a
         for a in dialog.actions
@@ -172,8 +182,53 @@ def test_tapping_a_plan_opens_the_checkout_dialog(monkeypatch):
     assert cont.on_click is not None
     cont.on_click(None)
     handler, args = page.tasks[-1]
-    assert handler.__name__ == "_checkout"
-    assert args[0] == "monthly"
+    assert handler.__name__ == "_exclusive", "billing must be serialized"
+    assert args[0] == "checkout:monthly"
+    assert args[1].cr_code.co_name == "_checkout"
+    args[1].close()  # inspected, never awaited
+
+
+def test_a_second_tap_while_a_payment_is_running_is_refused(monkeypatch):
+    _mod, page, card = _build(monkeypatch, prices={"monthly": "$3.99 USD"})
+    controls: list = []
+    _walk_controls(card, controls)
+    buy = next(
+        c
+        for c in controls
+        if isinstance(c, ft.FilledButton)
+        and str(getattr(c, "content", "")) == "$3.99 USD"
+    )
+    buy.on_click(None)
+    dialog = page.dialogs[-1]
+    cont = next(
+        a
+        for a in dialog.actions
+        if isinstance(a, ft.FilledButton)
+        and str(getattr(a, "content", "")) == "Continue"
+    )
+    cont.on_click(None)
+    guard, guard_args = page.tasks[-1]
+    guard_args[1].close()  # inspected, never awaited
+    assert guard.__name__ == "_exclusive"
+
+    started: list[int] = []
+
+    async def slow():
+        started.append(1)
+        await asyncio.sleep(0.05)
+
+    async def both():
+        await asyncio.gather(
+            guard("checkout:monthly", slow()),
+            guard("checkout:monthly", slow()),
+        )
+
+    asyncio.run(both())
+    assert started == [1], "the second tap must be refused while the first runs"
+
+    # The key is released when the first call finishes, so a retry works.
+    asyncio.run(guard("checkout:monthly", slow()))
+    assert started == [1, 1]
 
 
 def test_the_restore_row_opens_a_dialog_prefilled_with_the_saved_id(monkeypatch):
@@ -214,7 +269,13 @@ def test_the_recovery_id_row_only_exists_when_there_is_one(monkeypatch):
     assert "Your recovery ID" in " ".join(t2)
 
 
-def test_an_empty_catalog_says_so_instead_of_hiding_the_plans(monkeypatch):
+def test_an_empty_catalog_offers_no_buy_rows_at_all(monkeypatch):
+    """KTV Player's rule: no catalog, no buttons to buy with.
+
+    Three live rows labelled "Choose" sit *under* a heading saying the
+    service is unreachable, and they start a real payment for a price the
+    customer was never shown.
+    """
     _, _, card = _build(monkeypatch, prices=None)
     texts: list = []
     fields: list = []
@@ -222,9 +283,8 @@ def test_an_empty_catalog_says_so_instead_of_hiding_the_plans(monkeypatch):
     rendered = " ".join(texts)
     assert "Unlock options unavailable" in rendered
     assert "Could not reach the license service" in rendered
-    # The rows are still there, offering a neutral label rather than a
-    # number the app does not have.
-    assert "Choose" in rendered
+    for unavailable in ("Monthly", "Yearly", "Lifetime", "Choose"):
+        assert unavailable not in rendered, f"{unavailable} must not be offered"
 
 
 def test_a_premium_holder_sees_no_price_rows(monkeypatch):

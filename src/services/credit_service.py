@@ -42,6 +42,8 @@ class CreditService:
         # interleaving between the read and the write lose one. Every
         # mutation of the balance now runs under this lock.
         self._lock = asyncio.Lock()
+        # The UTC day this instance has already checked for a reset.
+        self._reset_day: str = ""
 
     async def initialize(self) -> int:
         """Load credits from storage, reset if new day. Returns current balance."""
@@ -199,6 +201,11 @@ class CreditService:
         return new_balance
 
     async def get_balance(self) -> int:
+        # The reset used to be reachable only from initialize(), i.e. only
+        # at launch: an app left open across 00:00 UTC never refilled, so
+        # "resets 00:00 UTC" was untrue for every long session and a premium
+        # cap bought late in the day waited until the next restart.
+        await self._check_daily_reset()
         return await self._get_credits()
 
     async def check_balance(self, amount: int) -> tuple[bool, int]:
@@ -218,8 +225,13 @@ class CreditService:
         from core.state import state
 
         today = datetime.now(tz=UTC).date().isoformat()
+        # Memoised: this now runs on every balance read, and a storage round
+        # trip per read would be a tax on the hot path.
+        if self._reset_day == today:
+            return
         last_reset = await self._storage.get(STORAGE_LAST_RESET)
         if last_reset == today:
+            self._reset_day = today
             return
         async with self._lock:
             # Re-read under the lock: the clock is checked outside it, but
@@ -230,6 +242,7 @@ class CreditService:
             await self._storage.set(STORAGE_CREDITS, str(new_balance))
             await self._storage.set(STORAGE_LAST_RESET, today)
             state.credits_remaining = new_balance
+            self._reset_day = today
             # Deliberately NOT clearing self._reservations. A turn in flight
             # at midnight holds a reservation it is about to settle; clearing
             # it made that turn's later commit find nothing and silently

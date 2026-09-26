@@ -257,13 +257,19 @@ class AdService:
         return True
 
     async def show_rewarded_interstitial(self, on_close: Callable) -> bool:
-        """Show a rewarded interstitial ad, triggering on_close when closed."""
+        """Show a rewarded interstitial ad, triggering on_close when closed.
+
+        Returns False when no ad could be shown, and grants nothing in that
+        case. It used to call `on_close` anyway — for premium users, when
+        flet_ads is missing, and on mobile web where `_is_mobile()` is
+        False — so credits were handed out for an impression nobody saw:
+        two every 30 seconds against a 200/day cap, with the cooldown held
+        only in memory and cleared by a relaunch. A reward has to be paid
+        for by an ad that actually closed.
+        """
         if state.is_premium or not _HAS_ADS or not self._is_mobile():
-            if asyncio.iscoroutinefunction(on_close):
-                await on_close()
-            else:
-                on_close()
-            return True
+            logger.info("No rewarded ad available — granting nothing")
+            return False
 
         try:
 

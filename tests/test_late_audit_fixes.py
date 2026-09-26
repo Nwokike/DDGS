@@ -211,7 +211,7 @@ def test_premium_plan_shows_a_price_or_a_neutral_label(monkeypatch):
         storage = None
         premium = ps.PremiumService(None, None)
 
-        async def _grant_premium_benefits(self):
+        async def _grant_premium_benefits(self, *, first_time=False):
             return False
 
         async def _sync_premium_storage(self):
@@ -276,7 +276,10 @@ def test_premium_plan_shows_a_price_or_a_neutral_label(monkeypatch):
                 walk2(child)
 
     walk2(card2)
-    assert "Choose" in " ".join(blob2), "fall back to a neutral label"
+    rendered2 = " ".join(blob2)
+    assert "Choose" not in rendered2, "no price means no button, not a guess"
+    assert "Monthly" not in rendered2, "nothing may be sold without a price"
+    assert "Unlock options unavailable" in rendered2
 
 
 # ── download must not leave garbage or accept the wrong thing ───────────
@@ -422,3 +425,22 @@ def test_desktop_gets_no_ads(monkeypatch):
     svc = ads.AdService(Page())
     svc._can_request_ads = True
     assert svc.get_banner_ad().width == 0, "no ads outside mobile"
+
+
+# ── nothing ships without the tests running first ────────────────────────
+def test_ci_gates_every_build_on_lint_and_tests():
+    """DDGS ran neither ruff nor pytest in CI on any branch.
+
+    KTV Player's `quality` job blocks every other job, which is what makes
+    its channel assertions real. Without it, 173 local tests guarded
+    nothing — including the Play-policy assertions that only execute on the
+    playstore branch.
+    """
+    workflow = (
+        SRC.parent / ".github" / "workflows" / "build-all.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "\n  quality:" in workflow, "a gate job must exist"
+    assert "needs: [quality]" in workflow, "the release must wait for it"
+    assert "uv run ruff check src tests" in workflow
+    assert "uv run pytest -q" in workflow
