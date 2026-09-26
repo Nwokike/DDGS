@@ -1,4 +1,4 @@
-"""HistoryScreen — search history list with re-search and clear-all.
+"""HistoryScreen - search history list with re-search and clear-all.
 
 Converted from views/history_view.py to declarative @ft.component.
 """

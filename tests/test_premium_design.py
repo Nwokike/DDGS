@@ -167,9 +167,9 @@ def test_tapping_a_plan_opens_the_checkout_dialog(monkeypatch):
     fields: list = []
     _collect(dialog, texts, fields)
     labels = [f.label for f in fields]
-    assert labels[0] == "Email for your receipt", "email is the one required field"
-    assert "Name (optional)" in labels
-    assert "Phone (optional)" in labels
+    assert labels == ["Email for your receipt"], (
+        "exactly one required field, like KTV Player: got " + repr(labels)
+    )
 
     # Continue must be wired to an async checkout, not a no-op, and must go
     # through the one-at-a-time guard: a second tap on Continue creates a

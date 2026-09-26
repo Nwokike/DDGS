@@ -1,23 +1,24 @@
-"""AI service — embedded Kiri Router (auto-model first, free) → Kiri Gateway fallback.
+"""AI service - embedded Kiri Router (auto-model first, free) → Kiri Gateway fallback.
 
-v2 (chat redesign):
+Model choice belongs to the router (owner's directive: no auto logic in
+the app). The app sends `state.ai_model` verbatim - default `auto`, the
+router's own rotating catalog model - and the router handles ranking,
+per-conversation stickiness and in-request failover itself (`auto_order`,
+run.py). The app only fetches /v1/models to fill the model picker.
+
 - Router discovery attaches to ANY Kiri router already listening in
-  8082-8092 (the user's own instance — e.g. Node runtime on 8084) before
-  embedding run.py ourselves; embed only when none exists.
-- Model choice: the catalog's `auto` chat-completion model first (owner's
-  directive — "stick to it so we never have issues"), then healthy
-  chat-completion models by latency; per-request rotation over the top
-  candidates on 400/401/429/ModelError before failing over to the gateway.
+  8082-8092 (the user's own instance) before embedding run.py ourselves;
+  embed only when none exists.
 - Streaming returns finish_reason + assembled `tool_calls` deltas so the
   chat agent can run DDGS tools (OpenAI streaming tool_calls contract:
-  arguments arrive as string fragments per index — concatenate, parse at
+  arguments arrive as string fragments per index - concatenate, parse at
   finish).
 - `stream_llm` does the raw router→gateway failover with NO credit
   reservation (the agent reserves once per whole turn); `stream_chat` keeps
   the reserve→call→commit wrapper for single-shot calls (summaries).
 
 Manual search/scraping never imports this module, so it can never spend
-credits. Streaming is httpx SSE on both endpoints — AI never touches primp.
+credits. Streaming is httpx SSE on both endpoints - AI never touches primp.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from core.state import state
 
 logger = logging.getLogger(__name__)
 
-# ── Gateway — Akili's exact Worker secret/header (verified 200 on
+# ── Gateway - Akili's exact Worker secret/header (verified 200 on
 #    api.kiri.ng/chat; no new secret to register) ─────────────────────────
 GATEWAY_URL = "https://api.kiri.ng"
 GATEWAY_SECRET = "mobile-v1"
@@ -48,8 +49,6 @@ ROUTER_HOST = "127.0.0.1"
 ROUTER_BASE_PORT = 8082
 ROUTER_SPAN = 10  # scan 8082..8092 for a running Kiri router before embedding
 ROUTER_STICKY_COOLDOWN = 60.0  # prefer gateway for a while after router failure
-ROUTER_MODEL_TTL = 300.0
-ROUTER_CANDIDATES = 3  # models to try per request before failing over
 
 ANSWER_MAX_TOKENS = 1400
 TEMPERATURE = 0.4
@@ -67,27 +66,11 @@ ROUTER_DISCLOSURE = (
 
 
 class AIUnavailable(Exception):
-    """No AI source could answer — callers degrade silently."""
+    """No AI source could answer - callers degrade silently."""
 
 
 class AIMidStream(Exception):
-    """The source died after tokens were delivered — partial answer, no retry."""
-
-
-class AIRateLimited(Exception):
-    """Every candidate was capped. Carries a message and a next step.
-
-    Distinct from AIUnavailable on purpose: a capped free tier is a
-    "try this model instead" moment, not a broken app, and the UI offers a
-    one-tap switch when `suggestion` is set.
-    """
-
-    def __init__(self, model_id: str = ""):
-        message, suggestion = rate_limit_advice(model_id)
-        self.model_id = str(model_id or "")
-        self.message = message
-        self.suggestion = suggestion
-        super().__init__(message)
+    """The source died after tokens were delivered - partial answer, no retry."""
 
 
 class NotEnoughCredits(Exception):
@@ -98,22 +81,12 @@ class NotEnoughCredits(Exception):
         super().__init__(f"AI credits exhausted ({balance} left)")
 
 
-class _RouterModelError(Exception):
-    """Retryable per-model router rejection (400/401/429/ModelError)."""
-
-    def __init__(self, status: int, detail: str = ""):
-        self.status = status
-        super().__init__(f"router model rejected ({status}) {detail}")
-
-
 # ── Router lifecycle: discover-and-attach, else embed ─────────────────────
 
 _router_server = None  # only set when WE embedded it
 _router_port: int | None = None
 _router_lock = threading.Lock()
 _router_failed_until = 0.0
-_router_models: list[str] = []
-_router_models_at = 0.0
 _catalog: list[dict] = []  # snapshot of models ACTIVE at fetch/attach time
 _catalog_fetched_at: float = 0.0  # 0 until the first successful /v1/models
 
@@ -156,85 +129,6 @@ def model_hint(model_id: str) -> str:
     return ""
 
 
-def _cap_per_hour(entry: dict) -> int | None:
-    """Published hourly cap, when the router states one."""
-    rate = entry.get("rate_hint") or {}
-    if not isinstance(rate, dict):
-        return None
-    value = rate.get("approx_per_hour")
-    return int(value) if isinstance(value, (int, float)) and value > 0 else None
-
-
-def rate_limit_advice(model_id: str = "") -> tuple[str, str]:
-    """What to say when every candidate model is capped.
-
-    Returns (message, suggested_model_id). "Rate limited. Try again." reads
-    like something is broken, but the router publishes a per-model cap and a
-    pool of alternatives, so the reply can name one that is not capped. That
-    is the difference between a dead end and a next step.
-
-    An empty suggestion means there is nothing better to point at, and the
-    caller must not render a button for it.
-    """
-    if not _catalog:
-        return ("Kiri's free tier is busy right now. Try again shortly.", "")
-
-    def _label(entry: dict) -> str:
-        return str((entry.get("rate_hint") or {}).get("label") or "").strip()
-
-    def _rank_key(entry: dict) -> tuple:
-        """Generous cap first, then fastest — never the tightest model.
-
-        The old key sorted the raw cap ascending, so a model publishing
-        10/hour was recommended before one publishing 500/hour: the exact
-        opposite of what the comment promised, and the opposite of useful.
-        An unpublished cap means unrestricted, so it is treated as generous.
-        """
-        cap = _cap_per_hour(entry)
-        bucket = 0 if (cap is None or cap >= 200) else 1
-        latency = (
-            entry.get("latency_ms")
-            if isinstance(entry.get("latency_ms"), int)
-            else 10**9
-        )
-        return (bucket, latency, str(entry.get("id") or "").lower())
-
-    others = [m for m in _catalog if str(m.get("id")) != str(model_id)]
-    ranked = sorted(others, key=_rank_key)
-    suggestion_id = str(ranked[0].get("id")) if ranked else ""
-
-    if not model_id or str(model_id).lower() == "auto":
-        # auto rotates, so it has no single cap of its own. Suggesting a
-        # model would be pointless if that model is itself the capped one
-        # auto was rotating through, so exclude anything the catalog
-        # already reports as rate limited or failed.
-        healthy = [
-            m
-            for m in _catalog
-            if str(m.get("id")) != "auto"
-            and str(m.get("status") or "active") == "active"
-        ]
-        if healthy:
-            pick = min(healthy, key=_rank_key)
-            suggestion_id = str(pick.get("id"))
-        row = next((m for m in _catalog if str(m.get("id")) == "auto"), {})
-        hint = _label(row)
-        lead = f"Rate limited right now. {hint}" if hint else "Rate limited right now."
-        tail = (
-            f"Try again shortly, or pick {suggestion_id}."
-            if suggestion_id
-            else "Try again shortly."
-        )
-        return (f"{lead} {tail}", suggestion_id)
-
-    row = next((m for m in _catalog if str(m.get("id")) == model_id), None)
-    hint = _label(row) if row else ""
-    suggestion = f" Try {suggestion_id} instead." if suggestion_id else ""
-    if hint:
-        return (f"Rate limited. {hint}.{suggestion}", suggestion_id)
-    return (f"Rate limited by this model.{suggestion}", suggestion_id)
-
-
 async def _probe_existing_router() -> int | None:
     """Scan 8082..8092 for a live Kiri router (ours or the user's own)."""
     async with httpx.AsyncClient(http2=False) as client:
@@ -249,7 +143,7 @@ async def _probe_existing_router() -> int | None:
                 ):
                     return port
             except Exception:
-                pass  # closed port or not a router — keep scanning
+                pass  # closed port or not a router - keep scanning
     return None
 
 
@@ -327,7 +221,7 @@ async def ensure_router(*, verify: bool = False) -> int | None:
 
         server, port = router_run.acquire_server(ROUTER_BASE_PORT, ROUTER_SPAN)
         if server is None:
-            # Raced with another Kiri instance on the wanted port — attach.
+            # Raced with another Kiri instance on the wanted port - attach.
             _router_port = port
             _publish_status("ready", port)
             logger.info("AI router: attached to instance on %d", port)
@@ -402,63 +296,16 @@ async def _router_base() -> str | None:
     return f"http://{ROUTER_HOST}:{port}/v1"
 
 
-# ── Model choice ──────────────────────────────────────────────────────────
+# ── Model catalog (picker display only - never used to pick) ──────────────
 
 
-def rank_models(data: list[dict]) -> list[str]:
-    """Ordered model candidates: `auto` first, then healthy chat models.
+async def _fetch_catalog(client: httpx.AsyncClient, base: str) -> list[dict]:
+    """Refresh the picker's snapshot of ACTIVE chat-completion models.
 
-    Pure function (unit-tested). endpoint types seen in the wild:
-    '/chat.completion', '/response', '/systemone' — only chat-completion
-    models are safe for /v1/chat/completions without translation.
+    This feeds snapshot_models() for the model picker and nothing else.
+    The request path never consults it: model choice belongs to the router.
     """
-
-    def is_chat(m: dict) -> bool:
-        return "chat.completion" in str(m.get("endpoint_type") or "")
-
-    def active(m: dict) -> bool:
-        return str(m.get("status") or "active") == "active"
-
-    def latency(m: dict):
-        value = m.get("latency_ms")
-        return value if isinstance(value, int) else 10**9
-
-    usable = [m for m in data if m.get("id")]
-    autos = [m for m in usable if str(m.get("id")).lower() == "auto" and active(m)]
-    chat_active = [m for m in usable if is_chat(m) and active(m)]
-    # Only chat-completion models are candidates. The old code also appended
-    # every other active row, so when fewer than three chat models existed
-    # the request path could send a /chat.completions payload to a
-    # /response or /systemone endpoint — which the docstring on this very
-    # function says cannot answer. A short candidate list fails honestly
-    # into the gateway fallback; a broken candidate fails confusingly.
-    chat_active.sort(key=latency)
-    ordered: list[dict] = autos + chat_active
-    seen: set[str] = set()
-    out: list[str] = []
-    for m in ordered:
-        mid = str(m["id"])
-        if mid not in seen:
-            seen.add(mid)
-            out.append(mid)
-    return out
-
-
-async def _fetch_candidates(
-    client: httpx.AsyncClient, base: str, force: bool = False
-) -> list[str]:
-    """Model candidates for this request (cached, `auto` first).
-
-    Also snapshots the ACTIVE chat-completion models for the picker
-    (see snapshot_models).
-    """
-    global _router_models, _router_models_at, _catalog, _catalog_fetched_at
-    if (
-        not force
-        and _router_models
-        and time.monotonic() - _router_models_at < ROUTER_MODEL_TTL
-    ):
-        return _router_models[:ROUTER_CANDIDATES]
+    global _catalog, _catalog_fetched_at
     data: list[dict] = []
     for attempt in range(2):
         try:
@@ -472,7 +319,7 @@ async def _fetch_candidates(
             if attempt == 0:
                 await asyncio.sleep(1.0)
     if not data:
-        return []
+        return _catalog
     # Recorded even when nothing is chat-eligible, so the picker can tell
     # "not fetched yet" from "fetched, and there are no chat models".
     _catalog_fetched_at = time.monotonic()
@@ -491,9 +338,7 @@ async def _fetch_candidates(
             else 10**9,
         )
     )
-    _router_models = rank_models(data)
-    _router_models_at = time.monotonic()
-    return _router_models[:ROUTER_CANDIDATES]
+    return _catalog
 
 
 async def refresh_catalog() -> list[dict]:
@@ -503,17 +348,10 @@ async def refresh_catalog() -> list[dict]:
         if port is None:
             return snapshot_models()
         async with httpx.AsyncClient(http2=False) as client:
-            await _fetch_candidates(
-                client, f"http://{ROUTER_HOST}:{port}/v1", force=True
-            )
+            await _fetch_catalog(client, f"http://{ROUTER_HOST}:{port}/v1")
     except Exception as exc:
         logger.warning("catalog refresh failed: %r", exc)
     return snapshot_models()
-
-
-def invalidate_models() -> None:
-    global _router_models_at
-    _router_models_at = 0.0
 
 
 # ── SSE consumption with tool_calls assembly ──────────────────────────────
@@ -522,7 +360,7 @@ def invalidate_models() -> None:
 def assemble_tool_calls(fragments: dict) -> list[dict]:
     """Turn per-index delta fragments into complete OpenAI tool_calls.
 
-    fragments: {index: {"id": str, "name": str, "args": str}} — `arguments`
+    fragments: {index: {"id": str, "name": str, "args": str}} - `arguments`
     accumulates as JSON string fragments across chunks; parsing happens at
     the caller once finish_reason == "tool_calls". Pure (unit-tested).
     """
@@ -639,7 +477,7 @@ async def _stream_json_body(
     return str(choice.get("finish_reason") or ""), None
 
 
-# ── Router streaming (multi-candidate) ────────────────────────────────────
+# ── Router streaming (model passthrough) ──────────────────────────────────
 
 
 async def _stream_router(
@@ -651,103 +489,90 @@ async def _stream_router(
     model: str | None = None,
     max_tokens: int | None = None,
 ) -> dict:
+    """One request, model passed through untouched.
+
+    The router owns selection and failover: `auto` means the router picks,
+    an explicit id means that model. A rejection reaching here is the
+    router's final answer (it already failed over internally), so the app
+    surfaces it honestly instead of rotating models itself.
+    """
     base = await _router_base()
     if base is None:
-        raise AIUnavailable("router cooling down")
-    candidates = await _fetch_candidates(client, base)
-    if not candidates:
-        raise AIUnavailable("no router models available")
-    if model:
-        # Explicit user pick: try it, then fall back to auto once if it is
-        # rate-limited/missing — never blindly rotate off a chosen model.
-        picked = (
-            [model] + (["auto"] if model != "auto" and "auto" in candidates else [])
-        )
-        candidates = [c for c in picked if c] or candidates
-
-    last_error: Exception | None = None
-    rate_limited = False
-    for candidate in candidates:
-        payload: dict = {
-            "model": candidate,
-            "messages": messages,
-            "stream": True,
-            "max_tokens": max_tokens or ANSWER_MAX_TOKENS,
-            "temperature": TEMPERATURE,
-        }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
-        got_first = False
-        try:
-            async with client.stream(
-                "POST",
-                f"{base}/chat/completions",
-                json=payload,
-                headers={"Authorization": "Bearer any"},
-                timeout=httpx.Timeout(180.0, connect=4.0),
-            ) as resp:
-                if resp.status_code >= 400:
-                    await resp.aread()
-                    detail = resp.content[:200].decode("utf-8", "replace")
-                    if (
-                        resp.status_code in (400, 401, 429, 500, 502, 503, 504)
-                        or "Model" in detail
-                    ):
-                        # Retryable per-model rejection (rate limit / overload /
-                        # unknown model) → rotate through candidates. A generic
-                        # 400 that isn't model-related means the request itself
-                        # is wrong (e.g. tools unsupported) — not worth retrying.
-                        if resp.status_code == 400 and "model" not in detail.lower():
-                            raise AIUnavailable(f"router rejected request: {detail}")
-                        last_error = _RouterModelError(resp.status_code, detail)
-                        invalidate_models()
-                        continue
-                    raise AIUnavailable(f"router HTTP {resp.status_code}")
-                ctype = resp.headers.get("content-type", "")
-
-                def _counting(token: str) -> None:
-                    nonlocal got_first
-                    got_first = True
-                    on_token(token)
-
-                if "text/event-stream" in ctype:
-                    finish, tool_calls = await _consume_sse(
-                        resp, _counting, bool(tools), on_thought
+        raise AIUnavailable("The Assistant is reconnecting. Try again shortly.")
+    chosen = str(model or "auto").strip() or "auto"
+    payload: dict = {
+        "model": chosen,
+        "messages": messages,
+        "stream": True,
+        "max_tokens": max_tokens or ANSWER_MAX_TOKENS,
+        "temperature": TEMPERATURE,
+    }
+    if tools:
+        payload["tools"] = tools
+        payload["tool_choice"] = "auto"
+    got_first = False
+    try:
+        async with client.stream(
+            "POST",
+            f"{base}/chat/completions",
+            json=payload,
+            headers={"Authorization": "Bearer any"},
+            timeout=httpx.Timeout(180.0, connect=4.0),
+        ) as resp:
+            if resp.status_code >= 400:
+                await resp.aread()
+                detail = resp.content[:200].decode("utf-8", "replace")
+                logger.info(
+                    "router refused %s (HTTP %d): %s",
+                    chosen,
+                    resp.status_code,
+                    detail[:120],
+                )
+                if resp.status_code == 429:
+                    # The router already failed over internally; the whole
+                    # free pool is capped. Busy, not broken - no cooldown.
+                    raise AIUnavailable(
+                        "Kiri's free tier is busy right now. Try again shortly."
                     )
-                else:
-                    await resp.aread()
-                    got_first = True
-                    finish, tool_calls = await _stream_json_body(resp, _counting, on_thought)
-            return {"finish_reason": finish, "tool_calls": tool_calls, "model": candidate}
-        except AIUnavailable:
-            _mark_router_failed()
-            raise
-        except _RouterModelError as exc:
-            last_error = exc
-            # 429 specifically is a capped model, not a dead router. Keep
-            # rotating, but remember that it happened so the eventual
-            # failure can offer a different model instead of shrugging.
-            if getattr(exc, "status", 0) == 429:
-                rate_limited = True
-            continue
-        except (
-            httpx.TimeoutException,
-            httpx.RequestError,
-            ValueError,
-            KeyError,
-        ) as exc:
-            _mark_router_failed()
-            if got_first:
-                raise AIMidStream(str(exc)) from exc
-            last_error = exc
-            break  # connectivity is model-independent — go to gateway
-    if rate_limited:
-        # Every candidate we tried was capped. That is recoverable advice,
-        # not an outage, so it gets its own outcome.
-        raise AIRateLimited(model)
-    _mark_router_failed()
-    raise AIUnavailable(f"router exhausted candidates: {last_error}")
+                if resp.status_code >= 500:
+                    _mark_router_failed()
+                    raise AIUnavailable(
+                        "The Assistant had a server problem. Try again shortly."
+                    )
+                # 4xx: the router answered; this request or model id was
+                # wrong. The router is alive, so no cooldown either.
+                raise AIUnavailable(
+                    "The Assistant refused that request. Pick another model."
+                )
+            ctype = resp.headers.get("content-type", "")
+
+            def _counting(token: str) -> None:
+                nonlocal got_first
+                got_first = True
+                on_token(token)
+
+            if "text/event-stream" in ctype:
+                finish, tool_calls = await _consume_sse(
+                    resp, _counting, bool(tools), on_thought
+                )
+            else:
+                await resp.aread()
+                got_first = True
+                finish, tool_calls = await _stream_json_body(resp, _counting, on_thought)
+        return {"finish_reason": finish, "tool_calls": tool_calls, "model": chosen}
+    except AIUnavailable:
+        raise
+    except (
+        httpx.TimeoutException,
+        httpx.RequestError,
+        ValueError,
+        KeyError,
+    ) as exc:
+        _mark_router_failed()
+        if got_first:
+            raise AIMidStream(str(exc)) from exc
+        logger.info("router unreachable for %s: %r", chosen, exc)
+        raise AIUnavailable("Could not reach the Assistant.") from exc
 
 
 # ── Gateway streaming ─────────────────────────────────────────────────────
@@ -790,7 +615,10 @@ async def _stream_gateway(
                     if resp.status_code in (502, 503, 504) and attempt + 1 < attempts:
                         await asyncio.sleep(0.5 * (2**attempt))
                         continue
-                    raise AIUnavailable(f"gateway HTTP {resp.status_code}")
+                    logger.info("gateway HTTP %d", resp.status_code)
+                    raise AIUnavailable(
+                        "The Assistant could not answer. Try again shortly."
+                    )
                 ctype = resp.headers.get("content-type", "")
 
                 def _counting(token: str) -> None:
@@ -826,7 +654,8 @@ async def _stream_gateway(
                 await asyncio.sleep(0.5 * (2**attempt))
                 continue
             break
-    raise AIUnavailable(f"gateway failed: {last_exc}")
+    logger.info("gateway unreachable: %r", last_exc)
+    raise AIUnavailable("Could not reach the Assistant.")
 
 
 # ── Orchestration ─────────────────────────────────────────────────────────
@@ -843,12 +672,10 @@ async def stream_llm(
     """Raw router→gateway failover. NO credit handling (agent settles per step).
 
     Returns {"served_by", "model", "finish_reason", "tool_calls"|None}.
-    `model` is the id that actually answered, which matters when the
-    request asked for "auto" and the router picked one.
-    Raises AIUnavailable (nothing delivered), AIMidStream (partial) or
-    AIRateLimited (every candidate was capped, with a next step).
+    `model` is what was requested: under `auto` the router picks internally
+    and echoes `auto` back, so the app never needs to know the pick.
+    Raises AIUnavailable (nothing delivered) or AIMidStream (partial).
     """
-    rate_limited = False
     try:
         async with httpx.AsyncClient(http2=False) as client:
             result = await _stream_router(
@@ -856,29 +683,14 @@ async def stream_llm(
             )
         result["served_by"] = "router"
         return result
-    except AIRateLimited:
-        # The gateway is a different provider pool, so it is still worth
-        # trying before telling the user they are capped. Only if that
-        # fails too does the rate limit reach the UI.
-        logger.info("router models capped — trying gateway")
-        rate_limited = True
     except AIUnavailable as exc:
-        logger.info("AI router unavailable (%s) — falling back to gateway", exc)
+        logger.info("AI router unavailable (%s) - falling back to gateway", exc)
     except AIMidStream:
         raise
-    try:
-        async with httpx.AsyncClient(http2=False) as client:
-            result = await _stream_gateway(
-                client, messages, on_token, tools, on_thought, model, max_tokens
-            )
-    except AIUnavailable:
-        # Only a genuine cap becomes a rate limit. Converting every gateway
-        # failure (401, 404, a 500, malformed JSON) into one told users
-        # "Rate limited, try model X" during an outage, which is the wrong
-        # recovery path and hides a real backend failure.
-        if rate_limited:
-            raise AIRateLimited(str(model or "")) from None
-        raise
+    async with httpx.AsyncClient(http2=False) as client:
+        result = await _stream_gateway(
+            client, messages, on_token, tools, on_thought, model, max_tokens
+        )
     result["served_by"] = "gateway"
     return result
 
@@ -896,7 +708,7 @@ async def stream_chat(
         # Free passive calls (search overview, page summary) skip credits.
         return await stream_llm(messages, on_token, model=model, max_tokens=max_tokens)
     if credits is None:
-        raise AIUnavailable("credit service not ready")
+        raise AIUnavailable("Assistant credits are unavailable right now.")
     tx_id = await credits.reserve(cost)
     if tx_id is None:
         raise NotEnoughCredits(await credits.get_balance())
@@ -904,7 +716,7 @@ async def stream_chat(
         result = await stream_llm(messages, on_token, model=model, max_tokens=max_tokens)
         await credits.commit(tx_id)
     except AIMidStream:
-        # Tokens were delivered — charge fairly.
+        # Tokens were delivered - charge fairly.
         await credits.commit(tx_id)
         raise
     except BaseException:
@@ -950,7 +762,7 @@ def with_clock(system_prompt: str) -> str:
 def build_overview_messages(query: str, sources: list[dict]) -> list[dict]:
     """Passive answer-over-snippets prompt for the search-results overview."""
     numbered = "\n".join(
-        f"[{i + 1}] {s.get('title', '')} — {s.get('url', '')}\n    {s.get('snippet', '')}"
+        f"[{i + 1}] {s.get('title', '')} - {s.get('url', '')}\n    {s.get('snippet', '')}"
         for i, s in enumerate(sources[:8])
     )
     system = (

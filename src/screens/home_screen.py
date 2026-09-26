@@ -1,4 +1,4 @@
-"""HomeScreen — compact search-first dashboard.
+"""HomeScreen - compact search-first dashboard.
 
 Search bar above the fold, compact category chips, recent searches,
 and privacy banner.  Marketing content moved to onboarding only.
@@ -666,7 +666,7 @@ def HomeScreen() -> Control:
                     tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
                 ),
             ),
-            # Search field — modern SearchBar
+            # Search field - modern SearchBar
             ft.Container(
                 alignment=ft.Alignment.CENTER,
                 content=ft.SearchBar(
@@ -921,7 +921,7 @@ def HomeScreen() -> Control:
                         _feature_card(
                             ft.Icons.LANGUAGE_ROUNDED,
                             "Instant Page Fetch",
-                            "Paste any URL and get clean content instantly — as text, Markdown or HTML. Read it, save it, or feed it to your tools.",
+                            "Paste any URL and read it as text, Markdown or HTML.",
                             AppColors.PRIMARY_DARK,
                             page=_get_page(),
                         ),
@@ -961,7 +961,7 @@ def HomeScreen() -> Control:
                         _step_row(
                             "1",
                             "Choose",
-                            "Pick what you're looking for — web, images, videos, news, books, or fetch a page",
+                            "Pick what you're looking for: web, images, videos, news, books, or fetch a page",
                         ),
                         _step_row(
                             "2",

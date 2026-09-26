@@ -1,4 +1,4 @@
-"""Storage service — persists all DDGS settings via JSON file in a platform-resilient manner."""
+"""Storage service - persists all DDGS settings via JSON file in a platform-resilient manner."""
 
 from __future__ import annotations
 
@@ -159,7 +159,7 @@ class StorageService:
             logger.warning("StorageService._save_web failed: %s", e)
 
     def flush_now(self) -> None:
-        """Synchronously persist dirty state — called from on_close before teardown."""
+        """Synchronously persist dirty state - called from on_close before teardown."""
         if self._dirty and not self._is_web:
             self._save_now()
 
@@ -267,7 +267,7 @@ class StorageService:
             for row in rows
         ):
             # `_history` is a read-only property over _cache, so the cleaned
-            # list has to be written back there — assigning to the property
+            # list has to be written back there - assigning to the property
             # itself raises AttributeError, which is the very crash this is
             # meant to prevent.
             clean = [

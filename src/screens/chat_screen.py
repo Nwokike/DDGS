@@ -1,4 +1,4 @@
-"""Assistant chat — the agentic surface (FAB entry).
+"""Assistant chat - the agentic surface (FAB entry).
 
 Imperative View (reader pattern): built once, refreshed from session state
 with >=0.2s throttled streaming, pinned-to-bottom auto-scroll. Agent loop
@@ -170,7 +170,7 @@ class ChatSession:
         )
         # A spinner around the stop glyph. Before this, a long first-token
         # wait left a static red square and the only sign the app was alive
-        # was that square — the user could not tell "working" from "stuck".
+        # was that square - the user could not tell "working" from "stuck".
         # A progress ring turns the same button into both a status and a
         # control, which is where they belong on a phone.
         stop_glyph = ft.Container(
@@ -494,7 +494,7 @@ class ChatSession:
     def _delete_turn(self, index: int) -> None:
         """Delete an exchange from the transcript.
 
-        `turns` is the only transcript, so this is the whole operation — the
+        `turns` is the only transcript, so this is the whole operation - the
         screen and the file are both derived from it. The previous version
         had to translate a view index into an `agent_history` index first;
         when that translation was wrong the message vanished on screen and
@@ -555,7 +555,7 @@ class ChatSession:
 
         Async because `page.run_task` refuses a plain function, and a throw
         here would surface as an unretrieved task exception during
-        teardown — exactly the crash this replaced.
+        teardown - exactly the crash this replaced.
         """
         from services import conversation_service as conversations
 
@@ -635,20 +635,6 @@ class ChatSession:
                 return
         self._snack("There is nothing to retry")
 
-    def _switch_model_and_retry(self, model_id: str) -> None:
-        """Apply the suggested model, then re-ask the last question.
-
-        Both halves matter: a rate limit is only recovered from if the new
-        model is actually the one the next request uses.
-        """
-        if not model_id:
-            return
-        from components.model_picker import _select
-
-        _select(self.page, getattr(self.page, "_ddgs_controller", None), model_id)
-        self.refresh_model_chip()
-        self._retry_last()
-
     def _adopt(self, loaded: dict) -> None:
         """Make a loaded conversation the live one, with no same-id guard.
 
@@ -668,7 +654,7 @@ class ChatSession:
         """The live chat id. One owner: `state.active_conversation`.
 
         The session used to keep its own copy, so `self.conversation_id`
-        and `state.active_conversation` could disagree — the prune guard
+        and `state.active_conversation` could disagree - the prune guard
         protected one while a save wrote the other. Delegating removes the
         second owner rather than trying to keep them in sync.
         """
@@ -1173,11 +1159,9 @@ class ChatSession:
                 # survives a switch or a restart.
                 text=str(data.get("partial") or self._current.get("text") or ""),
                 error=data.get("kind", "unavailable"),
-                # Rate limits and empty answers carry their own copy and a
-                # next step, so they are not flattened into a generic
-                # "unavailable" the user can do nothing about.
+                # ai_service failures carry consumer-facing copy; show it
+                # instead of flattening everything into a generic message.
                 error_message=str(data.get("message") or ""),
-                suggestion=str(data.get("suggestion") or ""),
                 steps=data.get("steps", self._current.get("steps", 0)),
                 cost=data.get("cost", self._current.get("cost", 0)),
             )
@@ -1758,45 +1742,6 @@ class ChatSession:
                     horizontal_alignment=ft.CrossAxisAlignment.START,
                 )
             )
-        elif turn.get("error") == "rate_limited":
-            suggestion = str(turn.get("suggestion") or "")
-            kids.append(
-                ft.Column(
-                    [
-                        ft.Text(
-                            str(turn.get("error_message") or "")
-                            or "Rate limited right now.",
-                            size=tokens.FONT_XS,
-                            color=AppColors.WARNING,
-                        ),
-                        *(
-                            [
-                                ft.TextButton(
-                                    f"Use {suggestion} and retry",
-                                    icon=ft.Icons.AUTO_AWESOME_ROUNDED,
-                                    on_click=lambda e, mid=suggestion: (
-                                        self._switch_model_and_retry(mid)
-                                    ),
-                                    style=ft.ButtonStyle(
-                                        padding=ft.Padding(0, 0, 0, 0)
-                                    ),
-                                )
-                            ]
-                            if suggestion
-                            else []
-                        ),
-                        ft.TextButton(
-                            "Ask again",
-                            icon=ft.Icons.REFRESH_ROUNDED,
-                            on_click=lambda e: self._retry_last(),
-                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
-                        ),
-                    ],
-                    spacing=2,
-                    tight=True,
-                    alignment=ft.MainAxisAlignment.START,
-                )
-            )
         elif turn.get("error") == "empty":
             kids.append(
                 ft.Column(
@@ -1824,8 +1769,9 @@ class ChatSession:
                 ft.Column(
                     [
                         ft.Text(
-                            "Assistant unavailable. Classic search, scraping and "
-                            "downloads still work.",
+                            str(turn.get("error_message") or "")
+                            or "Assistant unavailable. Classic search, scraping "
+                            "and downloads still work.",
                             size=tokens.FONT_XS,
                             color=ft.Colors.ON_SURFACE_VARIANT,
                             italic=True,
@@ -1874,7 +1820,7 @@ class ChatSession:
             ]
             kids.append(ft.Row(pills, spacing=6, wrap=True, run_spacing=4))
 
-        # receipt — every assistant turn shows what it cost and who answered
+        # receipt - every assistant turn shows what it cost and who answered
         if index >= 0:
             kids.append(self._action_row(turn, index))
 

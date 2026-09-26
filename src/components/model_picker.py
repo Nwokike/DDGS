@@ -1,4 +1,4 @@
-"""Assistant model picker — a live pill and menu over the router's models.
+"""Assistant model picker - a live pill and menu over the router's models.
 
 Follows the pattern LM Router proved in
 `lm-router/src/components/chat_controls.py:60-205`: every startup

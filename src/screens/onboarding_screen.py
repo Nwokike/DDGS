@@ -1,4 +1,4 @@
-"""OnboardingScreen — swipe-through intro with privacy/terms agreement.
+"""OnboardingScreen - swipe-through intro with privacy/terms agreement.
 
 Converted from views/onboarding_view.py to declarative @ft.component.
 Uses use_state for slide index and agreement checkbox; controller
@@ -53,10 +53,10 @@ _SLIDES = [
         "color": AppColors.ACCENT,
         "title": "Assistant, Done Privately",
         "body": (
-            "Turn on Assistant mode and an Ask Assistant button appears — chat with "
-            "an assistant that searches and fetches pages for you, live. "
-            "Queries go through your in-app Kiri router first — no "
-            "history, no identity, no training. Manual search stays free."
+            "Turn on Assistant mode to get an Ask Assistant button. "
+            "It searches and fetches pages for you, live. Queries go "
+            "through your in-app Kiri router first: no history, no "
+            "identity, no training. Manual search stays free."
         ),
     },
 ]

@@ -155,32 +155,22 @@ def build_storage_section(
 
 
 def _open_version_dialog(page: ft.Page):
+    from components.update_dialog import show_update_dialog
     from core.state import state as _st
 
     if getattr(_st, "update_available", False) and getattr(_st, "update_data", None):
-        from components.update_dialog import show_update_dialog
-
         show_update_dialog(page, _st.update_data)
     else:
-        from components.settings.version import _APP_VERSION as _ver
-        from components.update_dialog import show_update_dialog
-
-        fallback = {
-            "version": _ver,
-            "type": "update",
-            "title": f"DDGS {_ver}",
-            "release_notes": "• You're up to date on v"
-            + _ver
-            + "!\n• Search 10 engines privately · download videos & images · scrape any page as Markdown, HTML or text\n• Full update history on GitHub Releases",
-            "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
-            "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs",
-        }
-        show_update_dialog(page, fallback)
+        # Up-to-date mode (KTV Player's shape): the installed version and a
+        # live re-check. Never fabricate an update the feed never announced.
+        show_update_dialog(page, None)
 
 
 def build_about_section(
     page: ft.Page, privacy_url: str, terms_url: str
 ) -> ft.Container:
+    from core.build_channel import CHANNEL
+
     return AppStyles.section_card(
         "About Info",
         ft.Icons.INFO_ROUNDED,
@@ -211,6 +201,34 @@ def build_about_section(
                     ink=True,
                     tooltip="Tap to view changelog",
                     on_click=lambda e: _open_version_dialog(page),
+                ),
+                *(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(
+                                    "Edition", size=FONT_SM, font_family="Outfit"
+                                ),
+                                ft.TextButton(
+                                    content=ft.Text(
+                                        "Google Play Edition · Full edition on GitHub",
+                                        size=FONT_SM,
+                                        weight=ft.FontWeight.W_600,
+                                        color=AppColors.PRIMARY,
+                                    ),
+                                    action=ft.OpenUrl(
+                                        "https://github.com/Nwokike/DDGS"
+                                    ),
+                                    style=ft.ButtonStyle(
+                                        padding=ft.Padding(0, 0, 0, 0)
+                                    ),
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        )
+                    ]
+                    if CHANNEL == "play"
+                    else []
                 ),
                 ft.Row(
                     [

@@ -1,4 +1,4 @@
-"""DDGS — Dux Distributed Global Search.
+"""DDGS - Dux Distributed Global Search.
 
 Minimal entry point.  All business logic lives in AppController;
 the declarative UI tree is mounted by page.render().
@@ -16,7 +16,7 @@ async def main(page: ft.Page):
     await controller.init()
 
     # Wire lifecycle hooks
-    # Flet 1.0 exits without running atexit/buffered writes — flush
+    # Flet 1.0 exits without running atexit/buffered writes - flush
     # synchronously and stop the embedded Kiri router here. The disconnect
     # hook must stay synchronous too: the event loop is already closing by
     # then, so page.run_task would leave the coroutine un-awaited.

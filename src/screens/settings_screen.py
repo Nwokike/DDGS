@@ -1,4 +1,4 @@
-"""SettingsScreen — all app settings with theme, search rules, backends, etc.
+"""SettingsScreen - all app settings with theme, search rules, backends, etc.
 
 Converted from views/settings/view_builder.py to declarative @ft.component.
 During migration, section builders are imported from old views/settings/.
@@ -128,6 +128,7 @@ def SettingsScreen() -> Control:
         build_theme_section,
     )
     from components.settings.sections_premium import build_premium_section
+    from core.build_channel import CHANNEL
 
     page = _get_page()
 
@@ -162,7 +163,10 @@ def SettingsScreen() -> Control:
         [
             build_theme_section(page, _current_theme(), _change_theme),
             build_ai_section(page, controller.save_async),
-            build_premium_section(page),
+            # The Play AAB has no premium card at all (KTV Player rule):
+            # no purchase surface, nothing to declare, ads stay on. The
+            # gate is the stamped channel, decided at build time.
+            *([] if CHANNEL == "play" else [build_premium_section(page)]),
             build_search_rules_section(
                 page,
                 controller.save_async,

@@ -1,4 +1,4 @@
-"""Application constants — all storage keys."""
+"""Application constants - all storage keys."""
 
 STORAGE_THEME = "theme"
 STORAGE_HISTORY = "search_history"
@@ -47,7 +47,7 @@ KIRI_LICENSE_PUBLIC_KEY = (
     "nddMmAGXFI2J8sbC4gWY2POKc8hVrn0_uHxDZ9ufzwzg4buUimW-IEw4Uw"
 )
 # Stable app identifier sent to the Worker. The same value is used for
-# checkout, restore and status — a temporary install id would orphan
+# checkout, restore and status - a temporary install id would orphan
 # purchases on reinstall.
 KIRI_LICENSE_APP_ID = "ng.kiri.ddgs"
 KIRI_LICENSE_TIMEOUT = 15.0

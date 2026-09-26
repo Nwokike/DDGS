@@ -1,4 +1,4 @@
-"""DDGS engine wrapper — exposes every capability with full logging."""
+"""DDGS engine wrapper - exposes every capability with full logging."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def _parse_view_count(text: str) -> int | None:
 
     Labels are "1,234 views", "1.2M views", "12K views". Joining the digits
     of the first token, as this did, turned "1.2M views" into 12 and
-    "12K views" into 12 — off by orders of magnitude, and the card showed
+    "12K views" into 12 - off by orders of magnitude, and the card showed
     the fabricated count to the user.
     """
     parts = str(text).replace(",", "").split()
@@ -80,93 +80,93 @@ def _parse_view_count(text: str) -> int | None:
 
 
 async def _youtube_video_fallback(
-        self, query: str
-    ) -> tuple[list[SearchResult], str | None]:
-        """Fetch video search results from YouTube InnerTube API when DDGS.videos is rate-limited."""
-        try:
-            import primp
+    query: str,
+) -> tuple[list[SearchResult], str | None]:
+    """Fetch video search results from YouTube InnerTube API when DDGS.videos is rate-limited."""
+    try:
+        import primp
 
-            body = {
-                "context": {
-                    "client": {
-                        "clientName": "WEB",
-                        "clientVersion": "2.20240101.00.00",
-                        "hl": "en",
-                        "gl": "US",
-                    }
-                },
-                "query": query,
-            }
-            async with primp.AsyncClient(**_primp_client_kwargs(10)) as client:
-                resp = await client.post(
-                    "https://www.youtube.com/youtubei/v1/search", json=body
+        body = {
+            "context": {
+                "client": {
+                    "clientName": "WEB",
+                    "clientVersion": "2.20240101.00.00",
+                    "hl": "en",
+                    "gl": "US",
+                }
+            },
+            "query": query,
+        }
+        async with primp.AsyncClient(**_primp_client_kwargs(10)) as client:
+            resp = await client.post(
+                "https://www.youtube.com/youtubei/v1/search", json=body
+            )
+        if resp.status_code != 200:
+            return [], f"HTTP {resp.status_code}"
+        data = resp.json()
+        contents = (
+            data.get("contents", {})
+            .get("twoColumnSearchResultsRenderer", {})
+            .get("primaryContents", {})
+            .get("sectionListRenderer", {})
+            .get("contents", [])
+        )
+        items = (
+            contents[0].get("itemSectionRenderer", {}).get("contents", [])
+            if contents
+            else []
+        )
+        parsed = []
+        for item in items:
+            if "videoRenderer" in item:
+                vr = item["videoRenderer"]
+                title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
+                video_id = vr.get("videoId", "")
+                url = f"https://www.youtube.com/watch?v={video_id}"
+                duration = vr.get("lengthText", {}).get("simpleText", "")
+                views_str = vr.get("viewCountText", {}).get("simpleText", "") or ""
+                views = _parse_view_count(views_str)
+                publisher = (
+                    vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
                 )
-            if resp.status_code != 200:
-                return [], f"HTTP {resp.status_code}"
-            data = resp.json()
-            contents = (
-                data.get("contents", {})
-                .get("twoColumnSearchResultsRenderer", {})
-                .get("primaryContents", {})
-                .get("sectionListRenderer", {})
-                .get("contents", [])
-            )
-            items = (
-                contents[0].get("itemSectionRenderer", {}).get("contents", [])
-                if contents
-                else []
-            )
-            parsed = []
-            for item in items:
-                if "videoRenderer" in item:
-                    vr = item["videoRenderer"]
-                    title = vr.get("title", {}).get("runs", [{}])[0].get("text", "")
-                    video_id = vr.get("videoId", "")
-                    url = f"https://www.youtube.com/watch?v={video_id}"
-                    duration = vr.get("lengthText", {}).get("simpleText", "")
-                    views_str = vr.get("viewCountText", {}).get("simpleText", "") or ""
-                    views = _parse_view_count(views_str)
-                    publisher = (
-                        vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
-                    )
-                    thumbnail = (
-                        vr.get("thumbnail", {})
-                        .get("thumbnails", [{}])[-1]
-                        .get("url", "")
-                    )
-                    if title and video_id:
-                        parsed.append(
-                            SearchResult(
-                                title=title,
-                                url=url,
-                                snippet=f"{publisher} • {duration}"
-                                if publisher
-                                else title,
-                                search_type="videos",
-                                thumbnail=thumbnail,
-                                duration=duration,
-                                publisher=publisher,
-                                views=views,
-                            )
+                thumbnail = (
+                    vr.get("thumbnail", {})
+                    .get("thumbnails", [{}])[-1]
+                    .get("url", "")
+                )
+                if title and video_id:
+                    parsed.append(
+                        SearchResult(
+                            title=title,
+                            url=url,
+                            snippet=f"{publisher} • {duration}"
+                            if publisher
+                            else title,
+                            search_type="videos",
+                            thumbnail=thumbnail,
+                            duration=duration,
+                            publisher=publisher,
+                            views=views,
                         )
-            return parsed, None
-        except (
-            ValueError,
-            TypeError,
-            AttributeError,
-            KeyError,
-            IndexError,
-            OSError,
-            RuntimeError,
-            ConnectionError,
-            ImportError,
-            TimeoutError,
-        ) as ex:
-            logger.warning(f"[{LOG_TAG}] YouTube video fallback error: {ex}")
-            return [], str(ex)
+                    )
+        return parsed, None
+    except (
+        ValueError,
+        TypeError,
+        AttributeError,
+        KeyError,
+        IndexError,
+        OSError,
+        RuntimeError,
+        ConnectionError,
+        ImportError,
+        TimeoutError,
+    ) as ex:
+        logger.warning(f"[{LOG_TAG}] YouTube video fallback error: {ex}")
+        return [], str(ex)
 
 class SearchService:
-    """Wraps DDGS — every method, every parameter, all logged."""
+    """Wraps DDGS - every method, every parameter, all logged."""
 
     def __init__(self):
         self._ddgs: DDGS | None = None
@@ -235,7 +235,7 @@ class SearchService:
     async def search(
         self, search_type: str, query: str, on_progress=None, *, ui: bool = True
     ) -> SearchProgress:
-        """One generic search method — maps to the correct DDGS method with all params.
+        """One generic search method - maps to the correct DDGS method with all params.
 
         ui=False (chat agent): skip global state mutations so an agent tool
         call never clobbers the results screen the user is looking at.
@@ -268,7 +268,7 @@ class SearchService:
 
             params: dict[str, Any] = {"query": query}
 
-            # ——— EVERY DDGS SEARCH PARAMETER ———
+            # --- EVERY DDGS SEARCH PARAMETER ---
             params["region"] = state.region or "wt-wt"
 
             safemap = {"off": "off", "moderate": "moderate", "on": "on"}
@@ -350,7 +350,7 @@ class SearchService:
                 logger.info(
                     f"[{LOG_TAG}] DDGS.videos returned 0 results/rate-limited; attempting YouTube InnerTube fallback"
                 )
-                yt_results, yt_err = await self._youtube_video_fallback(query)
+                yt_results, yt_err = await _youtube_video_fallback(query)
                 if yt_results:
                     parsed = yt_results
                     logger.info(

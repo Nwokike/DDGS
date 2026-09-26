@@ -15,8 +15,8 @@ See the module docstring in src/services/license_service.py.
 Prices always come from the Worker's live /catalog rather than constants, so
 changing a price there needs no app release.
 
-Shape: KTV Player's. The card is four rows — what Premium is, what a plan
-costs, your recovery ID, restore — and the typing happens in a dialog that
+Shape: KTV Player's. The card is four rows - what Premium is, what a plan
+costs, your recovery ID, restore - and the typing happens in a dialog that
 only exists once you ask for it. A settings card that lists every field it
 will ever need is a form, not a menu.
 """
@@ -28,13 +28,11 @@ import re
 import flet as ft
 
 from components.results.downloader import launch_url
-from core.constants import DAILY_FREE_CREDITS, PREMIUM_DAILY_CREDITS
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import (
     BORDER_RADIUS_MD,
     FONT_MD,
-    FONT_SM,
     FONT_XS,
     ICON_MD,
     ICON_SM,
@@ -178,25 +176,17 @@ def _retry_prices(page: ft.Page, premium) -> None:
 
 
 def build_premium_section(page: ft.Page) -> ft.Container:
-    """The Premium card. Channel choice is a build-time policy, not a toggle."""
-    controller = getattr(page, "_ddgs_controller", None)
-    billing = getattr(controller, "billing", None) if controller else None
-    narrow = bool(page.width and page.width < 560)
-    # The build channel is stamped into the artifact, not chosen at runtime.
-    from core.build_channel import CHANNEL
+    """The Premium card. Channel choice is a build-time policy, not a toggle.
 
+    The play channel never reaches this builder: settings_screen skips it
+    (KTV Player rule: not even a disabled card on the Play AAB).
+    """
+    controller = getattr(page, "_ddgs_controller", None)
+    narrow = bool(page.width and page.width < 560)
     premium = getattr(controller, "premium", None)
     # Availability is a build property: KTV Player gates it on CHANNEL and
     # so do we. A Play build has no licence service instance at all.
     license_ok = bool(premium) and premium.available
-    # Play Billing is only ever offered in a direct build, and only once the
-    # store actually lists our products. On the Play AAB this stays False
-    # because CHANNEL is "play", so no purchase row can appear.
-    play_ok = (
-        CHANNEL != "play"
-        and bool(billing)
-        and page.platform == ft.PagePlatform.ANDROID
-    )
 
     rows: list[ft.Control] = []
 
@@ -204,7 +194,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
     # `license_busy` flag that disables the buttons; DDGS's card is a static
     # build with no repaint, so the guard has to be in the callback itself.
     # Without it a second tap on Continue creates a second real order at the
-    # Worker — two pending payment sessions and two recovery IDs for one
+    # Worker - two pending payment sessions and two recovery IDs for one
     # customer.
     _inflight: set[str] = set()
 
@@ -261,21 +251,17 @@ def build_premium_section(page: ft.Page) -> ft.Container:
     def _ask_email(product_id: str) -> None:
         """The form appears when you ask to buy, not before.
 
-        KTV Player collects exactly one required field — the email the
-        receipt goes to — and this card does the same, with name and phone
-        behind it because the Worker takes them but nobody is forced to
-        type them.
+        Exactly one required field, like KTV Player: the email the receipt
+        goes to. The hosted page collects the rest.
         """
         email_field = _field("Email for your receipt")
         email_field.hint_text = "you@example.com"
         email_field.keyboard_type = ft.KeyboardType.EMAIL
-        name_field = _field("Name (optional)")
-        phone_field = _field("Phone (optional)")
         price = state.license_prices.get(product_id, "")
         label = f"{product_id.capitalize()} {price}".rstrip()
         page.show_dialog(
             ft.AlertDialog(
-                title=ft.Text(f"Unlock DDGS Premium — {label}", font_family="Outfit"),
+                title=ft.Text(f"Unlock DDGS Premium: {label}", font_family="Outfit"),
                 content=ft.Container(
                     content=ft.Column(
                         [
@@ -288,8 +274,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                                 ),
                             ),
                             email_field,
-                            name_field,
-                            phone_field,
                         ],
                         spacing=SPACE_XS,
                         tight=True,
@@ -306,9 +290,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                         on_click=lambda e: page.run_task(
                             _exclusive,
                             f"checkout:{product_id}",
-                            _checkout(
-                                product_id, email_field, name_field, phone_field
-                            ),
+                            _checkout(product_id, email_field),
                         ),
                     ),
                 ],
@@ -318,8 +300,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
     async def _checkout(
         product_id: str,
         email_field: ft.TextField,
-        name_field: ft.TextField,
-        phone_field: ft.TextField,
     ) -> None:
         email = (email_field.value or "").strip()
         if not EMAIL_RE.match(email):
@@ -336,8 +316,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             order = await premium.kiri_checkout(
                 product_id,
                 email,
-                name=name_field.value or "",
-                phone=phone_field.value or "",
             )
         except license_service.LicenseUnavailable as exc:
             _snack(str(exc), "error")
@@ -361,9 +339,8 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 await launch_url(order.checkout_url, page)
             except Exception as exc:
                 _snack(
-                    f"Could not open the payment page: {exc} — your recovery "
-                    f"ID is {order.recovery_id}. Keep it; it restores the "
-                    "purchase.",
+                    f"Could not open the payment page ({exc}). Your recovery "
+                    f"ID is {order.recovery_id}. It restores the purchase.",
                     "error",
                 )
                 return
@@ -438,17 +415,18 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         except Exception as exc:
             _snack(f"Restore failed: {exc}", "error")
             return
-        state.license_recovery_id = recovery_id
+        state.license_recovery_id = str(
+            getattr(status, "recovery_id", "") or recovery_id
+        )
         if controller is not None:
             await controller._grant_premium_benefits(
                 first_time=not was_premium
             )
-            await controller._sync_premium_storage()
         # Branch on the verdict, not on the endpoint's own status word: the
         # arbiter ORs in the Play channel, so `status.unlocks` alone could
         # announce success while the app-wide flag is still False.
         if state.is_premium:
-            _snack("Premium restored. Thank you.", "success")
+            _snack("Premium restored.", "success")
         else:
             _snack(f"That licence is {status.status}", "warning")
 
@@ -473,28 +451,11 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 ),
             )
         )
-        if state.premium_source:
-            rows.append(_divider())
-            rows.append(
-                _setting_row(
-                    ft.Icons.SOURCE_ROUNDED,
-                    "Granted by",
-                    "Credit cap is now "
-                    f"{PREMIUM_DAILY_CREDITS} a day and ads are switched off",
-                    ft.Text(
-                        state.premium_source.split(":", 1)[-1] or "DDGS",
-                        size=FONT_SM,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                    ),
-                )
-            )
     else:
         if state.license_status in _STATUS_COPY:
-            # The whole status block used to sit inside `if is_premium`, so
-            # grace, expired and revoked were unreachable: a customer whose
-            # payment lapsed was shown "What Premium changes" and a wall of
-            # buy buttons with no explanation. Say what happened first; the
-            # way back is the very next section.
+            # A lapsed payment (grace/expired/revoked) gets explained before
+            # the buy rows: say what happened first, the way back is the
+            # very next section.
             title, subtitle = _STATUS_COPY[state.license_status]
             rows.append(
                 _setting_row(
@@ -508,25 +469,11 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                     ),
                 )
             )
-            rows.append(_divider())
-        rows.append(
-            _setting_row(
-                ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                "What Premium changes",
-                "Removes ads and raises your daily Assistant credits from "
-                f"{DAILY_FREE_CREDITS} to {PREMIUM_DAILY_CREDITS}. "
-                "Everything else in DDGS stays the same",
-                ft.Icon(
-                    ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
-                    size=ICON_SM,
-                    color=AppColors.PRIMARY,
-                ),
-            )
-        )
 
     # ── License channel (direct, desktop, web) ───────────────────────────
     # Product rows, the recovery ID and Restore are the whole card; the
-    # typing lives in dialogs. Nothing is pre-expanded.
+    # typing lives in dialogs. Nothing is pre-expanded. KTV Player shows no
+    # marketing row between status and plans.
     if license_ok and not state.is_premium:
         if state.license_prices:
             for product_id, blurb in _PLANS:
@@ -558,7 +505,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 _setting_row(
                     ft.Icons.CLOUD_OFF_ROUNDED,
                     "Unlock options unavailable",
-                    "Could not reach the license service — check your "
+                    "Could not reach the license service. Check your "
                     "connection",
                     ft.Icon(
                         ft.Icons.CLOUD_OFF_ROUNDED,
@@ -592,7 +539,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             _setting_row(
                 ft.Icons.RESTORE_ROUNDED,
                 "Restore purchases",
-                "Re-check ownership (new device / reinstall / after paying)",
+                "Re-check ownership (new device / reinstall)",
                 ft.OutlinedButton(
                     "Restore",
                     on_click=_ask_recovery,
@@ -602,28 +549,8 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         )
 
     # ── No purchase channel in this build ───────────────────────────────
-    if not license_ok and not play_ok:
-        # The Play AAB lands here. Say where Premium IS available, so the
-        # card is an honest explanation rather than a dead end, and offer
-        # no purchase control of any kind.
-        from core.build_channel import CHANNEL
-
-        if CHANNEL == "play":
-            rows.append(_divider())
-            rows.append(
-                _setting_row(
-                    ft.Icons.OPEN_IN_NEW_ROUNDED,
-                    "Premium is not sold in this build",
-                    "This is the Google Play version, which is free with ads. "
-                    "Premium is sold on the direct APK, on desktop and on "
-                    "the web",
-                    ft.Text(
-                        "Free tier",
-                        size=FONT_XS,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                    ),
-                )
-            )
+    # Unreachable: the play channel never renders this card (settings_screen),
+    # and a direct build always has the Kiri licence channel.
 
     return AppStyles.section_card(
         "DDGS Premium",

@@ -1,4 +1,4 @@
-"""UpdateService — checks version.json on GitHub for app updates and announcements."""
+"""UpdateService - checks version.json on GitHub for app updates and announcements."""
 
 from __future__ import annotations
 

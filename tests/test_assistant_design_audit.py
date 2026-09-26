@@ -375,63 +375,22 @@ def test_a_timeout_says_timed_out_not_no_results():
 
 
 # ── model picker and rate limits ─────────────────────────────────────────
-def test_rate_limit_suggests_the_most_generous_model():
+def test_the_app_has_no_model_suggestion_layer():
+    """Rate-limit advice and app-side ranking were removed.
+
+    The router owns selection (`auto_order` in run.py); a 429 that reaches
+    the app is the router's final answer and surfaces as a plain
+    AIUnavailable with consumer-facing copy.
+    """
     from services import ai_service
 
-    catalog = [
-        {"id": "auto", "status": "active", "rate_hint": {"label": "rotates"}},
-        {
-            "id": "tight",
-            "status": "active",
-            "latency_ms": 400,
-            "rate_hint": {"approx_per_hour": 10, "label": "10/hour"},
-        },
-        {
-            "id": "open",
-            "status": "active",
-            "latency_ms": 500,
-            "rate_hint": {"approx_per_hour": 500, "label": "500/hour"},
-        },
-        {
-            "id": "medium",
-            "status": "active",
-            "latency_ms": 100,
-            "rate_hint": {"approx_per_hour": 100, "label": "100/hour"},
-        },
-    ]
-    original = ai_service._catalog
-    ai_service._catalog = catalog
-    try:
-        _, suggestion = ai_service.rate_limit_advice("tight")
-        # The old key sorted the cap ascending, so it recommended the
-        # 10/hour model here — the opposite of useful.
-        assert suggestion == "open", f"suggested {suggestion!r}, wanted the generous one"
-    finally:
-        ai_service._catalog = original
-
-
-def test_non_chat_endpoints_are_not_request_candidates():
-    from services.ai_service import rank_models
-
-    def m(mid, etype="/chat.completion", latency=100, status="active"):
-        return {
-            "id": mid,
-            "endpoint_type": etype,
-            "latency_ms": latency,
-            "status": status,
-        }
-
-    ranked = rank_models(
-        [
-            m("fast-chat", latency=150),
-            m("slow-chat", latency=900),
-            m("muse-spark", etype="/response", latency=10),
-            m("jev", etype="/systemone", latency=20),
-            m("dead-chat", status="failed"),
-            m("limited", status="rate limited"),
-        ]
-    )
-    assert ranked == ["fast-chat", "slow-chat"], ranked
+    assert not hasattr(ai_service, "rate_limit_advice")
+    assert not hasattr(ai_service, "AIRateLimited")
+    source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
+    # no candidate loop on the request path
+    assert "for candidate in candidates" not in source
+    assert '"model": chosen' in source
+    assert "Try again shortly" in source  # the429 keeps honest copy
 
 
 def test_a_stopped_router_outranks_a_stale_catalog():

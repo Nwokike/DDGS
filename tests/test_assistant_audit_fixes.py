@@ -255,76 +255,19 @@ def test_history_sheet_lists_every_saved_chat(tmp_path, monkeypatch):
 
 
 # ── rate limiting ────────────────────────────────────────────────────────
-def test_rate_limit_advice_names_an_uncapped_model():
+def test_rate_limit_copy_lives_in_the_router_path_only():
+    """No suggestion machinery: a429 surfaces as plain AIUnavailable."""
     from services import ai_service
 
-    catalog = [
-        {
-            "id": "auto",
-            "status": "active",
-            "latency_ms": None,
-            "rate_hint": {"tier": "variable", "label": "Free tier, rotates"},
-        },
-        {
-            "id": "capped-model",
-            "status": "active",
-            "latency_ms": 400,
-            "rate_hint": {"tier": "light", "approx_per_hour": 10, "label": "10/hour"},
-        },
-        {
-            "id": "open-model",
-            "status": "active",
-            "latency_ms": 300,
-            "rate_hint": {"tier": "wide", "approx_per_hour": 500, "label": "500/hour"},
-        },
-    ]
-    original = ai_service._catalog
-    ai_service._catalog = catalog
-    try:
-        message, suggestion = ai_service.rate_limit_advice("capped-model")
-        assert suggestion == "open-model", "should point at the uncapped model"
-        assert "open-model" in message
-        # auto must not suggest a model that is itself capped
-        ai_service._catalog = [
-            {**c, "status": "rate limited"} if c["id"] != "open-model" else c
-            for c in catalog
-        ]
-        _auto_message, auto_suggestion = ai_service.rate_limit_advice("auto")
-        assert auto_suggestion == "open-model", (
-            "auto must skip models the catalog reports as rate limited"
-        )
-        # When literally nothing is healthy there is no next step to offer,
-        # and the caller must not render a button for an empty suggestion.
-        ai_service._catalog = [
-            {**c, "status": "rate limited"} for c in catalog if c["id"] == "auto"
-        ]
-        message, none_left = ai_service.rate_limit_advice("auto")
-        assert none_left == "", "a fully capped catalog has nothing to offer"
-        assert "Try again shortly" in message
-    finally:
-        ai_service._catalog = original
-
-
-def test_rate_limit_advice_without_a_catalog_still_answers():
-    from services import ai_service
-
-    original = ai_service._catalog
-    ai_service._catalog = []
-    try:
-        message, suggestion = ai_service.rate_limit_advice("anything")
-        assert message
-        assert suggestion == ""
-    finally:
-        ai_service._catalog = original
-
-
-def test_rate_limited_is_a_distinct_outcome():
-    from services import ai_service
-
-    assert issubclass(ai_service.AIRateLimited, Exception)
-    assert not issubclass(ai_service.AIRateLimited, ai_service.AIUnavailable), (
-        "a capped tier must not be reported as a broken backend"
-    )
+    assert not hasattr(ai_service, "rate_limit_advice")
+    assert not hasattr(ai_service, "AIRateLimited")
+    source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
+    assert "suggestion" not in source, "no model-suggestion UI can be fed"
+    assert "Kiri's free tier is busy right now" in source
+    # chat no longer has a rate_limited state to render
+    chat = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert '"rate_limited"' not in chat
+    assert "_switch_model_and_retry" not in chat
 
 
 # ── an answer-less turn must not be charged ──────────────────────────────

@@ -1,57 +1,96 @@
-"""Unit tests for ai_service pure functions: model ranking, tool assembly,
-and answer post-processing."""
+"""Unit tests for ai_service: model passthrough, tool assembly, and answer
+post-processing. Model choice belongs to the router — the app must not rank
+or rotate (owner's directive: no auto logic in the app)."""
 
 from __future__ import annotations
+
+import asyncio
+import json
+
+import httpx
 
 from services.ai_service import (
     assemble_tool_calls,
     link_citations,
     parse_related,
-    rank_models,
 )
 
 
-def _m(mid, etype="/chat.completion", status="active", latency=500):
-    return {"id": mid, "endpoint_type": etype, "status": status, "latency_ms": latency}
+def test_rotation_layer_is_gone():
+    """The app-side auto/rotation layer must never come back.
+
+    `auto` is the router's own model (kiri-router/src/auto.js, design doc
+    D7): the router ranks, sticks per conversation and fails over in-request.
+    The app sends the requested model verbatim.
+    """
+    from services import ai_service
+
+    for symbol in (
+        "rank_models",
+        "AIRateLimited",
+        "rate_limit_advice",
+        "_RouterModelError",
+        "ROUTER_CANDIDATES",
+        "invalidate_models",
+        "_fetch_candidates",
+    ):
+        assert not hasattr(ai_service, symbol), f"{symbol} must stay deleted"
 
 
-def test_auto_model_wins():
-    data = [
-        _m("nemotron-3.5-lightning", latency=100),
-        _m("auto", latency=None),
-        _m("muse-spark", etype="/response", latency=50),
-    ]
-    ranked = rank_models(data)
-    assert ranked[0] == "auto"
+def _capture_request(model: str | None) -> tuple[dict, dict]:
+    """Call _stream_router against a mock transport; return (request, result)."""
+    from services import ai_service
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": "ok"}, "finish_reason": "stop"}
+                ]
+            },
+        )
+
+    async def run() -> tuple[dict, dict]:
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        old_port, old_failed = ai_service._router_port, ai_service._router_failed_until
+        ai_service._router_port = 9999  # trust it; never probe or embed
+        ai_service._router_failed_until = 0.0
+        try:
+            result = await ai_service._stream_router(
+                client,
+                [{"role": "user", "content": "hi"}],
+                lambda _t: None,
+                None,
+                model=model,
+            )
+            return captured, result
+        finally:
+            await client.aclose()
+            ai_service._router_port = old_port
+            ai_service._router_failed_until = old_failed
+
+    return asyncio.run(run())
 
 
-def test_chat_models_before_response_and_by_latency():
-    data = [
-        _m("muse-spark", etype="/response", latency=10),  # fastest but wrong endpoint
-        _m("jev", etype="/systemone", latency=20),
-        _m("slow-chat", latency=900),
-        _m("fast-chat", latency=150),
-        _m("dead-chat", status="failed", latency=1),
-        _m("limited-chat", status="rate limited", latency=5),
-    ]
-    ranked = rank_models(data)
-    # Only chat-completion models are candidates: this function's own
-    # docstring says /response and /systemone cannot answer a
-    # /chat.completions payload. Including them let the request path send
-    # real traffic to endpoints that guaranteed a failure.
-    assert ranked[0] == "fast-chat"
-    assert ranked[1] == "slow-chat"
-    assert "muse-spark" not in ranked, "a /response model must not be a candidate"
-    assert "jev" not in ranked, "a /systemone model must not be a candidate"
-    # inactive models stay out too
-    assert "dead-chat" not in ranked
-    assert "limited-chat" not in ranked
+def test_model_auto_is_passed_through_verbatim():
+    request, result = _capture_request("auto")
+    assert request["model"] == "auto", "the router's own model must reach the router"
+    assert result["model"] == "auto"
 
 
-def test_rank_empty_and_dup_ids():
-    assert rank_models([]) == []
-    ranked = rank_models([_m("dup"), _m("dup")])
-    assert ranked == ["dup"]
+def test_default_model_is_auto():
+    request, _result = _capture_request(None)
+    assert request["model"] == "auto"
+
+
+def test_explicit_pick_is_never_substituted():
+    request, result = _capture_request("GLM-5.3-Flash")
+    assert request["model"] == "GLM-5.3-Flash", "no app-side substitution"
+    assert result["model"] == "GLM-5.3-Flash"
 
 
 def test_assemble_tool_calls_merges_fragments():

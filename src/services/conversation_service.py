@@ -65,7 +65,7 @@ def _title_from_messages(messages: list[dict]) -> str:
 def flat_from_turns(turns: list[dict]) -> list[dict]:
     """Project a rendered transcript into the flat pairs that are stored.
 
-    The screen owns exactly one list — `turns`, the thing the user sees —
+    The screen owns exactly one list - `turns`, the thing the user sees -
     and this is the only place it becomes `{"role", "content"}`. What is
     written to disk and what the model is handed are the same projection,
     so they cannot disagree.

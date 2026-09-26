@@ -1,4 +1,4 @@
-"""AppShell — top-level shell branching onboarding vs dashboard.
+"""AppShell - top-level shell branching onboarding vs dashboard.
 
 Follows the KTV Player pattern: a @ft.component that reads observable
 state and conditionally renders the appropriate screen.  The NavigationBar
@@ -35,7 +35,7 @@ def AppShell() -> Control:
     state = ft.use_context(AppStateCtx)
 
     # ── NavigationBar sync ─────────────────────────────────────────────
-    # Attach NavigationBar to page.views[0] imperatively — the same
+    # Attach NavigationBar to page.views[0] imperatively - the same
     # deliberate escape hatch used by KTV Player.  Re-runs whenever
     # selected_tab, has_accepted_terms, or search_active changes.
     def _sync_navigation_bar():
@@ -109,7 +109,7 @@ def AppShell() -> Control:
 
             screen = HomeScreen(key=ft.ValueKey("home"))
 
-    # ── Ask Assistant FAB — CollabShell recipe: mini, white icon, brand
+    # ── Ask Assistant FAB - CollabShell recipe: mini, white icon, brand
     # fill, tooltip only. No badge, no per-credit rebuild. While the
     # Assistant is minimized this same button restores it, so it stays
     # visible even at zero credits. ────────────────────────────────────

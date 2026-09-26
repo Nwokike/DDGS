@@ -1,7 +1,7 @@
-"""Assistant summary sheet — streams a page summary from reader/preview/detail.
+"""Assistant summary sheet - streams a page summary from reader/preview/detail.
 
 Lives outside the reactive component tree (BottomSheet via show_dialog), so it
-drives its Text control manually with >=0.2s page.update() throttling — the
+drives its Text control manually with >=0.2s page.update() throttling - the
 same discipline as the downloader progress bar.
 """
 

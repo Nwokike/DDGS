@@ -1,4 +1,4 @@
-"""Agentic chat turn — DDGS tools, hard caps, COST_STEP per model step.
+"""Agentic chat turn - DDGS tools, hard caps, COST_STEP per model step.
 
 The model gets 11 tools over our real capabilities: five searches plus
 fetch, save, download, scrape, schedule and cancel. Six are read-only and
@@ -72,7 +72,7 @@ SYSTEM_PROMPT = (
     "You are DDGS AI, a private search assistant WITH TOOLS running inside the "
     "DDGS app. For anything current or factual, call your search_* tools first "
     "(pick the best category), then optionally fetch_page on at most 2 URLs to "
-    "verify. Answer ONLY from tool results — never invent sources. Cite claims "
+    "verify. Answer ONLY from tool results - never invent sources. Cite claims "
     "with [1], [2] … matching the order of the results you actually used. "
     "Keep answers 2-6 sentences unless the user asks for more. Always end with "
     "a final line exactly in this form:\n"
@@ -87,7 +87,7 @@ SYSTEM_PROMPT = (
     "broader query or a different search tool, then answer with what you have. "
     "When search_images returns image_url values, show the single best match "
     "in your reply as ![short description](image_url) so the user sees the "
-    "picture, not just a description of it — one image, not a gallery. "
+    "picture, not just a description of it - one image, not a gallery. "
     "If no tool is needed (greetings, math, opinions), just answer."
 )
 
@@ -211,7 +211,7 @@ def build_tools() -> list[dict]:
 
 
 def pretty_label(name: str, args: dict) -> str:
-    """User-legible tool label — never raw JSON."""
+    """User-legible tool label - never raw JSON."""
     query = str(args.get("query") or "").strip()
     url = str(args.get("url") or "").strip()
     if name == "search_web":
@@ -406,7 +406,7 @@ def _error_text(exc: BaseException) -> str:
     """A message a human can act on for any exception.
 
     `str(TimeoutError())` is the empty string, and the tool row falls back
-    to "no results" when the error is empty — so a 30-second search stall
+    to "no results" when the error is empty - so a 30-second search stall
     was reported to the user as "no results". That is both wrong and
     unactionable. Name the exception when it has no message.
     """
@@ -466,7 +466,7 @@ def tool_outcome(name: str, out: object) -> str:
 
     Write tools return a report dict instead of a result list, so
     `count = len(results)` was always 0 and the UI rendered a bare green
-    tick with no evidence anything happened — no file, no page count, no
+    tick with no evidence anything happened - no file, no page count, no
     path. The system prompt tells the model to report exact paths; this
     puts the same fact in the step row where the user can see it without
     reading the model's prose.
@@ -501,7 +501,7 @@ async def run_turn(
     on_thought: Callable[[str], None] | None = None,
     ask_confirm: Callable[[str], Any] | None = None,
 ) -> None:
-    """One agent turn — COST_STEP credits per model step, settled on every exit.
+    """One agent turn - COST_STEP credits per model step, settled on every exit.
 
     Soft metering: a low balance is never a mid-run kill switch; the turn
     always finishes (balance may clamp to 0). A 0 balance starts blocked.
@@ -523,7 +523,7 @@ async def run_turn(
     if balance < COST_STEP * 3:
         emit(
             "nudge",
-            {"text": "Low credit balance — this message finishes regardless."},
+            {"text": "Low credit balance. This message finishes regardless."},
         )
 
     messages: list[dict] = (
@@ -695,7 +695,7 @@ async def run_turn(
                 and steps < AGENT_MAX_ITERS
             ):
                 # Reasoning models can burn the entire budget before any text
-                # appears — retry once with a bigger budget, same step count.
+                # appears - retry once with a bigger budget, same step count.
                 empty_retried = True
                 max_tokens = (max_tokens or ai_service.ANSWER_MAX_TOKENS) * 2
                 messages.append(
@@ -759,27 +759,11 @@ async def run_turn(
             },
         )
     except ai_service.AIMidStream:
-        await settle_turn(credits, tx, steps)  # partial work delivered — charge it
+        await settle_turn(credits, tx, steps)  # partial work delivered - charge it
         emit(
             "error",
             {
                 "kind": "midstream",
-                "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
-            },
-        )
-    except ai_service.AIRateLimited as exc:
-        # Capped, not broken. Carry the model's own words and a concrete
-        # alternative so the UI can offer one tap instead of shrugging.
-        await settle_turn(credits, tx, steps)
-        logger.info("chat turn rate limited: %s", exc)
-        emit(
-            "error",
-            {
-                "kind": "rate_limited",
-                "message": exc.message,
-                "suggestion": exc.suggestion,
                 "partial": "".join(content_parts),
                 "steps": steps,
                 "cost": steps * COST_STEP,
@@ -792,6 +776,9 @@ async def run_turn(
             "error",
             {
                 "kind": "unavailable",
+                # ai_service messages are already consumer-facing
+                # (terse, no internals) - show the router's own words.
+                "message": str(exc).strip(),
                 "partial": "".join(content_parts),
                 "steps": steps,
                 "cost": steps * COST_STEP,

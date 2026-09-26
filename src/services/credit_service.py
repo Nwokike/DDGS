@@ -1,4 +1,4 @@
-"""Local credit economy service — SpanInsight's model, DDGS keys.
+"""Local credit economy service - SpanInsight's model, DDGS keys.
 
 50 free AI credits daily (200 when premium), UTC date-change reset that
 preserves surplus (ad-earned credits survive). Transaction-keyed reservations
@@ -78,7 +78,7 @@ class CreditService:
 
     async def reserve_more(self, tx_id: str, extra: int) -> bool:
         """Grow an existing hold. False just means the balance dipped below
-        the extra — soft metering: the caller keeps going (never breaks work)."""
+        the extra - soft metering: the caller keeps going (never breaks work)."""
         async with self._lock:
             if tx_id not in self._reservations:
                 return False

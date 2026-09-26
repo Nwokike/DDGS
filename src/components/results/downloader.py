@@ -37,7 +37,7 @@ async def launch_url(url: str, page: ft.Page | None = None):
         return
     launcher = getattr(page, "url_launcher", None) if page is not None else None
     if launcher is None and page is not None:
-        # Transient UrlLaunchers have no channel on mobile — register one.
+        # Transient UrlLaunchers have no channel on mobile - register one.
         launcher = ft.UrlLauncher()
         page.services.append(launcher)
     try:
@@ -327,7 +327,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         _show_feedback(
             page,
             "Download Unavailable",
-            "Can't download this source directly — open in browser instead.",
+            "Can't download this directly. Open it in your browser.",
             is_error=True,
         )
     except DownloadCancelled:

@@ -1,4 +1,4 @@
-"""Detail sheet for search results — enriched with metadata and actions."""
+"""Detail sheet for search results - enriched with metadata and actions."""
 
 from __future__ import annotations
 

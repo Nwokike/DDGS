@@ -1,4 +1,4 @@
-"""AppState context — component-facing adapter over the observable state.
+"""AppState context - component-facing adapter over the observable state.
 
 Components read state via ``ft.use_context(AppStateCtx)`` which returns
 the module-level ``state`` singleton.  Mutations to ``state`` fields

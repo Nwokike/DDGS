@@ -1,4 +1,4 @@
-"""ContentReaderScreen — full-screen reader for extracted web content.
+"""ContentReaderScreen - full-screen reader for extracted web content.
 
 Pushed as a ft.View when the user taps "Open in Reader" from the
 extract card.  Uses imperative state (not hooks) since it's rendered
@@ -134,7 +134,7 @@ def build_content_reader(
             _exit_reader()
 
     def _exit_reader():
-        """Always exit the reader — pop back to whatever was underneath."""
+        """Always exit the reader - pop back to whatever was underneath."""
         try:
             page.on_keyboard_event = None
             if len(page.views) > 1:

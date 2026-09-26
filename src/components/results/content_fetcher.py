@@ -35,7 +35,7 @@ def _resolve_url(link: str, base_url: str = "") -> str:
 def _on_link_tap(
     page: ft.Page, url: str, base_url: str = "", from_dialog: bool = False
 ):
-    """Directly fetch the tapped link and update the current view — like browser navigation."""
+    """Directly fetch the tapped link and update the current view - like browser navigation."""
     if not url or url.startswith(("#", "mailto:")):
         return
     resolved = _resolve_url(url, base_url)

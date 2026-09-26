@@ -163,19 +163,74 @@ def test_network_failure_keeps_the_verdict_but_a_refusal_drops_it(
     async def offline(*args, **kwargs):
         raise license_service.LicenseUnavailable("unreachable")
 
-    monkeypatch.setattr(service.license, "refresh", offline)
+    # reconcile uses the token-issuing restore path (KTV Player), never
+    # /status: a network failure must not revoke.
+    monkeypatch.setattr(service.license, "restore", offline)
     asyncio.run(service.reconcile())
     assert state.is_premium is True, "a network failure must not revoke"
 
     # A refusal is the server ruling: the client clears the unlock itself.
-    class Refusing:
-        async def refresh(self):
-            service.license._unlocked = False
-            raise license_service.LicenseUnavailable("404 license_not_found")
+    async def refusing(recovery_id):
+        service.license._unlocked = False
+        raise license_service.LicenseUnavailable("404 license_not_found")
 
-    monkeypatch.setattr(service.license, "refresh", Refusing().refresh)
+    monkeypatch.setattr(service.license, "restore", refusing)
     asyncio.run(service.reconcile())
     assert state.is_premium is False, "a refusal must revoke"
+
+
+def test_reconcile_uses_the_token_issuing_path(monkeypatch):
+    """`/status` issues no token; reconcile must call restore or a renewal
+    lapses the cached token and locks out a paying subscriber (KTV rule)."""
+    from core.state import state
+    from services import license_service, premium_service
+
+    monkeypatch.setattr(premium_service, "CHANNEL", "direct")
+    service = premium_service.PremiumService(
+        None, FakeStorage({"kiri_recovery_id": "KIRI-L-" + "A" * 24})
+    )
+    calls: list[str] = []
+
+    async def restore(recovery_id):
+        calls.append(f"restore:{recovery_id}")
+        return license_service.LicenseStatus(
+            status="active", product="monthly", recovery_id=recovery_id
+        )
+
+    async def refresh(*args, **kwargs):
+        calls.append("refresh")
+
+    monkeypatch.setattr(service.license, "restore", restore)
+    monkeypatch.setattr(service.license, "refresh", refresh)
+    asyncio.run(service.reconcile())
+    assert calls and calls[0].startswith("restore:"), (
+        f"reconcile must take the token-issuing path, got {calls}"
+    )
+    assert "refresh" not in calls, "reconcile must not use /status"
+    # no recovery ID ever saved → nothing to reconcile, no request at all
+    service2 = premium_service.PremiumService(None, FakeStorage())
+    calls.clear()
+    asyncio.run(service2.reconcile())
+    assert not calls, "with no purchase history there is nothing to ask"
+    assert state.is_premium in (True, False)  # untouched
+
+
+def test_reconcile_is_debounced_for_resume_bursts(monkeypatch):
+    """RESUME/SHOW bursts must not burn the Worker's 20 req/60s budget."""
+    from services import premium_service
+
+    monkeypatch.setattr(premium_service, "CHANNEL", "direct")
+    # No recovery ID → the real reconcile stamps and returns without any
+    # network call, so this exercises the genuine stamping path.
+    service = premium_service.PremiumService(None, FakeStorage())
+    initial = service._last_reconcile_at
+    asyncio.run(service.reconcile_if_due())
+    assert service._last_reconcile_at > initial, "the first check must stamp"
+    stamped = service._last_reconcile_at
+    asyncio.run(service.reconcile_if_due())
+    assert service._last_reconcile_at == stamped, (
+        "a burst inside RESUME_DEBOUNCE must be swallowed"
+    )
 
 
 def test_kiri_check_status_does_not_claim_an_unreachable_server(monkeypatch):
@@ -423,11 +478,14 @@ def test_a_canceled_search_is_not_cached_or_logged():
 def test_a_gateway_outage_is_not_a_rate_limit():
     from services import ai_service
 
+    # the whole rate-limit outcome class is gone: every failure is an
+    # honest AIUnavailable with consumer-facing copy, and the router owns
+    # model rotation (`auto` is its own model).
+    assert not hasattr(ai_service, "AIRateLimited")
+    assert not hasattr(ai_service, "rate_limit_advice")
     source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
-    # the blanket conversion is gone; the flag gates it
-    assert "rate_limited = True" in source
-    assert "if rate_limited:" in source
-    assert issubclass(ai_service.AIRateLimited, Exception)
+    assert "rate_limited" not in source
+    assert '"model": chosen' in source, "the request model must pass through"
 
 
 # ── log retention must include rotated backups ──────────────────────────
@@ -503,3 +561,57 @@ def test_rollback_seconds_matches_the_implementation():
     assert "asyncio.sleep(ROLLBACK_SECONDS)" in source
     assert "Auto-rollback after 60 seconds" not in source
     assert ROLLBACK_SECONDS > 0
+
+
+def test_youtube_fallback_is_callable_the_way_it_is_called():
+    """A de-indented helper kept its `self` param while the call site still
+    said `self._youtube_video_fallback` → AttributeError, swallowed by the
+    broad handler → video rescue silently dead."""
+    import inspect
+
+    from services import search_service
+    from services.search_service import SearchService
+
+    helper = search_service._youtube_video_fallback
+    assert inspect.iscoroutinefunction(helper)
+    params = list(inspect.signature(helper).parameters)
+    assert params == ["query"], f"a module-level helper must not take self: {params}"
+    source = (SRC / "services" / "search_service.py").read_text(encoding="utf-8")
+    assert "self._youtube_video_fallback" not in source, (
+        "the call site must not look for a method that is not on the class"
+    )
+    # the sibling genuinely lives on the class
+    assert hasattr(SearchService, "_openlibrary_book_fallback")
+
+
+# ── the uncommitted premium fix must stay in place ──────────────────────
+def test_premium_verdict_is_never_persisted_to_storage():
+    """Entitlement is the signed token, never a local flag (KTV rule).
+
+    The pre-Phase-1 working tree removed the _persist_verdict /
+    _sync_premium_storage mechanism that wrote the derived verdict back to
+    disk; these guards keep it gone.
+    """
+    from services import premium_service
+
+    service_source = (SRC / "services" / "premium_service.py").read_text(
+        encoding="utf-8"
+    )
+    controller_source = (SRC / "app_controller.py").read_text(encoding="utf-8")
+    assert "_persist_verdict" not in service_source
+    assert "_sync_premium_storage" not in controller_source
+    assert not hasattr(premium_service.PremiumService, "_persist_verdict")
+
+
+def test_wallet_reads_live_premium_state():
+    """Buying while the wallet dialog is open must update it immediately.
+
+    The countdown and the watch handler read state.is_premium at run time;
+    a snapshot captured at dialog build would keep counting down against a
+    stale verdict.
+    """
+    source = (SRC / "components" / "wallet.py").read_text(encoding="utf-8")
+    # _countdown: loops while live premium is False
+    assert "if state.is_premium:" in source
+    # _on_watch: refuses at run time, not at build time
+    assert "        if state.is_premium:\n            return" in source

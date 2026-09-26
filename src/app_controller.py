@@ -1,4 +1,4 @@
-"""AppController — business logic extracted from the old monolithic main.py.
+"""AppController - business logic extracted from the old monolithic main.py.
 
 Following the KTV Player pattern: the controller owns services, loads
 persisted state, exposes a subset of methods via ControllerMethodsCtx,
@@ -61,7 +61,7 @@ class AppController:
         self.page.padding = 0
         self.page.spacing = 0
 
-        # URL launching (persistent service — transient UrlLauncher has no
+        # URL launching (persistent service - transient UrlLauncher has no
         # channel on mobile; this is the registered singleton)
         self.url_launcher = ft.UrlLauncher()
         self.page.services.append(self.url_launcher)
@@ -101,18 +101,19 @@ class AppController:
         state.ad_service = self.ad_service
 
         # ── Play Billing ────────────────────────────────────────────────
-        # Not wired, and not a dependency either. The Play Console behind
-        # this package has no Google Payments merchant profile, so there is
-        # nothing to sell and nothing to test — KTV Player ships the same
-        # way, and core/build_channel.py records the policy. Keeping the
-        # package in `project.dependencies` also put a library that no
-        # index serves into every platform's build, so one missing package
-        # took all three down at once. `verify_purchases` and
-        # `_on_purchase_updated` stay: both already return when billing is
-        # None, so restoring Play Billing is this import block again.
+        # Not wired, and not a dependency. The Play Console behind this
+        # package has no Google Payments merchant profile, so there is
+        # nothing to sell and nothing to test; KTV Player ships the same
+        # way and core/build_channel.py records the policy. `flet-billing`
+        # is on no package index either: keeping it in project.dependencies
+        # took all three platform builds down at once. Restoring Play
+        # Billing means: add the dependency, construct the client here,
+        # call activate_premium() from its events, and re-check owned
+        # products on launch (server-side Play Developer API verification
+        # is the review gate).
         self.billing = None
-        # ── Premium. Built here, not in a task: verify_purchases is
-        # scheduled before _init_premium runs, and it reads this attribute.
+        # ── Premium. Built here, not in a task: _init_premium and the
+        # lifecycle hooks read this attribute.
         from services import premium_service
 
         self.premium = premium_service.PremiumService(self.page, self.storage)
@@ -259,12 +260,13 @@ class AppController:
                 # Entitlement was proven after credits were initialised, so
                 # bring a fresh day up to the premium cap now.
                 await self._grant_premium_benefits(first_time=True)
-            await self._sync_premium_storage()
             # Network round-trip: after the first frame, never on boot.
             await self.premium.reconcile()
             if state.is_premium and not was_premium:
                 await self._grant_premium_benefits(first_time=True)
-            await self._sync_premium_storage()
+            # Hourly check keeps renewals and revokes current while the app
+            # runs (KTV Player cadence).
+            self.premium.start_reconcile_loop()
         except Exception:
             logger.exception("premium init failed")
 
@@ -288,12 +290,13 @@ class AppController:
             state.is_online = ft.ConnectivityType.NONE not in result
         except Exception as exc:
             logger.warning("Lifecycle connectivity probe failed: %s", exc)
-        # Re-check the licence on resume, as the client contract asks. A
-        # failure here changes nothing, so a flaky network is harmless.
+        # Re-check the licence on resume, as the client contract asks.
+        # Debounced (KTV Player): RESUME/SHOW arrives in bursts, and each
+        # burst would otherwise burn the Worker's shared 20 req/60s budget.
+        # A failure here changes nothing, so a flaky network is harmless.
         if state.is_online:
             try:
-                await self.premium.reconcile()
-                await self._sync_premium_storage()
+                await self.premium.reconcile_if_due()
             except Exception as exc:
                 logger.debug("licence refresh on resume skipped: %s", exc)
 
@@ -411,7 +414,7 @@ class AppController:
             "onboarding_done": (self.storage.set_onboarding_done, "has_accepted_terms"),
             "ai_mode": (self.storage.set_ai_mode, "ai_mode_enabled"),
             "ai_model": (self.storage.set_ai_model, "ai_model"),
-            # Was never registered before 2.0 — Clear History was a silent no-op.
+            # Was never registered before 2.0 - Clear History was a silent no-op.
             "history": (self.storage.set_history, "search_history"),
         }
 
@@ -785,7 +788,7 @@ class AppController:
 
             if progress.error and "primp" in str(progress.error).lower():
                 logger.critical(
-                    f"[{LOG_TAG}] PRIMP_CRASH: {search_type} — {progress.error}"
+                    f"[{LOG_TAG}] PRIMP_CRASH: {search_type} - {progress.error}"
                 )
 
             # Google-style AI overview over the results (free, router-first)
@@ -931,7 +934,7 @@ class AppController:
             state.ai_overview = replace(overview, is_running=False, error="unavailable")
 
     def open_assistant_results(self, results: list, kind: str) -> None:
-        """Surface the assistant's findings in the real Results screen —
+        """Surface the assistant's findings in the real Results screen -
         side-effect free: no history write, no overview re-fire, no ad."""
         from core.state import SearchProgress
 
@@ -1009,12 +1012,6 @@ class AppController:
             )
         return True
 
-    async def _sync_premium_storage(self) -> None:
-        if self.storage:
-            try:
-                await self.storage.set_is_premium(bool(state.is_premium))
-            except Exception as exc:
-                logger.warning("premium flag save failed: %s", exc)
 
     async def activate_premium(self, product_id: str) -> None:
         """Play Billing purchase: grant through the entitlement arbiter.
@@ -1032,60 +1029,17 @@ class AppController:
         first_time = await self._grant_premium_benefits(
             first_time=not was_premium
         )
-        await self._sync_premium_storage()
         if first_time and not was_premium:
+            # "Ads off" only where ads exist (native mobile); on desktop
+            # and web there were never ads to switch off.
+            ad_service = getattr(self, "ad_service", None)
+            ads_exist = bool(ad_service) and ad_service._is_mobile()
             await self.show_snack(
-                "Premium active. Ads off, 200 assistant credits/day.", "success"
+                "Premium active. Ads off, 200 assistant credits/day."
+                if ads_exist
+                else "Premium active. 200 assistant credits/day.",
+                "success",
             )
-
-    async def verify_purchases(self) -> None:  # client-side re-check; server-side
-        # verification (Play Developer API on your backend) is the Play-review
-        # gate and is tracked as an infra task — the client never trusts the
-        # local flag beyond what Play itself reports.
-        """Re-check owned products on launch — never trust the local flag alone."""
-
-        billing = getattr(self, "billing", None)
-        if billing is None:
-            return
-        try:
-            result = await billing.query_past_purchases()
-            owned = [p.product_id for p in (getattr(result, "purchases", None) or [])]
-            found = next(
-                (pid for pid in owned if str(pid).startswith("premium")), None
-            )
-            was_premium = state.is_premium
-            self.premium.set_play_entitlement(
-                bool(found), product_id=str(found or "")
-            )
-            if found and not was_premium:
-                await self._grant_premium_benefits(first_time=True)
-            await self._sync_premium_storage()
-        except Exception as exc:
-            # A failed re-check must never revoke a working entitlement.
-            logger.debug("purchase re-check skipped: %s", exc)
-
-    async def _on_purchase_updated(self, e) -> None:
-        """flet-billing event: verify → deliver → acknowledge (3-day rule)."""
-        try:
-            from flet_billing import PurchaseStatus
-        except ImportError:
-            return
-        for p in e.purchases:
-            if p.status in (PurchaseStatus.PURCHASED, PurchaseStatus.RESTORED):
-                await self.activate_premium(p.product_id)
-                if (
-                    getattr(p, "pending_complete_purchase", False)
-                    and p.purchase_id
-                    and self.billing is not None
-                ):
-                    try:
-                        await self.billing.complete_purchase(p.purchase_id)
-                    except Exception as exc:
-                        logger.warning("complete_purchase failed: %s", exc)
-            elif p.status == PurchaseStatus.ERROR:
-                logger.error("purchase error: %s", getattr(p, "error", None))
-            elif p.status == PurchaseStatus.CANCELED:
-                logger.info("purchase canceled: %s", p.product_id)
 
     async def _refresh_ai_catalog(self):
         """Snapshot the router's active models (fills the model picker)."""
@@ -1217,7 +1171,7 @@ class AppController:
 
         The turn is stopped FIRST, while the loop is still alive. Left
         running, it throws once during render and again while settling
-        credits, and the conversation is never written — which is exactly
+        credits, and the conversation is never written - which is exactly
         the destroyed-session cascade in the crash log.
         """
         from services import ai_service
@@ -1230,6 +1184,9 @@ class AppController:
                 logger.debug("assistant shutdown failed")
         if self.storage:
             self.storage.flush_now()
+        premium = getattr(self, "premium", None)
+        if premium is not None:
+            premium.shutdown()
         ai_service.shutdown()
 
     # ── SnackBar ───────────────────────────────────────────────────────

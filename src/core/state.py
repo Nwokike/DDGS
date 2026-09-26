@@ -1,8 +1,8 @@
-"""Application state — @ft.observable singleton for reactive component tree.
+"""Application state - @ft.observable singleton for reactive component tree.
 
 Following the KTV Player pattern: plain attribute mutations auto-notify
 subscribed components via use_context(AppStateCtx).  SearchProgress and
-SearchResult are plain dataclasses — they are stored *inside* AppState
+SearchResult are plain dataclasses - they are stored *inside* AppState
 and swapped as whole objects (not mutated in-place) so the observable
 notify fires on the parent field assignment.
 """
@@ -80,7 +80,7 @@ class AiOverview:
 
 @ft.observable
 class AppState:
-    """Global reactive state — every field mutation triggers re-render
+    """Global reactive state - every field mutation triggers re-render
     in components that read it via use_context(AppStateCtx)."""
 
     def __init__(self):
@@ -138,7 +138,7 @@ class AppState:
         self.search_count: int = 0
         self.last_interstitial_ts: float = 0.0  # central 90s gap guard
 
-        # ── AI mode (DDGS 2.0) — chat via the Ask Assistant FAB ──
+        # ── AI mode (DDGS 2.0) - chat via the Ask Assistant FAB ──
         self.ai_mode_enabled: bool = True
         self.ai_model: str = "auto"  # router model preference; auto rotates free models
         self.credits_remaining: int = 50  # corrected by CreditService.initialize()
