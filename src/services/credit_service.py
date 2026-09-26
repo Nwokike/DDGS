@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from datetime import UTC, datetime
 
@@ -25,10 +26,17 @@ from core.constants import (
 
 logger = logging.getLogger(__name__)
 
-# How long an unsettled hold is trusted before the service gives the credits
-# back on its own. Long enough that a slow turn never loses its hold,
-# short enough that a crashed or force-quit turn is not a visible shortage.
+# How long an UNSETTLED, INACTIVE hold is trusted before the service gives
+# the credits back on its own. The timer defers while the owning turn is
+# still active (re-arming up to three intervals), so this window measures
+# orphans - a turn whose task died without settling - not turn length: the
+# worst-case step (router 180s + gateway 2x120s) runs past 240s and is
+# protected by the active guard instead of a bigger number.
 ROLLBACK_SECONDS = 240.0
+# Ceiling on the deferred sweep: a hold active for this long means the
+# active flag itself leaked, so the sweep takes over rather than pinning
+# the balance forever.
+ROLLBACK_MAX_DEFERRALS = 3
 
 
 class CreditService:
@@ -37,6 +45,9 @@ class CreditService:
     def __init__(self, storage=None):
         self._storage = storage
         self._reservations: dict[str, int] = {}  # tx_id -> amount
+        # Holds owned by a turn that is still running: the auto-rollback
+        # defers to these, so the sweep can never free work in flight.
+        self._active: set[str] = set()
         self._rollback_tasks: dict[str, asyncio.Task] = {}  # tx_id -> auto-rollback
         # Balance read-modify-write is a check-then-act, so two operations
         # interleaving between the read and the write lose one. Every
@@ -54,25 +65,20 @@ class CreditService:
         """Optimistically reserve credits. Returns tx id, or None if insufficient.
 
         Call commit(tx_id) to finalize or rollback(tx_id) to release.
-        Auto-rollback after ROLLBACK_SECONDS if neither happens. The doc
-        used to say 60 while the code waited 240, so an abandoned hold
-        looked like a four-minute shortage rather than a one-minute one.
+        The auto-rollback sweeps only holds no live turn claims (see
+        _arm_rollback); an in-flight turn's hold defers until it settles.
         """
-        current = await self._get_credits()
-        total_reserved = sum(self._reservations.values())
-        if current - total_reserved < amount:
-            return None
-
         tx_id = str(uuid.uuid4())
-        # Check and reserve as one step. Without this two concurrent turns
-        # can both see the same free balance and both win.
+        # Check and reserve as one step under the lock. Without this two
+        # concurrent turns can both see the same free balance and both win.
+        # (The old pre-lock read was a dead TOCTOU copy of this check.)
         async with self._lock:
             current = await self._get_credits()
             total_reserved = sum(self._reservations.values())
             if current - total_reserved < amount:
                 return None
-            tx_id = str(uuid.uuid4())
             self._reservations[tx_id] = amount
+            self._active.add(tx_id)
         self._arm_rollback(tx_id, amount)
         return tx_id
 
@@ -94,25 +100,41 @@ class CreditService:
         task = self._rollback_tasks.pop(tx_id, None)
         if task:
             task.cancel()
+        born = time.monotonic()
 
         async def _auto_rollback():
-            await asyncio.sleep(ROLLBACK_SECONDS)
-            # Same lock as settlement: a hold disappearing underneath a
-            # delivery that is about to commit loses that charge silently.
-            async with self._lock:
-                if tx_id not in self._reservations:
+            while True:
+                await asyncio.sleep(ROLLBACK_SECONDS)
+                # Same lock as settlement: a hold disappearing underneath a
+                # delivery that is about to commit loses that charge silently.
+                async with self._lock:
+                    if tx_id not in self._reservations:
+                        return
+                    deferments = int((time.monotonic() - born) // ROLLBACK_SECONDS)
+                    if tx_id in self._active and deferments < ROLLBACK_MAX_DEFERRALS:
+                        # A live turn still owns this hold: one step can run
+                        # longer than ROLLBACK_SECONDS (router + gateway
+                        # timeouts), and freeing its hold here would let the
+                        # later commit silently no-op - delivered work for
+                        # free. Wait for the turn to settle.
+                        logger.debug("rollback deferred, turn active (tx: %s)", tx_id)
+                        continue
+                    del self._reservations[tx_id]
+                    self._active.discard(tx_id)
+                    self._rollback_tasks.pop(tx_id, None)
+                    logger.warning(
+                        "Auto-rolled back %d reserved credits (tx: %s).", amount, tx_id
+                    )
                     return
-                del self._reservations[tx_id]
-                self._rollback_tasks.pop(tx_id, None)
-                logger.warning(
-                    "Auto-rolled back %d reserved credits (tx: %s).", amount, tx_id
-                )
 
         self._rollback_tasks[tx_id] = asyncio.create_task(_auto_rollback())
 
-    async def commit_amount(self, tx_id: str, amount: int) -> int:
-        """Settle a hold for an exact charge. May under/over-shoot the hold;
-        overdraft clamps at zero - a completed message is never revoked by billing.
+    async def commit_amount(self, tx_id: str, amount: int | None = None) -> int:
+        """Settle a hold. `amount=None` deducts the full held amount, read
+        under the lock (the old commit() read the hold outside the lock, so
+        a rollback landing between the read and the settle billed zero).
+        Explicit amounts may under/over-shoot the hold; overdraft clamps at
+        zero - a completed message is never revoked by billing.
 
         Idempotent. A second call with the same tx_id finds no hold and
         returns without charging, so a retried settlement cannot bill the
@@ -124,10 +146,13 @@ class CreditService:
         if task:
             task.cancel()
         async with self._lock:
+            self._active.discard(tx_id)
             if tx_id not in self._reservations:
                 logger.info("settlement for %s already applied", tx_id)
                 return await self._get_credits()
             held = self._reservations.pop(tx_id, 0)
+            if amount is None:
+                amount = held
             if amount <= 0:
                 return await self._get_credits()
             current = await self._get_credits()
@@ -146,8 +171,9 @@ class CreditService:
         return new_balance
 
     async def commit(self, tx_id: str) -> int:
-        """Finalize a reservation - deduct the full held amount."""
-        return await self.commit_amount(tx_id, self._reservations.get(tx_id, 0))
+        """Finalize a reservation - deduct the full held amount (read and
+        billed under one lock)."""
+        return await self.commit_amount(tx_id)
 
     async def charge(self, amount: int) -> int:
         """Direct debit with no hold; overdraft clamps at zero (soft metering:
@@ -172,6 +198,7 @@ class CreditService:
             task.cancel()
         async with self._lock:
             self._reservations.pop(tx_id, None)
+            self._active.discard(tx_id)
 
     async def spend(self, amount: int) -> tuple[bool, int]:
         """Deduct credits directly (no reservation). Returns (success, remaining)."""
@@ -234,6 +261,11 @@ class CreditService:
             self._reset_day = today
             return
         async with self._lock:
+            # Re-check the memo under the lock: two concurrent entries on a
+            # day boundary would otherwise both top up (idempotent today,
+            # but the second pass must find the work already done).
+            if self._reset_day == today:
+                return
             # Re-read under the lock: the clock is checked outside it, but
             # two concurrent entries could both pass and both top up.
             current = await self._get_credits()

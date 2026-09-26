@@ -278,7 +278,18 @@ class SearchService:
                 params["timelimit"] = state.timelimit
 
             if state.backend and state.backend != "auto":
-                params["backend"] = state.backend
+                # Only send engines this category actually ships: ddgs
+                # substitutes an invalid backend silently, so the user's
+                # chosen source would be a lie. Registry churn between
+                # releases is caught here, at the send site.
+                try:
+                    from ddgs.engines import ENGINES
+
+                    backend_ok = state.backend in ENGINES.get(search_type, {})
+                except Exception:
+                    backend_ok = True  # cannot verify: send what was chosen
+                if backend_ok:
+                    params["backend"] = state.backend
 
             if state.page and state.page > 1:
                 params["page"] = state.page

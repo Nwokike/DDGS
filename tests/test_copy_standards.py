@@ -53,3 +53,13 @@ def test_no_em_dash_in_comments_or_code_lines():
             if "—" in line or "–" in line:
                 offenders.append(f"{path.relative_to(SRC)}:{lineno}")
     assert not offenders, "em/en-dash in source lines: " + ", ".join(offenders)
+
+
+def test_current_version_has_a_changelog_entry():
+    """The up-to-date dialog renders notes_for(_APP_VERSION): a version bump
+    with no entry would show the wrong release's notes (KTV's guard)."""
+    from components.settings.version import _APP_VERSION
+    from core.changelog import CHANGELOG, notes_for
+
+    assert _APP_VERSION in CHANGELOG, "add an entry when bumping the version"
+    assert notes_for(_APP_VERSION)

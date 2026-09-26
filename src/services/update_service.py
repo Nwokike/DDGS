@@ -73,7 +73,11 @@ class UpdateService:
                 if not isinstance(data, dict):
                     return None
                 server_build = data.get("build_number", 0)
-                if server_build > _APP_BUILD:
+                # Announcements must reach CURRENT installs - announcing
+                # anything to people who already upgraded is the only case
+                # that matters. Regular updates still require a newer build.
+                is_announcement = data.get("type") == "announcement"
+                if is_announcement or server_build > _APP_BUILD:
                     info = UpdateInfo(
                         version=str(data.get("version", _APP_VERSION)),
                         build_number=int(server_build),

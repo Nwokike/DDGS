@@ -615,3 +615,166 @@ def test_wallet_reads_live_premium_state():
     assert "if state.is_premium:" in source
     # _on_watch: refuses at run time, not at build time
     assert "        if state.is_premium:\n            return" in source
+
+
+# ── a stopped or crashed turn must not refund delivered work ────────────
+def test_settlement_floors_every_terminal_branch():
+    """_charged_steps bills one step for any branch where text reached the
+    screen; the Stop button lands in CancelledError with steps still 0."""
+    from services.chat_agent import _charged_steps
+
+    assert _charged_steps(0, ["delivered"]) == 1, "floor for delivered text"
+    assert _charged_steps(0, []) == 0, "nothing delivered is fully refunded"
+    assert _charged_steps(0, ["   "]) == 0, "whitespace is not delivery"
+    assert _charged_steps(2, ["delivered"]) == 2, "completed steps bill as-is"
+
+    source = (SRC / "services" / "chat_agent.py").read_text(encoding="utf-8")
+    # definition + text_final, ChatCancelled, MidStream, Unavailable,
+    # CancelledError, Exception: every terminal path routes through it.
+    assert source.count("_charged_steps(") >= 7, (
+        "a terminal branch settled raw steps and would refund delivery"
+    )
+
+
+def test_out_of_credits_still_records_the_question(monkeypatch):
+    """A 0-balance turn must record the user's message before erroring, or
+    the question vanishes and Retry has nothing to re-send."""
+    import asyncio
+
+    from core.state import state
+    from services import chat_agent
+
+    events: list[str] = []
+
+    class ZeroCredits:
+        async def get_balance(self):
+            return 0
+
+    monkeypatch.setattr(state, "credit_service", ZeroCredits(), raising=False)
+    asyncio.run(
+        chat_agent.run_turn(
+            "what is the weather",
+            [],
+            lambda kind, data: events.append(kind),
+            asyncio.Event(),
+        )
+    )
+    assert events[0] == "user", f"question must be recorded first: {events}"
+    assert "error" in events
+
+
+# ── the 90s gap is spent by impressions, not by attempts ────────────────
+def test_a_noop_interstitial_does_not_burn_the_gap(monkeypatch):
+    """A trigger that cannot even create an ad must leave the central gap
+    unspent, or one failure locks out the next real impression for 90s."""
+    import asyncio
+
+    from core.state import state
+    from services import ad_service as mod
+
+    class Page:
+        platform = mod.ft.PagePlatform.ANDROID
+        web = False
+
+        def __init__(self):
+            self.services = []
+
+        def run_task(self, *a, **k):
+            pass
+
+    svc = mod.AdService(Page())
+    state.is_premium = False
+    state.last_interstitial_ts = 0.0
+
+    async def _fail_preload(on_close=None):
+        # The constructor failed: interstitial stays None, nothing queued.
+        pass
+
+    monkeypatch.setattr(svc, "preload_interstitial", _fail_preload)
+    shown = asyncio.run(svc.show_interstitial())
+    assert shown is False, "a no-op must not report success"
+    assert state.last_interstitial_ts == 0.0, "the gap must stay unspent"
+
+
+def test_a_queued_impression_stamps_the_gap_when_it_shows(monkeypatch):
+    import asyncio
+
+    from core.state import state
+    from services import ad_service as mod
+
+    class Page:
+        platform = mod.ft.PagePlatform.ANDROID
+        web = False
+
+        def __init__(self):
+            self.services = []
+
+        def run_task(self, *a, **k):
+            pass
+
+    class Ad:
+        async def show(self):
+            pass
+
+    svc = mod.AdService(Page())
+    state.is_premium = False
+    state.last_interstitial_ts = 0.0
+
+    async def _queued_preload(on_close=None):
+        svc.interstitial = Ad()
+        svc._interstitial_loaded = True
+
+    monkeypatch.setattr(svc, "preload_interstitial", _queued_preload)
+    assert asyncio.run(svc.show_interstitial()) is True
+    assert state.last_interstitial_ts == 0.0, "queueing is not an impression"
+    asyncio.run(svc._show_loaded())
+    assert state.last_interstitial_ts > 0.0, "the fired impression stamps the gap"
+
+
+# ── backend truth: what we offer and what we send must exist in ddgs ────
+def test_backend_options_match_the_ddgs_registry():
+    """ddgs substitutes an invalid backend silently; every offered source
+    must exist in the runtime registry for its category."""
+    from ddgs.engines import ENGINES
+
+    from core.constants import (
+        BACKEND_OPTIONS_BOOKS,
+        BACKEND_OPTIONS_IMAGES,
+        BACKEND_OPTIONS_NEWS,
+        BACKEND_OPTIONS_TEXT,
+        BACKEND_OPTIONS_VIDEOS,
+    )
+
+    for options, category in (
+        (BACKEND_OPTIONS_TEXT, "text"),
+        (BACKEND_OPTIONS_IMAGES, "images"),
+        (BACKEND_OPTIONS_NEWS, "news"),
+        (BACKEND_OPTIONS_VIDEOS, "videos"),
+        (BACKEND_OPTIONS_BOOKS, "books"),
+    ):
+        for option in options:
+            if option["key"] == "auto":
+                continue
+            assert option["key"] in ENGINES[category], (
+                f"{option['key']!r} is not a {category} engine in ddgs 9.16"
+            )
+
+
+def test_stale_backend_is_corrected_in_state_and_at_the_send_site():
+    """The dropdown used to display 'auto' while state kept the stale
+    engine, and search_service sent it verbatim."""
+    home = (SRC / "screens" / "home_screen.py").read_text(encoding="utf-8")
+    assert 'controller.save("backend", "auto")' in home, (
+        "a stale backend must be corrected in state, not just displayed"
+    )
+    search = (SRC / "services" / "search_service.py").read_text(encoding="utf-8")
+    assert "ENGINES.get(search_type" in search, (
+        "the send site must validate against the runtime registry"
+    )
+    reader = (SRC / "screens" / "content_reader_screen.py").read_text(
+        encoding="utf-8"
+    )
+    assert reader.count("run_task(_fetch, _current_url, True)") == 2, (
+        "Refresh and Retry must bypass the 24h page cache"
+    )
+    assert "force=force" in reader

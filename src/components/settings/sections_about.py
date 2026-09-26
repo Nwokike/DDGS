@@ -5,10 +5,32 @@ from collections.abc import Callable
 import flet as ft
 
 from components.settings.version import _APP_VERSION
+from core.constants import CONTACT_EMAIL, GITHUB_REPO_URL
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
 from core.utils import in_memory_log_handler
+from services.update_service import PLAY_STORE_URL
+
+
+def _is_store_device(page) -> bool:
+    """Phones and TV are the Play audience; desktop has no listing (KTV)."""
+    try:
+        return page.platform in (
+            ft.PagePlatform.ANDROID,
+            ft.PagePlatform.IOS,
+            ft.PagePlatform.ANDROID_TV,
+        )
+    except Exception:
+        return False
+
+
+def _rate_url(page) -> str:
+    return PLAY_STORE_URL if _is_store_device(page) else GITHUB_REPO_URL
+
+
+def _rate_subtitle(page) -> str:
+    return "Rate us on Google Play" if _is_store_device(page) else "Star us on GitHub"
 
 
 def build_logs_dialog(page: ft.Page):
@@ -237,6 +259,38 @@ def build_about_section(
                             "ddgs (MIT) + primp",
                             size=FONT_SM,
                             color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Row(
+                    [
+                        ft.Text("Contact developer", size=FONT_SM, font_family="Outfit"),
+                        ft.TextButton(
+                            content=ft.Text(
+                                CONTACT_EMAIL,
+                                size=FONT_SM,
+                                weight=ft.FontWeight.W_600,
+                                color=AppColors.PRIMARY,
+                            ),
+                            action=ft.OpenUrl(f"mailto:{CONTACT_EMAIL}"),
+                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
+                ft.Row(
+                    [
+                        ft.Text("Rate 5 stars", size=FONT_SM, font_family="Outfit"),
+                        ft.TextButton(
+                            content=ft.Text(
+                                _rate_subtitle(page),
+                                size=FONT_SM,
+                                weight=ft.FontWeight.W_600,
+                                color=AppColors.PRIMARY,
+                            ),
+                            action=ft.OpenUrl(_rate_url(page)),
+                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,

@@ -458,6 +458,12 @@ def HomeScreen() -> Control:
     # Search tools panel
     backend_options = BACKEND_OPTIONS_MAP.get(active_tab, BACKEND_OPTIONS_TEXT)
     current_backend = state.backend or "auto"
+    if not any(b["key"] == current_backend for b in backend_options):
+        # The dropdown already shows "auto", but the stale value is what
+        # the next search sends - correct STATE too, or the chosen source
+        # is silently substituted by ddgs with no signal to the user.
+        current_backend = "auto"
+        controller.save("backend", "auto")
 
     if active_tab == "extract":
         tools_controls = [

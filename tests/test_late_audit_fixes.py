@@ -374,6 +374,10 @@ def test_premium_user_gets_no_ads(monkeypatch):
 
 
 def test_interstitial_honours_the_gap(monkeypatch):
+    """Refused inside the gap without extending it; admitted past it with
+    the stamp deferred to the impression (not the attempt)."""
+    import time as time_mod
+
     import flet as ft
 
     from core.state import state
@@ -391,18 +395,28 @@ def test_interstitial_honours_the_gap(monkeypatch):
     svc = ads.AdService(Page())
     svc._can_request_ads = True
     state.is_premium = False
-    state.last_interstitial_ts = 0.0
 
-    asyncio.run(svc.show_interstitial())
-    first_stamp = state.last_interstitial_ts
-    assert first_stamp > 0, "the first call records a timestamp"
-    # A second call inside the 90s gap must be refused and must not move
-    # the timestamp forward, or every later call would see a fresh gap.
-    state.last_interstitial_ts = first_stamp - 10
-    asyncio.run(svc.show_interstitial())
-    assert state.last_interstitial_ts == first_stamp - 10, (
+    # A recent impression: refuse, and never extend the cooldown.
+    state.last_interstitial_ts = time_mod.time() - 10
+    recent = state.last_interstitial_ts
+    assert asyncio.run(svc.show_interstitial()) is False
+    assert state.last_interstitial_ts == recent, (
         "a refused call must not extend the cooldown"
     )
+
+    # Past the gap the trigger is admitted; queueing is not an impression,
+    # so the old stamp stays until _show_loaded fires.
+    admitted = time_mod.time() - ads.AdService.MIN_INTERSTITIAL_GAP - 1
+    state.last_interstitial_ts = admitted
+
+    async def _queued(on_close=None):
+        pass  # interstitial stays None: the queue path creates it
+
+    monkeypatch.setattr(svc, "preload_interstitial", _queued)
+    assert asyncio.run(svc.show_interstitial()) is False, (
+        "a preload that creates nothing reports failure"
+    )
+    assert state.last_interstitial_ts == admitted, "no impression, no stamp"
 
 
 def test_desktop_gets_no_ads(monkeypatch):
@@ -444,3 +458,66 @@ def test_ci_gates_every_build_on_lint_and_tests():
     assert "needs: [quality]" in workflow, "the release must wait for it"
     assert "uv run ruff check src tests" in workflow
     assert "uv run pytest -q" in workflow
+
+
+# ── announcements must reach current installs ───────────────────────────
+def test_announcements_reach_current_installs(monkeypatch):
+    """type=announcement used to sit behind the build gate, so it could
+    only fire when the server build was already newer - the one case where
+    announcing anything is pointless."""
+    from services import update_service as us
+
+    def client_factory(payload):
+        class Resp:
+            status_code = 200
+
+            def json(self):
+                return payload
+
+        class Client:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, *a, **k):
+                return Resp()
+
+        return Client
+
+    svc = us.UpdateService()
+    monkeypatch.setattr(
+        us.httpx,
+        "AsyncClient",
+        client_factory(
+            {
+                "build_number": us._APP_BUILD,
+                "type": "announcement",
+                "title": "Maintenance tonight",
+                "release_notes": "Back at 3am",
+            }
+        ),
+    )
+    info = asyncio.run(svc.check_for_update())
+    assert info is not None, "an announcement at the running build must surface"
+    assert info["type"] == "announcement"
+    assert info["title"] == "Maintenance tonight"
+
+    monkeypatch.setattr(
+        us.httpx,
+        "AsyncClient",
+        client_factory(
+            {
+                "build_number": us._APP_BUILD,
+                "type": "update",
+                "version": "9.9.9",
+            }
+        ),
+    )
+    assert asyncio.run(svc.check_for_update()) is None, (
+        "a plain update still requires a newer build"
+    )

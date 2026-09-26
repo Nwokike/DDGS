@@ -144,3 +144,82 @@ def test_catalog_hint_formats():
     assert "120ms" in h and "200 requests/hour" in h
     assert "rate limited" in _hint({"id": "x", "status": "rate limited"})
     assert "rotates" in _hint({"id": "auto", "status": "active"})
+
+
+# ── SSE leniency and the probe cache ─────────────────────────────────────
+class _FakeResp:
+    def __init__(self, lines):
+        self._lines = lines
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
+
+def test_sse_parser_accepts_spaceless_and_multiline_data():
+    from services.ai_service import _consume_sse
+
+    tokens: list[str] = []
+    lines = [
+        ": keepalive",
+        "event: message",
+        'data:{"choices":[{"delta":{"content":"hel"}}]}',
+        "",
+        'data: {"choices":[{"delta":{"content":"lo"}}]}',
+        (
+            'data: {"choices":[{"delta":{"content":"!"},'
+            '"finish_reason":"stop"}]}'
+        ),
+        "",
+        "data: [DONE]",
+    ]
+    finish, tools = asyncio.run(_consume_sse(_FakeResp(lines), tokens.append, False))
+    assert "".join(tokens) == "hello!", tokens
+    assert finish == "stop"
+    assert tools is None
+
+    # One event split across two data lines (split between JSON tokens,
+    # where the spec's newline join is whitespace).
+    tokens2: list[str] = []
+    lines2 = [
+        'data: {"choices":',
+        'data: [{"delta":{"content":"multi"}}]}',
+        "",
+        "data: [DONE]",
+    ]
+    asyncio.run(_consume_sse(_FakeResp(lines2), tokens2.append, False))
+    assert "".join(tokens2) == "multi", tokens2
+
+
+def test_probe_miss_is_cached(monkeypatch):
+    """The 3s watchdog must not pay an 11-port scan per tick."""
+    from services import ai_service
+
+    async def go():
+        calls = {"n": 0}
+
+        class FakeClient:
+            def __init__(self, *a, **k):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def get(self, *a, **k):
+                calls["n"] += 1
+                raise OSError("refused")
+
+        monkeypatch.setattr(ai_service.httpx, "AsyncClient", FakeClient)
+        ai_service._probe_miss_until = 0.0
+        try:
+            assert await ai_service._probe_existing_router() is None
+            assert calls["n"] == 11, "a full miss probes every port once"
+            assert await ai_service._probe_existing_router() is None
+            assert calls["n"] == 11, "the second probe must come from cache"
+        finally:
+            ai_service._probe_miss_until = 0.0
+
+    asyncio.run(go())

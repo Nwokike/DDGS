@@ -24,10 +24,12 @@ will ever need is a form, not a menu.
 from __future__ import annotations
 
 import re
+import time
 
 import flet as ft
 
 from components.results.downloader import launch_url
+from core.constants import DAILY_FREE_CREDITS, PREMIUM_DAILY_CREDITS
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import (
@@ -40,6 +42,7 @@ from core.tokens import (
     SPACE_XXS,
 )
 from services import license_service
+from services.premium_service import page_has_ads
 
 _OPACITY_BACKDROP = 0.08
 _OPACITY_DIM = 0.6
@@ -65,6 +68,61 @@ _PLANS = (
 
 # One catalog fetch per launch, not one per repaint of this card.
 _prices_attempted = False
+
+_MONTHS = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
+
+def _paid_subtitle(claims, has_ads: bool) -> str:
+    """Paid-row subtitle: honest benefits plus the token's own dates.
+
+    paid_through comes from the signed token (exp-guarded), so the dates
+    stay truthful offline, and its absence marks a lifetime licence
+    (KTV Player's _premium_subtitle, with DDGS benefits).
+    """
+    base = (
+        f"Ads removed · {PREMIUM_DAILY_CREDITS} credits a day"
+        if has_ads
+        else f"{PREMIUM_DAILY_CREDITS} credits a day"
+    )
+    paid_through = getattr(claims, "paid_through", None)
+    if not paid_through:
+        return f"{base} · thank you!"
+    product = str(getattr(claims, "product", "") or "")
+    renewal = {"monthly": "renews monthly", "yearly": "renews yearly"}.get(
+        product, "renews automatically"
+    )
+    try:
+        moment = time.gmtime(int(paid_through) / 1000)
+        label = f"{moment.tm_mday} {_MONTHS[moment.tm_mon - 1]} {moment.tm_year}"
+    except (TypeError, ValueError, OverflowError, OSError):
+        return f"{base} · thank you!"
+    return f"{base} · active until {label} · {renewal}"
+
+
+def _pitch_subtitle(has_ads: bool) -> str:
+    """Free-row pitch: what Premium buys here (KTV's always-present row)."""
+    if has_ads:
+        return (
+            f"Removes ads and raises assistant credits from "
+            f"{DAILY_FREE_CREDITS} to {PREMIUM_DAILY_CREDITS} a day"
+        )
+    return (
+        f"Raises assistant credits from {DAILY_FREE_CREDITS} "
+        f"to {PREMIUM_DAILY_CREDITS} a day"
+    )
 
 
 def _divider() -> ft.Divider:
@@ -348,7 +406,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         # one, so pointing a fresh buyer at "Check status" would confirm a
         # payment and still leave Premium off. KTV Player sends them here.
         _snack(
-            "Complete the payment in your browser, then tap Restore.",
+            "Complete the payment. This screen unlocks itself when it lands.",
             "success",
         )
 
@@ -392,7 +450,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         )
 
     async def _restore(field: ft.TextField) -> None:
-        recovery_id = (field.value or "").strip().upper()
+        recovery_id = (field.value or "").strip()
         page.pop_dialog()
         if not recovery_id:
             _snack("Paste the recovery ID from your receipt first", "warning")
@@ -434,16 +492,35 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         _retry_prices(page, premium)
 
     # ── Status ──────────────────────────────────────────────────────────
-    if state.is_premium:
-        title, subtitle = _STATUS_COPY.get(
-            state.license_status if state.license_premium_active else "active",
-            ("Premium active", "Everything Premium includes is switched on"),
-        )
+    # One row, always present (KTV Player): a lapse explains, a paid row
+    # shows the token's own dates, a free row is the pitch.
+    status = state.license_status if state.license_premium_active else ""
+    has_ads = page_has_ads(page)
+    if state.is_premium and status in _STATUS_COPY and status != "active":
+        title, subtitle = _STATUS_COPY[status]
         rows.append(
             _setting_row(
                 ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
                 title,
                 subtitle,
+                ft.Icon(
+                    ft.Icons.ERROR_OUTLINE_ROUNDED,
+                    size=ICON_SM,
+                    color=AppColors.WARNING,
+                ),
+            )
+        )
+    elif state.is_premium:
+        claims = (
+            getattr(getattr(premium, "license", None), "claims", None)
+            if license_ok
+            else None
+        )
+        rows.append(
+            _setting_row(
+                ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
+                "DDGS Premium",
+                _paid_subtitle(claims, has_ads),
                 ft.Icon(
                     ft.Icons.CHECK_CIRCLE_ROUNDED,
                     size=ICON_MD,
@@ -452,11 +529,11 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             )
         )
     else:
-        if state.license_status in _STATUS_COPY:
-            # A lapsed payment (grace/expired/revoked) gets explained before
-            # the buy rows: say what happened first, the way back is the
-            # very next section.
-            title, subtitle = _STATUS_COPY[state.license_status]
+        if status in _STATUS_COPY:
+            # A lapsed payment (expired/revoked) gets explained before the
+            # buy rows: say what happened first, the way back is the very
+            # next section.
+            title, subtitle = _STATUS_COPY[status]
             rows.append(
                 _setting_row(
                     ft.Icons.REPORT_ROUNDED,
@@ -466,6 +543,19 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                         ft.Icons.ERROR_OUTLINE_ROUNDED,
                         size=ICON_SM,
                         color=AppColors.WARNING,
+                    ),
+                )
+            )
+        else:
+            rows.append(
+                _setting_row(
+                    ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
+                    "DDGS Premium",
+                    _pitch_subtitle(has_ads),
+                    ft.Icon(
+                        ft.Icons.CIRCLE_OUTLINED,
+                        size=ICON_SM,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
                     ),
                 )
             )

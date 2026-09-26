@@ -782,7 +782,6 @@ class AppController:
 
             # Interstitial on every search (Sherlock-parity frequency);
             # the 90s minimum gap is enforced centrally in AdService.
-            state.search_count += 1
             if not state.is_premium and state.ad_service:
                 await state.ad_service.show_interstitial()
 

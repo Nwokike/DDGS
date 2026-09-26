@@ -402,6 +402,18 @@ async def settle_turn(credits, tx_id: str | None, steps: int) -> int:
     return await credits.commit_amount(tx_id, amount)
 
 
+def _charged_steps(steps: int, content_parts: list[str]) -> int:
+    """Steps to bill: one floor whenever the user actually saw text.
+
+    Every terminal branch settles through this rule. The Stop button
+    delivers CancelledError before `steps` increments, so a branch billing
+    raw steps refunded delivered tokens; a crash or dropped connection did
+    the same. Delivered work is worth one step, whatever ended the turn.
+    """
+    delivered = bool("".join(content_parts).strip())
+    return max(steps, 1) if delivered else steps
+
+
 def _error_text(exc: BaseException) -> str:
     """A message a human can act on for any exception.
 
@@ -507,6 +519,9 @@ async def run_turn(
     always finishes (balance may clamp to 0). A 0 balance starts blocked.
     """
     credits = getattr(state, "credit_service", None)
+    # The question is recorded before any gate: an out-of-credits turn
+    # still shows the user what they asked, and Retry can re-send it.
+    emit("user", {"text": user_text})
     if credits is None:
         emit("error", {"kind": "unavailable", "steps": 0, "cost": 0})
         return
@@ -518,7 +533,6 @@ async def run_turn(
     # (settlement then charges directly). Credits must never block the work.
     tx = await credits.reserve(COST_STEP)
 
-    emit("user", {"text": user_text})
     emit("assistant_start", {})
     if balance < COST_STEP * 3:
         emit(
@@ -730,6 +744,7 @@ async def run_turn(
             )
             return
         clean, related = ai_service.parse_related(final_text)
+        charge = _charged_steps(steps, content_parts)
         emit(
             "text_final",
             {
@@ -737,40 +752,41 @@ async def run_turn(
                 "related": related,
                 "served_by": served_by,
                 "model": used_model,
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
-        await settle_turn(credits, tx, steps)
+        await settle_turn(credits, tx, charge)
     except ChatCancelled:
         # on_token raises the cancel before stream_llm returns, so `steps`
         # is still 0 even though tokens reached the screen. Refunding that
         # would give away delivered work: a model call happened, it just
-        # did not finish. Count one step when the user actually saw text.
-        delivered = bool("".join(content_parts).strip())
-        charge_steps = max(steps, 1) if delivered else steps
-        await settle_turn(credits, tx, charge_steps)
+        # did not finish. _charged_steps applies the floor.
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)
         emit(
             "stopped",
             {
                 "partial": "".join(content_parts),
-                "steps": charge_steps,
-                "cost": charge_steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
     except ai_service.AIMidStream:
-        await settle_turn(credits, tx, steps)  # partial work delivered - charge it
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)  # partial work delivered - charge it
         emit(
             "error",
             {
                 "kind": "midstream",
                 "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
     except ai_service.AIUnavailable as exc:
-        await settle_turn(credits, tx, steps)
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)
         logger.info("chat turn unavailable: %s", exc)
         emit(
             "error",
@@ -780,35 +796,38 @@ async def run_turn(
                 # (terse, no internals) - show the router's own words.
                 "message": str(exc).strip(),
                 "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
     except asyncio.CancelledError:
         # Hard cancel (the Stop button). CancelledError is a BaseException,
         # so it escapes `except Exception` entirely and would leave the
-        # reservation un-settled until the 240s auto-rollback fired. Settle
-        # what was actually delivered, then let the cancellation through.
-        await settle_turn(credits, tx, steps)
-        logger.info("chat turn cancelled after %d step(s)", steps)
+        # reservation un-settled until the auto-rollback fired. This is the
+        # branch Stop actually lands in: settle by what was delivered, then
+        # let the cancellation through.
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)
+        logger.info("chat turn cancelled after %d step(s)", charge)
         emit(
             "stopped",
             {
                 "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
         raise
     except Exception:
-        await settle_turn(credits, tx, steps)
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)
         logger.exception("chat turn failed")
         emit(
             "error",
             {
                 "kind": "unavailable",
-                "partial": "",
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "partial": "".join(content_parts),
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )

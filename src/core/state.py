@@ -135,7 +135,6 @@ class AppState:
         self.search_history: list[dict] = []
 
         # ── Ad tracking ──
-        self.search_count: int = 0
         self.last_interstitial_ts: float = 0.0  # central 90s gap guard
 
         # ── AI mode (DDGS 2.0) - chat via the Ask Assistant FAB ──

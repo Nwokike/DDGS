@@ -32,8 +32,10 @@ def _dismiss(page: ft.Page, e=None) -> None:
 
 
 def _show_up_to_date(page: ft.Page) -> None:
-    """The 'You're up to date' mode: installed version + live re-check."""
+    """The 'You're up to date' mode: installed version, bundled changelog,
+    live re-check (KTV Player's second mode)."""
     from components.settings.version import _APP_VERSION as version
+    from core.changelog import notes_for
 
     async def _recheck() -> None:
         from services.update_service import UpdateService
@@ -57,6 +59,21 @@ def _show_up_to_date(page: ft.Page) -> None:
         except Exception:
             pass
 
+    notes = notes_for(version)
+    body_controls: list[ft.Control] = [
+        ft.Text(f"Latest version · v{version}", size=13),
+    ]
+    if notes:
+        body_controls.extend(
+            [
+                ft.Text("What's New:", size=13, weight=ft.FontWeight.W_600),
+                ft.Markdown(
+                    notes,
+                    selectable=True,
+                    extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                ),
+            ]
+        )
     dlg = ft.AlertDialog(
         title=ft.Row(
             [
@@ -71,7 +88,12 @@ def _show_up_to_date(page: ft.Page) -> None:
             spacing=8,
         ),
         content=ft.Container(
-            content=ft.Text(f"Latest version · v{version}", size=13),
+            content=ft.Column(
+                body_controls,
+                spacing=8,
+                tight=True,
+                scroll=ft.ScrollMode.AUTO,
+            ),
             width=360,
         ),
         actions=[

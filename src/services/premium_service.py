@@ -38,6 +38,7 @@ import time
 from collections.abc import Callable
 
 from core.build_channel import CHANNEL
+from core.constants import PREMIUM_DAILY_CREDITS
 from core.state import state
 from services import license_service
 from services.license_service import KiriLicenseService, LicenseUnavailable
@@ -48,7 +49,29 @@ __all__ = [
     "LicenseUnavailable",
     "PremiumService",
     "apply_entitlement",
+    "page_has_ads",
+    "unlock_message",
 ]
+
+
+def page_has_ads(page) -> bool:
+    """True where ads are actually requested (mirrors ad_service gates).
+
+    Only native phones/tablets show ads: web and desktop never request
+    any, so claiming "no ads" there would be a lie. Unknown page ->
+    assume ads (most installs are phone APKs), like KTV Player.
+    """
+    try:
+        return bool(page.platform.is_mobile()) and not getattr(page, "web", False)
+    except Exception:
+        return True
+
+
+def unlock_message(page) -> str:
+    """Platform-honest unlock toast (KTV's premium_unlocked_message)."""
+    if page_has_ads(page):
+        return "Premium unlocked. Ads removed."
+    return f"Premium unlocked. {PREMIUM_DAILY_CREDITS} credits a day."
 
 # Cadence, deliberately asymmetric (KTV Player):
 # - checkout: seconds, because the user is holding the phone waiting for
@@ -331,7 +354,7 @@ class PremiumService:
                     status.product,
                     status.status,
                 )
-                self._notify("Premium unlocked.")
+                self._notify(unlock_message(self.page))
                 return
         logger.info("Checkout watcher timed out - Restore purchases remains available")
 
@@ -354,12 +377,14 @@ class PremiumService:
 
     # -- Kiri License surface -------------------------------------------------
 
-    async def kiri_catalog(self) -> list[license_service.LicenseProduct]:
+    async def kiri_catalog(
+        self, force: bool = False
+    ) -> list[license_service.LicenseProduct]:
         """Products offered by the licence Worker, or [] when offline."""
         if self._premium_disabled():
             return []
         try:
-            return await self.license.fetch_catalog()
+            return await self.license.fetch_catalog(force=force)
         except LicenseUnavailable as ex:
             logger.info("License catalog unavailable: %s", ex)
             return []

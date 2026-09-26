@@ -239,3 +239,7 @@ VIDEO_QUALITY_OPTIONS = [
     {"key": "480p", "label": "480p"},
     {"key": "360p", "label": "360p"},
 ]
+
+# Contact and repository (KTV Player keeps the same address).
+CONTACT_EMAIL = "hello@kiri.ng"
+GITHUB_REPO_URL = "https://github.com/Nwokike/DDGS"

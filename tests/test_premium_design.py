@@ -297,7 +297,8 @@ def test_a_premium_holder_sees_no_price_rows(monkeypatch):
     fields: list = []
     _collect(card, texts, fields)
     rendered = " ".join(texts)
-    assert "Premium active" in rendered
+    assert "DDGS Premium" in rendered, "the paid row keeps KTV's title"
+    assert "200 credits a day" in rendered, "the paid row states the benefit"
     assert "Monthly" not in rendered, "a buyer is not sold what they own"
     assert "Restore purchases" in rendered
 
@@ -311,7 +312,10 @@ def test_the_buyer_is_sent_to_restore_not_to_a_status_check():
     assert "_check_status" not in source, (
         "the dead end KTV Player does not have: /status issues no token"
     )
-    assert "then tap Restore." in source
+    # The checkout watcher finishes payment on its own (KTV's copy): the
+    # buyer is never told to tap Restore, which would be a lie here.
+    assert "unlocks itself when it lands" in source
+    assert "then tap Restore." not in source
     # ...and the restore path really does go through the token-issuing call.
     from services import license_service
 

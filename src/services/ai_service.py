@@ -49,6 +49,9 @@ ROUTER_HOST = "127.0.0.1"
 ROUTER_BASE_PORT = 8082
 ROUTER_SPAN = 10  # scan 8082..8092 for a running Kiri router before embedding
 ROUTER_STICKY_COOLDOWN = 60.0  # prefer gateway for a while after router failure
+# A full port-scan miss is remembered this long: the status watchdog ticks
+# every 3s, and each miss would otherwise pay a serial 11-port scan.
+PROBE_MISS_TTL = 30.0
 
 ANSWER_MAX_TOKENS = 1400
 TEMPERATURE = 0.4
@@ -89,6 +92,7 @@ _router_lock = threading.Lock()
 _router_failed_until = 0.0
 _catalog: list[dict] = []  # snapshot of models ACTIVE at fetch/attach time
 _catalog_fetched_at: float = 0.0  # 0 until the first successful /v1/models
+_probe_miss_until = 0.0  # monotonic deadline of the last full-miss scan
 
 
 def _hint(entry: dict) -> str:
@@ -130,7 +134,15 @@ def model_hint(model_id: str) -> str:
 
 
 async def _probe_existing_router() -> int | None:
-    """Scan 8082..8092 for a live Kiri router (ours or the user's own)."""
+    """Scan 8082..8092 for a live Kiri router (ours or the user's own).
+
+    A full miss is remembered for PROBE_MISS_TTL so the 3-second status
+    watchdog stops paying a serial 11-port scan (up to ~5.5s of refused
+    sockets) on every tick while nothing is listening.
+    """
+    global _probe_miss_until
+    if time.monotonic() < _probe_miss_until:
+        return None
     async with httpx.AsyncClient(http2=False) as client:
         for port in range(ROUTER_BASE_PORT, ROUTER_BASE_PORT + ROUTER_SPAN + 1):
             try:
@@ -141,9 +153,11 @@ async def _probe_existing_router() -> int | None:
                     resp.status_code == 200
                     and resp.json().get("adapter") == "kiri-router"
                 ):
+                    _probe_miss_until = 0.0
                     return port
             except Exception:
                 pass  # closed port or not a router - keep scanning
+    _probe_miss_until = time.monotonic() + PROBE_MISS_TTL
     return None
 
 
@@ -386,19 +400,26 @@ async def _consume_sse(
     collect_tools: bool,
     on_thought: Callable[[str], None] | None = None,
 ) -> tuple[str, list[dict] | None]:
-    """Parse OpenAI-style SSE. Returns (finish_reason, tool_calls|None)."""
+    """Parse OpenAI-style SSE. Returns (finish_reason, tool_calls|None).
+
+    Lenient per the SSE grammar: `data:` needs no space, consecutive
+    `data:` lines join with a newline into one value, and keepalives or
+    `event:`/`id:` lines are skipped. A value that parses as JSON on its
+    own is dispatched immediately - how every provider this app talks to
+    actually frames events - and buffering only engages for a genuinely
+    partial value.
+    """
     finish = ""
     fragments: dict = {}
-    async for line in resp.aiter_lines():
-        if not line.startswith("data: "):
-            continue
-        data = line[6:]
-        if data == "[DONE]":
-            break
+    buffer: list[str] = []
+
+    def _process(payload: str) -> str:
+        """Handle one event. Returns ok | incomplete."""
+        nonlocal finish
         try:
-            chunk = json.loads(data)
+            chunk = json.loads(payload)
         except ValueError:
-            continue
+            return "incomplete"
         if "error" in chunk and not (chunk.get("choices")):
             raise AIUnavailable(str(chunk.get("error"))[:200])
         choices = chunk.get("choices") or [{}]
@@ -438,9 +459,7 @@ async def _consume_sse(
                 if tc.get("id"):
                     piece["id"] = tc["id"]
                 if fn.get("name"):
-                    piece["name"] = (
-                        (piece["name"] + fn["name"]) if False else fn["name"]
-                    )
+                    piece["name"] = fn["name"]
                 if fn.get("arguments"):
                     piece["args"] += fn["arguments"]
             # some providers stream whole tool_calls only under message
@@ -452,6 +471,21 @@ async def _consume_sse(
                     "name": fn.get("name") or "",
                     "args": fn.get("arguments") or "",
                 }
+        return "ok"
+
+    async for line in resp.aiter_lines():
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:]
+        payload = payload.removeprefix(" ")
+        if payload == "[DONE]":
+            break
+        buffer.append(payload)
+        if _process("\n".join(buffer)) == "ok":
+            buffer.clear()
+    if buffer:
+        # Trailing partial value: only real if it parses, else it is noise.
+        _process("\n".join(buffer))
     tool_calls = assemble_tool_calls(fragments) if fragments else None
     if tool_calls and not finish:
         finish = "tool_calls"

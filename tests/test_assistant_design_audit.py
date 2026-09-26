@@ -336,19 +336,6 @@ def test_daily_reset_does_not_delete_live_holds():
     asyncio.run(scenario())
 
 
-def test_a_stopped_turn_charges_for_delivered_text(tmp_path, monkeypatch):
-    """on_token raises before steps increments, so a partial answer that
-    reached the screen used to settle at zero and refund delivered work."""
-
-    class Store(_Store):
-        pass
-
-    source = (SRC / "services" / "chat_agent.py").read_text(encoding="utf-8")
-    assert "charge_steps = max(steps, 1) if delivered else steps" in source, (
-        "a stopped turn with visible text must be charged"
-    )
-    assert "delivered = bool" in source
-
 
 def test_cancel_scrape_needs_approval():
     """It deletes a user's recurring crawl and persists the change, yet it

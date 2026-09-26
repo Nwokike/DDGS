@@ -189,9 +189,8 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         _setting_row(
             ft.Icons.PRICE_CHECK_ROUNDED,
             "What credits are for",
-            f"A chat reply, a search, or a page fetch costs "
-            f"{credit_word(COST_STEP)}. Search overviews and page summaries "
-            "are free",
+            f"Each Assistant model step costs {credit_word(COST_STEP)}. "
+            "Search, scraping, downloads, overviews and summaries are free",
             ft.Text(
                 f"{COST_STEP} / step",
                 size=FONT_SM,
