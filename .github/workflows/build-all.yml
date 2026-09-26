@@ -125,8 +125,7 @@ jobs:
 
           if errs:
               print("Version drift:", file=sys.stderr)
-              print("
-".join(f"  - {e}" for e in errs), file=sys.stderr)
+              print("\n".join(f"  - {e}" for e in errs), file=sys.stderr)
               sys.exit(1)
           PY
       - name: Ruff
