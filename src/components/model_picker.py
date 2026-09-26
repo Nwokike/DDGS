@@ -406,3 +406,13 @@ def _select(page: ft.Page, ctrl, model_id: str) -> None:
     state.ai_model = model_id
     if ctrl:
         ctrl.save("ai_model", model_id)
+    # The chat view is imperative, not a state subscriber: without this
+    # the header pill only caught up on the next render (the owner had to
+    # press New chat to see the model change).
+    session = getattr(page, "_chat_session", None)
+    refresh = getattr(session, "refresh_model_chip", None)
+    if callable(refresh):
+        try:
+            refresh()
+        except Exception:
+            pass

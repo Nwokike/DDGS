@@ -998,7 +998,7 @@ class AppController:
         through the arbiter *before* calling, so `not state.is_premium` was
         always False, the top-up never ran, and the return value killed the
         "Premium active" snackbar with it. A subscriber who bought at 23:50
-        UTC kept 50 credits until the next reset while the card promised 200.
+        UTC kept 50 credits until the next reset while the card promised 500.
         """
         if not first_time or not state.is_premium:
             return False
@@ -1034,9 +1034,11 @@ class AppController:
             ad_service = getattr(self, "ad_service", None)
             ads_exist = bool(ad_service) and ad_service._is_mobile()
             await self.show_snack(
-                "Premium active. Ads off, 200 assistant credits/day."
+                f"Premium active. Ads off, {PREMIUM_DAILY_CREDITS} "
+                "assistant credits/day."
                 if ads_exist
-                else "Premium active. 200 assistant credits/day.",
+                else f"Premium active. {PREMIUM_DAILY_CREDITS} assistant "
+                "credits/day.",
                 "success",
             )
 

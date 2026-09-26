@@ -404,3 +404,30 @@ def test_storage_json_still_roundtrips_unchanged(tmp_path, monkeypatch):
     assert proc.returncode == 0, proc.stderr
     assert "ok" in proc.stdout
     assert (data_dir / "storage.json").exists()
+
+
+def test_concurrent_conversation_writes_do_not_collide():
+    """The field log showed Errno 13 / WinError 32: a turn-final save and a
+    cancel save shared one fixed .tmp name. Every write now gets its own
+    temp file, so racing writers both land."""
+    import concurrent.futures
+    import json
+
+    from services import conversation_service as cs
+
+    path = cs._path("race-test")
+    try:
+        payload = {"id": "race-test", "messages": [{"role": "user", "content": "hi"}]}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            results = list(
+                pool.map(lambda i: cs._write(path, {**payload, "n": i}), range(6))
+            )
+        assert all(results), f"some writes failed: {results}"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["id"] == "race-test", "the file must be valid JSON"
+    finally:
+        for leftover in path.parent.glob("race-test*.json*"):
+            try:
+                leftover.unlink()
+            except OSError:
+                pass

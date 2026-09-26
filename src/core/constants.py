@@ -168,7 +168,7 @@ VIDEO_LICENSE_OPTIONS = [
 
 # ── AI mode (DDGS 2.0) ───────────────────────────────────────────────────
 DAILY_FREE_CREDITS = 50
-PREMIUM_DAILY_CREDITS = 200
+PREMIUM_DAILY_CREDITS = 500
 COST_STEP = 1  # one Assistant step = one model call
 COST_OVERVIEW = 0  # passive search overview is free
 COST_SUMMARY = 0  # passive page summary is free

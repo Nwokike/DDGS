@@ -5,7 +5,7 @@ current APP_VERSION in sync when bumping (guarded by tests)."""
 CHANGELOG: dict[str, str] = {
     "2.0.0": (
         "- Assistant: agentic chat that searches, reads and saves pages for you\n"
-        "- Assistant credits: 50 a day free, 200 with Premium\n"
+        "- Assistant credits: 50 a day free, 500 with Premium\n"
         "- Premium unlocks itself after payment; the recovery ID is on "
         "your receipt\n"
         "- The Play Store build stays free-only with no purchase UI\n"

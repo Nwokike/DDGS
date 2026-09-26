@@ -62,16 +62,22 @@ def _norm_height(fmt: dict) -> int:
 
 
 def _pick_format(player_response: dict, preferred_quality: str):
-    """Pick the best format dict for the requested quality."""
+    """Pick the best downloadable format for the requested quality.
+
+    Only streamingData.formats (muxed video + audio) qualify: adaptiveFormats
+    are video-only or audio-only streams and the app has no muxer (no new
+    dependencies), so picking one would save a silent file. A requested
+    height with no muxed candidate downgrades to the best muxed stream
+    instead of failing - the resolver's job is to hand back something
+    playable, and YouTube stopped putting urls on ANDROID adaptive formats.
+    """
     streaming = player_response.get("streamingData", {})
-    formats = streaming.get("formats", [])
-    adaptive = streaming.get("adaptiveFormats", [])
-    all_fmts = formats + adaptive
-    if not all_fmts:
+    muxed = streaming.get("formats", [])
+    if not muxed:
         return None
 
     norm = []
-    for f in all_fmts:
+    for f in muxed:
         norm.append(
             {
                 "fmt": f,
@@ -84,6 +90,11 @@ def _pick_format(player_response: dict, preferred_quality: str):
                 "ext": _ext_from_mime(f.get("mimeType", "")),
             }
         )
+    # A stream we can neither fetch nor decipher is dead weight: excluding
+    # it here is what stops the caller from selecting it and then failing.
+    usable = [n for n in norm if n["has_url"] or n["has_cipher"]]
+    if not usable:
+        return None
 
     def mp4_first(items):
         mp4 = [n for n in items if n["ext"] == "mp4"]
@@ -92,31 +103,30 @@ def _pick_format(player_response: dict, preferred_quality: str):
     def by_height_desc(items):
         return sorted(items, key=lambda n: n["height"], reverse=True)
 
-    prog = mp4_first([n for n in norm if n["has_url"]])
-    any_fmt = mp4_first(norm)
+    def by_height_asc(items):
+        return sorted(items, key=lambda n: n["height"])
 
     if preferred_quality == "best":
         for itag in (22, 18):
-            for n in prog:
+            for n in mp4_first(usable):
                 if n["itag"] == itag:
                     return n
-        if prog:
-            return by_height_desc(prog)[0]
-        return by_height_desc(any_fmt)[0]
+        return by_height_desc(mp4_first(usable))[0]
 
     target = _QUALITY_HEIGHTS.get(preferred_quality)
     if not target:
         return _pick_format(player_response, "best")
 
-    le = [n for n in norm if n["height"] and n["height"] <= target]
+    le = [n for n in usable if n["height"] and n["height"] <= target]
     if le:
         exact = [n for n in le if n["height"] == target]
         pool = (
             mp4_first(by_height_desc(exact)) if exact else mp4_first(by_height_desc(le))
         )
-    else:
-        gt = [n for n in norm if n["height"]]
-        pool = mp4_first(by_height_desc(gt)) if gt else any_fmt
-
-    prog_pool = [n for n in pool if n["has_url"]]
-    return (prog_pool or pool)[0]
+        return pool[0]
+    # Nothing at or below the ask: take the smallest stream above it
+    # (close to the request) rather than failing on a dead exact match.
+    above = [n for n in usable if n["height"]]
+    if above:
+        return mp4_first(by_height_asc(above))[0]
+    return mp4_first(usable)[0]

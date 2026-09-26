@@ -298,7 +298,10 @@ def test_a_premium_holder_sees_no_price_rows(monkeypatch):
     _collect(card, texts, fields)
     rendered = " ".join(texts)
     assert "DDGS Premium" in rendered, "the paid row keeps KTV's title"
-    assert "200 credits a day" in rendered, "the paid row states the benefit"
+    from core.constants import PREMIUM_DAILY_CREDITS
+    assert f"{PREMIUM_DAILY_CREDITS} credits a day" in rendered, (
+        "the paid row states the benefit"
+    )
     assert "Monthly" not in rendered, "a buyer is not sold what they own"
     assert "Restore purchases" in rendered
 

@@ -778,3 +778,81 @@ def test_stale_backend_is_corrected_in_state_and_at_the_send_site():
         "Refresh and Retry must bypass the 24h page cache"
     )
     assert "force=force" in reader
+
+
+# ── the Allow button: YouTube resolution must hand back a real stream ────
+def test_pick_format_never_returns_a_dead_or_silent_stream():
+    """The AI's Allow button failed because the picker returned an ANDROID
+    adaptive format with neither url nor cipher. Adaptive streams are also
+    video-only (the app has no muxer), so only muxed formats qualify, and
+    a too-high ask downgrades to something playable instead of failing."""
+    from services.youtube.format_parser import _pick_format
+
+    muxed_360 = {
+        "itag": 18,
+        "mimeType": 'video/mp4; codecs="avc1.42001E, mp4a.40.2"',
+        "height": 360,
+        "qualityLabel": "360p",
+        "url": "http://x/18",
+    }
+    muxed_720 = {
+        "itag": 22,
+        "mimeType": 'video/mp4; codecs="avc1.64001F, mp4a.40.2"',
+        "height": 720,
+        "qualityLabel": "720p",
+        "url": "http://x/22",
+    }
+    # What YouTube's ANDROID client actually returns for adaptive formats
+    # now: neither url nor signatureCipher.
+    dead_1080 = {
+        "itag": 137,
+        "mimeType": 'video/mp4; codecs="avc1.640028"',
+        "height": 1080,
+        "qualityLabel": "1080p",
+    }
+    dead_muxed = {"itag": 999, "mimeType": "video/mp4", "height": 480}
+
+    # 1080p ask: downgrade to the muxed stream instead of dying on the
+    # dead exact match (this was the user's failing Allow press).
+    picked = _pick_format(
+        {"streamingData": {"formats": [muxed_360], "adaptiveFormats": [dead_1080]}},
+        "1080p",
+    )
+    assert picked and picked["itag"] == 18, picked
+
+    # best prefers the muxed 720p progressive.
+    picked = _pick_format(
+        {"streamingData": {"formats": [muxed_360, muxed_720]}}, "best"
+    )
+    assert picked and picked["itag"] == 22, picked
+
+    # A muxed entry with no url and no cipher is dead weight: never return it.
+    assert (
+        _pick_format({"streamingData": {"formats": [dead_muxed]}}, "best") is None
+    )
+
+    # Adaptive-only response: nothing with audio exists - fail rather than
+    # save a silent file.
+    assert (
+        _pick_format(
+            {"streamingData": {"formats": [], "adaptiveFormats": [dead_1080]}},
+            "1080p",
+        )
+        is None
+    )
+
+
+def test_null_view_count_does_not_destroy_the_row():
+    """int(None) on a null viewCount escaped the except tuple and degraded
+    the whole video row to a 'Parse Error' placeholder (live sweep log)."""
+    from core.state import SearchResult
+
+    row = SearchResult(
+        title="How generators work",
+        url="https://example.com/v",
+        snippet="",
+        search_type="videos",
+        raw_data={"statistics": {"viewCount": None}},
+    )
+    assert row.views is None
+    assert row.title == "How generators work", "the row must survive"

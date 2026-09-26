@@ -30,7 +30,7 @@
 | Video downloads with quality picker (best / 1080p / 720p / 480p / 360p) | ✅ (non-YouTube sources) | ✅ |
 | **YouTube video downloads** | ❌ disabled to comply with Play policy | ✅ **full** |
 | Desktop builds (Windows / Linux) + in-app updates from GitHub | — (Android only) | ✅ |
-| DDGS Premium — ad-free + 200 AI credits/day (Android) | ✅ in-app purchase | ✅ same Play purchase works in the GitHub APK |
+| DDGS Premium — ad-free + 500 AI credits/day (Android) | ✅ in-app purchase | ✅ same Play purchase works in the GitHub APK |
 
 > **The Play Store edition** exists for users who can't install apps from
 > elsewhere and carries the restrictions Google Play requires. **Most users who
@@ -135,7 +135,7 @@ just explains**:
   the default and takes over when a chosen model is rate-limited.
 
 **DDGS Premium (Android, in-app):** **$3.99/mo · $24.99/yr · $49.99
-lifetime** — ad-free everywhere and **200 assistant credits/day**. Manual
+lifetime** — ad-free everywhere and **500 assistant credits/day**. Manual
 search, scraping and downloads never use credits.
 
 ---

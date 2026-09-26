@@ -41,8 +41,11 @@ class SearchResult:
         if not self.views and raw.get("statistics"):
             try:
                 self.views = int(raw["statistics"].get("viewCount", 0))
-            except (ValueError, AttributeError):
-                pass
+            except (ValueError, TypeError, AttributeError):
+                # viewCount arrives as null from some engines: int(None) is
+                # a TypeError, and missing it used to degrade the whole row
+                # to a "Parse Error" placeholder.
+                self.views = None
 
 
 @dataclass

@@ -46,6 +46,14 @@ _THROUGHT_CAP = 8000
 _SUGGESTION_ROWS = [
     (ft.Icons.NEWSPAPER_ROUNDED, "What happened in tech this week?"),
     (ft.Icons.SHIELD_ROUNDED, "Find me the best free privacy tools"),
+    (
+        ft.Icons.CODE_ROUNDED,
+        "Scrape the BBC News homepage and save it as HTML",
+    ),
+    (
+        ft.Icons.SAVE_ROUNDED,
+        "Find the best page about solar power and save it as Markdown",
+    ),
     (ft.Icons.LIGHTBULB_ROUNDED, "Explain a topic like I'm 12"),
     (ft.Icons.DOWNLOAD_ROUNDED, "Download a video or image from a link"),
 ]
@@ -200,18 +208,19 @@ class ChatSession:
                     ft.Icon(_CHAT, size=tokens.ICON_SM, color=credits_color),
                     ft.Text(
                         str(state.credits_remaining),
-                        size=tokens.FONT_SM,
-                        weight=ft.FontWeight.W_700,
+                        size=tokens.FONT_XS,
+                        weight=ft.FontWeight.W_600,
                         color=credits_color,
                     ),
                 ],
-                spacing=3,
+                spacing=2,
                 tight=True,
             ),
-            padding=ft.Padding(8, 4, 10, 4),
+            # Same geometry as the model pill so the two read as one family;
+            # the colour stays because it carries the balance signal.
+            padding=ft.Padding(7, 3, 7, 3),
             border_radius=tokens.RADIUS_PILL,
-            bgcolor=ft.Colors.with_opacity(0.12, credits_color),
-            border=ft.Border.all(1, ft.Colors.with_opacity(0.25, credits_color)),
+            bgcolor=ft.Colors.with_opacity(0.1, credits_color),
             ink=True,
             tooltip="Assistant credits, tap for details",
             on_click=lambda e: show_wallet_dialog(page),
@@ -239,9 +248,9 @@ class ChatSession:
                 spacing=6,
             ),
             actions=[
-                self.model_chip,
-                self.credits_chip,
-                self._history_button_control(),
+                # Creation first, history next, then the readouts, and the
+                # model selector last (owner's call: it is the pill people
+                # reach for most).
                 ft.IconButton(
                     icon=ft.Icons.ADD_ROUNDED,
                     icon_size=18,
@@ -249,6 +258,9 @@ class ChatSession:
                     tooltip="New chat",
                     on_click=lambda e: self.new_conversation(),
                 ),
+                self._history_button_control(),
+                self.credits_chip,
+                self.model_chip,
                 ft.Container(width=6),
             ],
             bgcolor=ft.Colors.TRANSPARENT,
@@ -1235,7 +1247,7 @@ class ChatSession:
                     _describe_prompt(url),
                 )
             )
-        for icon, prompt in _SUGGESTION_ROWS[: 4 - len(starters)]:
+        for icon, prompt in _SUGGESTION_ROWS[: 5 - len(starters)]:
             starters.append((icon, prompt, prompt))
         kids.append(
             ft.Column(

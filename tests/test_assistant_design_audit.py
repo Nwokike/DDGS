@@ -819,3 +819,37 @@ def test_appbar_pair_is_history_icon_plus_new_chat():
     assert "ft.Icons.MENU_ROUNDED" not in source, "no hamburger left"
     assert 'tooltip="New chat"' in source
     assert "self.new_conversation()" in source, "the plus starts a chat"
+
+
+def test_appbar_action_order_matches_the_owners_call():
+    """Plus first, history next, credits, and the model selector last."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    block = source.split("actions=[", 1)[1].split("]", 1)[0]
+    plus = block.index('tooltip="New chat"')
+    history = block.index("_history_button_control")
+    credits = block.index("credits_chip")
+    model = block.index("model_chip")
+    assert plus < history < credits < model, (
+        f"header order is plus/history/credits/model: {plus} {history} {credits} {model}"
+    )
+
+
+def test_model_pick_refreshes_the_header_chip_instantly():
+    """The chat view is imperative: without a direct refresh the pill only
+    caught up on the next render (the owner had to press New chat)."""
+    source = (SRC / "components" / "model_picker.py").read_text(encoding="utf-8")
+    select_block = source.split("def _select(", 1)[1]
+    assert "_chat_session" in select_block
+    assert "refresh_model_chip" in select_block
+
+
+def test_starters_show_scraping_and_save_formats():
+    """The empty state must demonstrate the powers people miss: scrape a
+    homepage to HTML, save a page as Markdown (the tools take
+    markdown | html | text)."""
+    from screens.chat_screen import _SUGGESTION_ROWS
+
+    prompts = [text for _icon, text in _SUGGESTION_ROWS]
+    assert len(prompts) >= 5, "the owner asked for more starters"
+    assert any("Scrape" in p and "HTML" in p for p in prompts), prompts
+    assert any("save it as Markdown" in p for p in prompts), prompts
