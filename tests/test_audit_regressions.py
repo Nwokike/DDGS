@@ -208,7 +208,7 @@ def test_history_changes_are_refused_while_a_reply_streams():
         billing = None
         storage = None
 
-        async def _grant_premium_benefits(self):
+        async def _grant_premium_benefits(self, *, first_time=False):
             return False
 
         async def _sync_premium_storage(self):

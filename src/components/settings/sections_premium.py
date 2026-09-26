@@ -200,6 +200,24 @@ def build_premium_section(page: ft.Page) -> ft.Container:
 
     rows: list[ft.Control] = []
 
+    # One billing operation at a time. KTV Player does this with a
+    # `license_busy` flag that disables the buttons; DDGS's card is a static
+    # build with no repaint, so the guard has to be in the callback itself.
+    # Without it a second tap on Continue creates a second real order at the
+    # Worker — two pending payment sessions and two recovery IDs for one
+    # customer.
+    _inflight: set[str] = set()
+
+    async def _exclusive(key: str, coro) -> None:
+        if key in _inflight:
+            coro.close()
+            return
+        _inflight.add(key)
+        try:
+            await coro
+        finally:
+            _inflight.discard(key)
+
     def _snack(message: str, level: str = "info") -> None:
         from core.theme import AppTheme  # noqa: F401  (kept for future theming)
 
@@ -224,9 +242,18 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             _snack("There is no recovery ID to copy yet", "warning")
             return
         try:
+            # Built and closed per call. Appending it to page.services left
+            # one more service registered on every press, for the life of
+            # the process.
             clipboard = ft.Clipboard()
-            page.services.append(clipboard)
-            await clipboard.set(recovery_id)
+            try:
+                page.services.append(clipboard)
+                await clipboard.set(recovery_id)
+            finally:
+                try:
+                    page.services.remove(clipboard)
+                except ValueError:
+                    pass
             _snack("Recovery ID copied. Keep it somewhere safe.", "success")
         except Exception as exc:
             _snack(f"Could not copy automatically: {exc}", "error")
@@ -277,7 +304,11 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                     ft.FilledButton(
                         "Continue",
                         on_click=lambda e: page.run_task(
-                            _checkout, product_id, email_field, name_field, phone_field
+                            _exclusive,
+                            f"checkout:{product_id}",
+                            _checkout(
+                                product_id, email_field, name_field, phone_field
+                            ),
                         ),
                     ),
                 ],
@@ -311,19 +342,31 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         except license_service.LicenseUnavailable as exc:
             _snack(str(exc), "error")
             return
-        # Open the browser FIRST: everything below can throw, and a failed
-        # checkout that never opened the payment page is worse than a
-        # cosmetic miss.
-        if order.checkout_url:
-            try:
-                await launch_url(order.checkout_url, page)
-            except Exception as exc:
-                _snack(f"Could not open the payment page: {exc}", "error")
-                return
+        except Exception as exc:
+            # A timeout or DNS failure is not a LicenseUnavailable. Catching
+            # only that leaves the dialog closed with no message at all,
+            # which is indistinguishable from a hang at the exact moment the
+            # customer is waiting on money.
+            _snack(f"Could not start the payment: {exc}", "error")
+            return
+        # Record the recovery ID BEFORE opening the browser. A browser that
+        # will not open is the most common checkout failure, and it must not
+        # be the case that loses the only artifact that restores the purchase.
         # Never assign to a control: this card is a rendered component, so
         # its controls are frozen. Write the observable instead and let the
         # component repaint, which is how the recovery row gets its value.
         state.license_recovery_id = order.recovery_id
+        if order.checkout_url:
+            try:
+                await launch_url(order.checkout_url, page)
+            except Exception as exc:
+                _snack(
+                    f"Could not open the payment page: {exc} — your recovery "
+                    f"ID is {order.recovery_id}. Keep it; it restores the "
+                    "purchase.",
+                    "error",
+                )
+                return
         # Restoring is what issues the signed token: /status never returns
         # one, so pointing a fresh buyer at "Check status" would confirm a
         # payment and still leave Premium off. KTV Player sends them here.
@@ -363,7 +406,9 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                     ),
                     ft.FilledButton(
                         "Restore",
-                        on_click=lambda e: page.run_task(_restore, field),
+                        on_click=lambda e: page.run_task(
+                            _exclusive, "restore", _restore(field)
+                        ),
                     ),
                 ],
             )
@@ -379,6 +424,10 @@ def build_premium_section(page: ft.Page) -> ft.Container:
         if premium is None:
             _snack("Premium is unavailable in this build", "error")
             return
+        # Captured before the call: the arbiter flips `is_premium` inside
+        # kiri_restore, so the pre-flip value is the only record of whether
+        # this was an activation.
+        was_premium = state.is_premium
         try:
             status = await premium.kiri_restore(recovery_id)
         except license_service.LicenseUnavailable as exc:
@@ -386,11 +435,19 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             # client, so the message here is the server's own reason.
             _snack(str(exc), "error")
             return
+        except Exception as exc:
+            _snack(f"Restore failed: {exc}", "error")
+            return
         state.license_recovery_id = recovery_id
         if controller is not None:
-            await controller._grant_premium_benefits()
+            await controller._grant_premium_benefits(
+                first_time=not was_premium
+            )
             await controller._sync_premium_storage()
-        if status.unlocks:
+        # Branch on the verdict, not on the endpoint's own status word: the
+        # arbiter ORs in the Play channel, so `status.unlocks` alone could
+        # announce success while the app-wide flag is still False.
+        if state.is_premium:
             _snack("Premium restored. Thank you.", "success")
         else:
             _snack(f"That licence is {status.status}", "warning")
@@ -420,8 +477,6 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             state.license_status if state.license_premium_active else "active",
             ("Premium active", "Everything Premium includes is switched on"),
         )
-        if state.license_status in ("grace",):
-            title, subtitle = _STATUS_COPY["grace"]
         rows.append(
             _setting_row(
                 ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
@@ -450,6 +505,26 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 )
             )
     else:
+        if state.license_status in _STATUS_COPY:
+            # The whole status block used to sit inside `if is_premium`, so
+            # grace, expired and revoked were unreachable: a customer whose
+            # payment lapsed was shown "What Premium changes" and a wall of
+            # buy buttons with no explanation. Say what happened first; the
+            # way back is the very next section.
+            title, subtitle = _STATUS_COPY[state.license_status]
+            rows.append(
+                _setting_row(
+                    ft.Icons.REPORT_ROUNDED,
+                    title,
+                    subtitle,
+                    ft.Icon(
+                        ft.Icons.ERROR_OUTLINE_ROUNDED,
+                        size=ICON_SM,
+                        color=AppColors.WARNING,
+                    ),
+                )
+            )
+            rows.append(_divider())
         rows.append(
             _setting_row(
                 ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
@@ -512,7 +587,9 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                     ft.OutlinedButton(
                         "Copy",
                         icon=ft.Icons.CONTENT_COPY_ROUNDED,
-                        on_click=lambda e: page.run_task(_copy_recovery),
+                        on_click=lambda e: page.run_task(
+                            _exclusive, "copy", _copy_recovery()
+                        ),
                     ),
                     stacked=narrow,
                 )

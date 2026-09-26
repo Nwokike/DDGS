@@ -31,6 +31,36 @@ def SettingsScreen() -> Control:
     def _get_page():
         return flet_context.page
 
+    # The verdict can change while this screen is open: a purchase lands, a
+    # restore succeeds, or reconcile() on resume reports a lapse. KTV Player
+    # subscribes the same way (ktv settings_screen.py:523-539). Without this
+    # the card is a snapshot from the moment Settings was built, so a user
+    # who has just paid is still looking at buy buttons under the success
+    # snackbar, and a revoked licence still reads "Premium active".
+    _premium_verdict, _set_premium_verdict = ft.use_state(bool(state.is_premium))
+
+    def _sync_premium(e=None):
+        _set_premium_verdict(bool(state.is_premium))
+
+    def _watch_premium(e=None):
+        service = getattr(
+            getattr(_get_page(), "_ddgs_controller", None), "premium", None
+        )
+        if service is None:
+            return None
+        service.add_listener(_sync_premium)
+        _sync_premium()
+
+        def _cleanup():
+            service.remove_listener(_sync_premium)
+
+        return _cleanup
+
+    ft.on_mounted(_watch_premium)
+    # Read so the hook holds a live subscription; the card below re-derives
+    # every row from `state` when this function re-runs.
+    assert _premium_verdict is not None
+
     def _set(key: str, val):
         controller.save(key, val)
 

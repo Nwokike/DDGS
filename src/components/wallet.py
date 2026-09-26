@@ -14,6 +14,7 @@ from core.constants import (
     AD_TOPUP_CREDITS,
     COST_STEP,
     DAILY_FREE_CREDITS,
+    PREMIUM_DAILY_CREDITS,
     credit_word,
 )
 from core.state import state
@@ -86,7 +87,9 @@ def show_wallet_dialog(page: ft.Page) -> None:
                     color=ft.Colors.WHITE,
                 ),
                 ft.Text(
-                    topup_label if not is_premium else "Premium active, 200/day",
+                    topup_label
+                    if not is_premium
+                    else f"Premium active, {PREMIUM_DAILY_CREDITS}/day",
                     size=tokens.FONT_SM,
                     color=ft.Colors.WHITE,
                 ),
@@ -199,7 +202,16 @@ def show_wallet_dialog(page: ft.Page) -> None:
         ad_service = getattr(state, "ad_service", None) or AdService(page)
         ok = await ad_service.show_rewarded_interstitial(_on_watch_success)
         if not ok:
+            # Nothing was shown, so nothing was earned and nothing should
+            # be locked out: hand the button straight back.
             state.ad_cooldown_end = 0.0
+            watch_btn.disabled = False
+            cooldown_label.value = "Ads are not available right now."
+            try:
+                watch_btn.update()
+                cooldown_label.update()
+            except Exception:
+                pass
 
     watch_btn.on_click = lambda e: page.run_task(_on_watch, e)
 
@@ -277,7 +289,8 @@ def show_wallet_dialog(page: ft.Page) -> None:
         _row(
             ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
             "Assistant credits",
-            f"of {200 if is_premium else DAILY_FREE_CREDITS} free daily, resets 00:00 UTC",
+            f"of {PREMIUM_DAILY_CREDITS if is_premium else DAILY_FREE_CREDITS} "
+            "free daily, resets 00:00 UTC",
             balance_text,
         ),
         ft.Divider(
@@ -315,7 +328,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
         # Desktop: no ad to watch, so offer the thing that actually works.
         actions = [
             ft.TextButton(
-                "Go Premium, remove ads and get 200 a day",
+                f"Go Premium, remove ads and get {PREMIUM_DAILY_CREDITS} a day",
                 icon=ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
                 icon_color=AppColors.PRIMARY,
                 on_click=lambda e: _open_premium(),

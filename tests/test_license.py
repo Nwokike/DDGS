@@ -328,7 +328,7 @@ def test_play_build_never_offers_a_purchase_control(monkeypatch):
         billing = Billing()
         storage = None
 
-        async def _grant_premium_benefits(self):
+        async def _grant_premium_benefits(self, *, first_time=False):
             return False
 
         async def _sync_premium_storage(self):
@@ -401,7 +401,7 @@ def test_direct_build_offers_the_purchase_flow(monkeypatch):
         storage = None
         premium = ps.PremiumService(None, None)
 
-        async def _grant_premium_benefits(self):
+        async def _grant_premium_benefits(self, *, first_time=False):
             return False
 
         async def _sync_premium_storage(self):

@@ -33,7 +33,7 @@ def _session_stub():
         billing = None
         storage = None
 
-        async def _grant_premium_benefits(self):
+        async def _grant_premium_benefits(self, *, first_time=False):
             return False
 
         async def _sync_premium_storage(self):

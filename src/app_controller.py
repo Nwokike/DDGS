@@ -117,11 +117,30 @@ class AppController:
 
         self.premium = premium_service.PremiumService(self.page, self.storage)
 
-        # ── Load persisted settings FIRST — the premium/ad-free flag must
-        # be known before consent + preload decide whether to request ads ──
+        # ── Offline verdict BEFORE settings and before the first frame ──
+        # Two things read it: the daily credit reset inside _load_settings
+        # (which must see the premium cap, or a paying user's day rolls to
+        # 50 and waits until tomorrow for the correction) and the first
+        # paint (which must not show a paywall to someone who paid). KTV
+        # Player awaits this before rendering for the same reason;
+        # scheduling it as a task meant neither was guaranteed.
+        if self.storage is not None:
+            try:
+                await self.storage.initialize()
+            except Exception:
+                logger.warning("storage init before licence read failed", exc_info=True)
+        try:
+            await self.premium.load_local()
+            state.license_recovery_id = await self.premium.license.recovery_id()
+        except Exception:
+            logger.warning("offline licence check failed", exc_info=True)
+
+        # ── Load persisted settings. The premium/ad-free flag is already
+        # resolved above, so consent + preload see the real answer ──
         await self._load_settings()
-        await self.ad_service.gather_consent()
-        await self.ad_service.preload_interstitial()
+        if not state.is_premium:
+            await self.ad_service.gather_consent()
+            await self.ad_service.preload_interstitial()
 
         # Scheduled crawls run while the app is open
         self.page.run_task(self._scrape_scheduler)
@@ -239,12 +258,12 @@ class AppController:
             if state.is_premium and not was_premium:
                 # Entitlement was proven after credits were initialised, so
                 # bring a fresh day up to the premium cap now.
-                await self._grant_premium_benefits()
+                await self._grant_premium_benefits(first_time=True)
             await self._sync_premium_storage()
             # Network round-trip: after the first frame, never on boot.
             await self.premium.reconcile()
             if state.is_premium and not was_premium:
-                await self._grant_premium_benefits()
+                await self._grant_premium_benefits(first_time=True)
             await self._sync_premium_storage()
         except Exception:
             logger.exception("premium init failed")
@@ -334,10 +353,12 @@ class AppController:
                 legacy_history = []
             await self._init_conversations(legacy_history)
             # The persisted flag is a cache from a previous run, not proof.
-            # premium_service recomputes the OR from the channel flags in
-            # _init_premium; trusting it here would let a stale true survive
-            # with no licence token and no Play purchase.
-            state.is_premium = False
+            # Re-derive from the channel flags instead of forcing False:
+            # the offline token verdict resolved above lives in those flags,
+            # and zeroing here threw it away on every launch.
+            from services import premium_service
+
+            premium_service.apply_entitlement()
             import json as _json
 
             try:
@@ -967,18 +988,26 @@ class AppController:
 
     # ── Premium (Play Billing and/or Kiri License) ───────────────────────
 
-    async def _grant_premium_benefits(self) -> bool:
-        """Top up to the premium credit cap once, on the first activation."""
-        first_time = not state.is_premium
+    async def _grant_premium_benefits(self, *, first_time: bool) -> bool:
+        """Top up to the premium credit cap on the transition into Premium.
+
+        `first_time` is supplied by the caller on purpose. Reading
+        `state.is_premium` here cannot work: every call site flips the flag
+        through the arbiter *before* calling, so `not state.is_premium` was
+        always False, the top-up never ran, and the return value killed the
+        "Premium active" snackbar with it. A subscriber who bought at 23:50
+        UTC kept 50 credits until the next reset while the card promised 200.
+        """
+        if not first_time or not state.is_premium:
+            return False
         if (
-            first_time
-            and state.credit_service
+            state.credit_service
             and state.credits_remaining < PREMIUM_DAILY_CREDITS
         ):
             await state.credit_service.add_credits(
                 PREMIUM_DAILY_CREDITS - state.credits_remaining
             )
-        return first_time
+        return True
 
     async def _sync_premium_storage(self) -> None:
         if self.storage:
@@ -1000,7 +1029,9 @@ class AppController:
             return
         was_premium = state.is_premium
         self.premium.set_play_entitlement(True, product_id=product_id)
-        first_time = await self._grant_premium_benefits()
+        first_time = await self._grant_premium_benefits(
+            first_time=not was_premium
+        )
         await self._sync_premium_storage()
         if first_time and not was_premium:
             await self.show_snack(
@@ -1027,7 +1058,7 @@ class AppController:
                 bool(found), product_id=str(found or "")
             )
             if found and not was_premium:
-                await self._grant_premium_benefits()
+                await self._grant_premium_benefits(first_time=True)
             await self._sync_premium_storage()
         except Exception as exc:
             # A failed re-check must never revoke a working entitlement.

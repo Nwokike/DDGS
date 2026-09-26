@@ -8,6 +8,7 @@ module asserts exactly that.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import sys
 from pathlib import Path
@@ -55,7 +56,7 @@ class _Controller:
     def __init__(self, premium):
         self.premium = premium
 
-    async def _grant_premium_benefits(self):
+    async def _grant_premium_benefits(self, *, first_time=False):
         return False
 
     async def _sync_premium_storage(self):
@@ -163,7 +164,9 @@ def test_tapping_a_plan_opens_the_checkout_dialog(monkeypatch):
     assert "Name (optional)" in labels
     assert "Phone (optional)" in labels
 
-    # Continue must be wired to an async checkout, not a no-op.
+    # Continue must be wired to an async checkout, not a no-op, and must go
+    # through the one-at-a-time guard: a second tap on Continue creates a
+    # second real order at the Worker, with a second recovery ID.
     cont = next(
         a
         for a in dialog.actions
@@ -172,8 +175,53 @@ def test_tapping_a_plan_opens_the_checkout_dialog(monkeypatch):
     assert cont.on_click is not None
     cont.on_click(None)
     handler, args = page.tasks[-1]
-    assert handler.__name__ == "_checkout"
-    assert args[0] == "monthly"
+    assert handler.__name__ == "_exclusive", "billing must be serialized"
+    assert args[0] == "checkout:monthly"
+    assert args[1].cr_code.co_name == "_checkout"
+    args[1].close()  # inspected, never awaited
+
+
+def test_a_second_tap_while_a_payment_is_running_is_refused(monkeypatch):
+    _mod, page, card = _build(monkeypatch, prices={"monthly": "$3.99 USD"})
+    controls: list = []
+    _walk_controls(card, controls)
+    buy = next(
+        c
+        for c in controls
+        if isinstance(c, ft.FilledButton)
+        and str(getattr(c, "content", "")) == "$3.99 USD"
+    )
+    buy.on_click(None)
+    dialog = page.dialogs[-1]
+    cont = next(
+        a
+        for a in dialog.actions
+        if isinstance(a, ft.FilledButton)
+        and str(getattr(a, "content", "")) == "Continue"
+    )
+    cont.on_click(None)
+    guard, guard_args = page.tasks[-1]
+    guard_args[1].close()  # inspected, never awaited
+    assert guard.__name__ == "_exclusive"
+
+    started: list[int] = []
+
+    async def slow():
+        started.append(1)
+        await asyncio.sleep(0.05)
+
+    async def both():
+        await asyncio.gather(
+            guard("checkout:monthly", slow()),
+            guard("checkout:monthly", slow()),
+        )
+
+    asyncio.run(both())
+    assert started == [1], "the second tap must be refused while the first runs"
+
+    # The key is released when the first call finishes, so a retry works.
+    asyncio.run(guard("checkout:monthly", slow()))
+    assert started == [1, 1]
 
 
 def test_the_restore_row_opens_a_dialog_prefilled_with_the_saved_id(monkeypatch):

@@ -30,6 +30,7 @@ Core rules:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from core.build_channel import CHANNEL
 from core.state import state
@@ -62,6 +63,11 @@ class PremiumService:
         self.page = page
         self.storage = storage
         self.backend: str = "none"  # "kiri" | "none"
+        # KTV Player broadcasts every verdict change so an open Settings
+        # screen repaints. Without this the card is a snapshot taken when
+        # Settings was built: a restore shows a success snackbar above buy
+        # buttons, and a lapse still reads "Premium active".
+        self._listeners: list[Callable[[], None]] = []
         self.license = KiriLicenseService(
             storage=storage, on_change=self._recompute_premium
         )
@@ -79,6 +85,36 @@ class PremiumService:
         """True when this build may offer a direct purchase at all."""
         return self.backend == "kiri"
 
+    def add_listener(self, callback: Callable[[], None]) -> None:
+        """Subscribe to verdict changes. Mirrors KTV's listener API."""
+        if callback not in self._listeners:
+            self._listeners.append(callback)
+
+    def remove_listener(self, callback: Callable[[], None]) -> None:
+        try:
+            self._listeners.remove(callback)
+        except ValueError:
+            pass
+
+    def _notify_listeners(self) -> None:
+        # One broken subscriber must not stop the others, and must not
+        # escape into the entitlement code that is calling us.
+        for callback in list(self._listeners):
+            try:
+                callback()
+            except Exception:
+                logger.exception("premium listener failed")
+
+    def _commit(self) -> None:
+        """Re-derive, log the transition, and tell every subscriber."""
+        previous = bool(state.is_premium)
+        resolved = apply_entitlement()
+        if resolved != previous:
+            # The line that makes a wrong premium state diagnosable in the
+            # field; KTV logs it and DDGS did not.
+            logger.info("Premium state -> %s", resolved)
+        self._notify_listeners()
+
     def _premium_disabled(self) -> bool:
         if CHANNEL == "play":
             logger.info("Purchase ignored: the Play build has no premium")
@@ -93,14 +129,30 @@ class PremiumService:
         purchase must survive a licence lapse.
         """
         state.license_premium_active = bool(self.license.unlocked)
+        recorded = str(getattr(self.license, "status", "") or "")
         if state.license_premium_active:
-            state.license_status = "active"
+            claims = self.license.claims
+            # The signed token carries the real status. Hard-coding "active"
+            # here is what made the grace copy in the Premium card dead
+            # code: grace is an unlocked state, so it always fell through
+            # to the active wording.
+            state.license_status = (
+                str(getattr(claims, "status", "") or recorded or "active")
+            )
             state.premium_source = (
-                f"license:{self.license.claims.product if self.license.claims else ''}"
+                f"license:{getattr(claims, 'product', '') or ''}"
             ).rstrip(":")
         else:
-            state.license_status = state.license_status or ""
-        apply_entitlement()
+            # Keep the Worker's last word when it explains the lapse, and
+            # drop everything else. The old `or ""` preserved the previous
+            # value verbatim, which is how a revoked licence went on
+            # rendering "Premium active".
+            state.license_status = (
+                recorded if recorded in ("expired", "revoked") else ""
+            )
+            if not state.play_premium_active:
+                state.premium_source = ""
+        self._commit()
 
     def set_play_entitlement(self, active: bool, *, product_id: str = "") -> None:
         """Record the Play Billing channel's answer."""
@@ -109,7 +161,7 @@ class PremiumService:
             state.premium_source = f"play:{product_id}"
         elif not active and not state.license_premium_active:
             state.premium_source = ""
-        apply_entitlement()
+        self._commit()
 
     # -- startup / reconcile --------------------------------------------------
 
@@ -126,7 +178,9 @@ class PremiumService:
             # must never unlock it.
             state.license_premium_active = False
             state.play_premium_active = False
-            apply_entitlement()
+            state.license_status = ""
+            state.premium_source = ""
+            self._commit()
             return
         try:
             await self.license.apply_cached_token()
@@ -179,6 +233,9 @@ class PremiumService:
         checkout = await self.license.checkout(
             product_id, email, name=name, phone=phone
         )
+        # KTV notifies here too: the open card must repaint as soon as an
+        # order exists, or the recovery-ID row never appears.
+        self._notify_listeners()
         return checkout
 
     async def kiri_restore(self, recovery_id: str) -> license_service.LicenseStatus:

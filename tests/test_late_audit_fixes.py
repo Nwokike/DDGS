@@ -211,7 +211,7 @@ def test_premium_plan_shows_a_price_or_a_neutral_label(monkeypatch):
         storage = None
         premium = ps.PremiumService(None, None)
 
-        async def _grant_premium_benefits(self):
+        async def _grant_premium_benefits(self, *, first_time=False):
             return False
 
         async def _sync_premium_storage(self):
