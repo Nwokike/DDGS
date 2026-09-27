@@ -190,6 +190,20 @@ def test_chat_view_carries_no_bool_on_number_props(tmp_path, monkeypatch):
     _assert_no_bool_on_number(session.view)
 
 
+def test_chat_safearea_fills_the_view(tmp_path, monkeypatch):
+    """expand on the View's top-level SafeArea is load-bearing (LM Router's
+    shell does the same): without it the Column gets loose height, the
+    ListView never receives a bounded extent (no scrolling) and the
+    composer stops being pinned to the bottom (owner: "the chat box was
+    just there on top ... cannot scroll")."""
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
+    ChatSession, Page = _chat_stub()
+    session = ChatSession(Page())
+    host = session.view.controls[0]
+    assert isinstance(host, ft.SafeArea), "the chat view keeps its SafeArea"
+    assert host.expand is True, "SafeArea must fill the View (LM Router rule)"
+
+
 def test_notice_and_banner_carry_no_bool_on_number_props():
     from core.styles import build_banner_ad
     from core.ui import notice
