@@ -118,18 +118,16 @@ def show_update_dialog(page: ft.Page, update_data: dict | None) -> None:
     update_data = dict(update_data)
     is_mandatory = bool(update_data.get("mandatory", False))
     is_announcement = update_data.get("type") == "announcement"
-    title_text = update_data.get("title", "Announcement" if is_announcement else f"New Version {update_data.get('version','')} Available!")
-    release_notes = update_data.get("release_notes", "")
-    playstore_url = update_data.get("playstore_url", "")
-    # Server-driven, never hard-coded: the feed chooses where "Learn More"
-    # goes. Falling back to a literal GitHub URL meant every announcement
-    # pointed at the repo whatever version.json said, and lost the
-    # Play-edition disclosure main carries.
-    action_url = (
-        update_data.get("action_url")
-        or update_data.get("github_url")
-        or playstore_url
+    title_text = update_data.get(
+        "title",
+        "Announcement"
+        if is_announcement
+        else f"New Version {update_data.get('version', '')} Available!",
     )
+    release_notes = update_data.get("release_notes", "")
+    github_url = update_data.get("github_url", "")
+    playstore_url = update_data.get("playstore_url", "")
+    action_url = update_data.get("action_url") or github_url
     is_android = page.platform == ft.PagePlatform.ANDROID
 
     def _dismiss_self(e):
@@ -192,7 +190,14 @@ def show_update_dialog(page: ft.Page, update_data: dict | None) -> None:
         )
     content_controls: list[ft.Control] = []
     if not is_announcement and update_data.get("version"):
-        content_controls.append(ft.Text(f"Version {update_data['version']} is now available.", size=12, color=ft.Colors.ON_SURFACE, weight=ft.FontWeight.W_500))
+        content_controls.append(
+            ft.Text(
+                f"Version {update_data['version']} is now available.",
+                size=12,
+                color=ft.Colors.ON_SURFACE,
+                weight=ft.FontWeight.W_500,
+            )
+        )
         content_controls.append(ft.Container(height=8))
     if release_notes:
         if not is_announcement:
@@ -221,5 +226,31 @@ def show_update_dialog(page: ft.Page, update_data: dict | None) -> None:
         ft.Icons.CAMPAIGN_ROUNDED if is_announcement else ft.Icons.ROCKET_LAUNCH_ROUNDED
     )
     icon_color = AppColors.ACCENT if is_announcement else AppColors.PRIMARY
-    dlg = ft.AlertDialog(modal=is_mandatory, title=ft.Row([ft.Icon(icon_data, color=icon_color, size=24), ft.Text(title_text, size=14, weight=ft.FontWeight.BOLD, font_family="Outfit", expand=True)], spacing=8), content=ft.Container(content=ft.Column(controls=content_controls, tight=True, spacing=0, scroll=ft.ScrollMode.AUTO), width=360), actions=actions, actions_alignment=ft.MainAxisAlignment.END)
+    dlg = ft.AlertDialog(
+        modal=is_mandatory,
+        title=ft.Row(
+            [
+                ft.Icon(icon_data, color=icon_color, size=24),
+                ft.Text(
+                    title_text,
+                    size=14,
+                    weight=ft.FontWeight.BOLD,
+                    font_family="Outfit",
+                    expand=True,
+                ),
+            ],
+            spacing=8,
+        ),
+        content=ft.Container(
+            content=ft.Column(
+                controls=content_controls,
+                tight=True,
+                spacing=0,
+                scroll=ft.ScrollMode.AUTO,
+            ),
+            width=360,
+        ),
+        actions=actions,
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
     page.show_dialog(dlg)
