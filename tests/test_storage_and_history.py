@@ -278,9 +278,9 @@ def test_relative_time_reads_naturally():
         ("ready", False, "", "Loading models...", True),
         # Ready, fetched, and genuinely nothing to choose from: that is an
         # answer, not a wait, so it must not spin forever.
-        ("ready", True, "", "No chat models yet", False),
-        ("stopped", True, "auto", "Router stopped", False),
-        ("unavailable", True, "auto", "Router unavailable", False),
+        ("ready", True, "", "Offline", False),
+        ("stopped", True, "auto", "Offline", False),
+        ("unavailable", True, "auto", "Offline", False),
     ],
 )
 def test_picker_label_per_router_state(status, fetched, selected, expected, spinner):
@@ -329,7 +329,7 @@ def test_picker_does_not_claim_a_model_missing_from_the_catalog():
     ai_service._catalog_fetched_at = time.monotonic()
     ps = model_picker_state()
     assert ps.active is False
-    assert ps.label == "No chat models yet"
+    assert ps.label == "Offline"
 
 
 def test_picker_offers_an_action_when_the_router_is_down():
@@ -367,9 +367,9 @@ def test_log_prune_removes_only_old_files(tmp_path):
 def test_storage_json_still_roundtrips_unchanged(tmp_path, monkeypatch):
     """The existing settings store must keep working alongside the new dirs.
 
-    storage_service resolves FLET_APP_STORAGE_DATA at import time (it has
-    done so since before this feature), so the env var has to be set in a
-    subprocess rather than via monkeypatch after the module is loaded.
+    storage_service now resolves through data_dir() at call time (the
+    single-resolver pass); the subprocess still proves a cold import with
+    the env set round-trips storage.json end to end.
     """
     import subprocess
     import sys as _sys
@@ -404,3 +404,30 @@ def test_storage_json_still_roundtrips_unchanged(tmp_path, monkeypatch):
     assert proc.returncode == 0, proc.stderr
     assert "ok" in proc.stdout
     assert (data_dir / "storage.json").exists()
+
+
+def test_concurrent_conversation_writes_do_not_collide():
+    """The field log showed Errno 13 / WinError 32: a turn-final save and a
+    cancel save shared one fixed .tmp name. Every write now gets its own
+    temp file, so racing writers both land."""
+    import concurrent.futures
+    import json
+
+    from services import conversation_service as cs
+
+    path = cs._path("race-test")
+    try:
+        payload = {"id": "race-test", "messages": [{"role": "user", "content": "hi"}]}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            results = list(
+                pool.map(lambda i: cs._write(path, {**payload, "n": i}), range(6))
+            )
+        assert all(results), f"some writes failed: {results}"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        assert data["id"] == "race-test", "the file must be valid JSON"
+    finally:
+        for leftover in path.parent.glob("race-test*.json*"):
+            try:
+                leftover.unlink()
+            except OSError:
+                pass

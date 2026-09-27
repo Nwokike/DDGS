@@ -2,11 +2,11 @@
 
 Two values exist:
 
-- ``"direct"`` — every build by default: the direct APKs from GitHub
+- ``"direct"`` - every build by default: the direct APKs from GitHub
   Releases, desktop, and web. Premium is sold through the Kiri License
   Worker (Flutterwave: card, bank transfer, USDC), and Google Play Billing
   rows appear if the store ever lists products for this package.
-- ``"play"`` — the AAB uploaded to Google Play. Premium purchase UI does
+- ``"play"`` - the AAB uploaded to Google Play. Premium purchase UI does
   not exist on it. Google requires a Google Payments merchant profile to
   sell in-app digital goods, and no account available to us has one yet,
   so the Play build is free-only: 50 credits a day and ads, exactly as

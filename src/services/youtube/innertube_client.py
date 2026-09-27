@@ -162,8 +162,15 @@ async def resolve_youtube(
 
         target = _pick_format(player_response, preferred_quality)
         if not target:
-            logger.error("No stream format found in player response")
-            return None
+            # Say WHY: a dead video ("This video is unavailable") and a
+            # formatless response are different problems, and the chat's
+            # step row shows this message to the user.
+            reason = playability.get("reason") or ""
+            if reason:
+                raise RuntimeError(f"YouTube: {reason}")
+            raise RuntimeError(
+                "YouTube has no downloadable stream with audio for this video"
+            )
 
         fmt = target["fmt"]
         logger.info(

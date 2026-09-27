@@ -1,4 +1,4 @@
-"""Kiri License client — external checkout for everything Play cannot bill.
+"""Kiri License client - external checkout for everything Play cannot bill.
 
 Google Play only sells to Play-installed builds (or linked license testers),
 so a GitHub-downloaded APK, the Windows build and the Linux build can never
@@ -12,7 +12,7 @@ surfaces, using the same Worker that backs every Kiri app:
 
 The Worker is authoritative; the token it returns is a signed cache that
 keeps premium working offline (see :mod:`services.license_token`). Nothing
-here unlocks premium by itself — a verified token or a live server response
+here unlocks premium by itself - a verified token or a live server response
 must say so first.
 
 Matches ktv-player/src/services/kiri_license.py wherever the two overlap:
@@ -50,7 +50,7 @@ class LicenseUnavailable(Exception):
 
 
 def status_refusal(code: int) -> bool:
-    """HTTP codes meaning "this entitlement is not valid" — not transport.
+    """HTTP codes meaning "this entitlement is not valid" - not transport.
 
     400 malformed request, 402 payment not valid, 403 app not entitled,
     404 license not found. 429 is deliberately excluded: a throttled
@@ -169,7 +169,7 @@ class KiriLicenseService:
     ) -> None:
         """Persist licence values. Failures propagate, never log-and-continue.
 
-        The load-bearing write is the recovery ID right after /checkout —
+        The load-bearing write is the recovery ID right after /checkout -
         the only way back in after a data wipe. Swallowing a failure there
         hands the UI a valid order, lets the user complete the payment, and
         loses the one artifact that would restore it, with no message.
@@ -207,7 +207,7 @@ class KiriLicenseService:
         """Verify the stored token so premium survives being offline.
 
         Returns whether the app is unlocked. A rejected token is cleared
-        rather than left to fail on every launch — a token we cannot verify
+        rather than left to fail on every launch - a token we cannot verify
         is a token we do not honour.
         """
         try:
@@ -236,10 +236,12 @@ class KiriLicenseService:
             logger.info("Cached Kiri license rejected (%s)", ex.reason)
             self._unlocked = False
             self.claims = None
-            # An expired token is a known state worth showing; anything else
-            # (bad signature, wrong app, malformed) tells the card nothing
-            # about the licence, so it must not invent one.
-            self.status = "expired" if ex.reason == "expired" else ""
+            # Expired and revoked are known states worth showing; anything
+            # else (bad signature, wrong app, malformed) tells the card
+            # nothing about the licence, so it must not invent one.
+            self.status = (
+                ex.reason if ex.reason in ("expired", "revoked") else ""
+            )
             self._notify_change()
             return False
         self.claims = claims
@@ -273,19 +275,17 @@ class KiriLicenseService:
         ]
         return self.products
 
-    async def checkout(
-        self, product_id: str, email: str, *, name: str = "", phone: str = ""
-    ) -> Checkout:
-        """Start a hosted payment and return where to send the user."""
+    async def checkout(self, product_id: str, email: str) -> Checkout:
+        """Start a hosted payment and return where to send the user.
+
+        Email only, exactly like KTV Player's kiri_license.checkout: the
+        hosted Flutterwave page collects everything else.
+        """
         body: dict = {
             "app_id": self.app_id,
             "product_id": product_id,
             "email": email,
         }
-        if name:
-            body["name"] = name[:120]
-        if phone:
-            body["phone_number"] = phone[:40]
         try:
             async with _client() as client:
                 response = await client.post(
@@ -354,11 +354,11 @@ class KiriLicenseService:
         if response.status_code >= 400:
             # The Worker answers entitlement questions here (402 payment not
             # valid, 403 app not entitled, 404 license not found). That is
-            # the server refusing, not the network failing — so a standing
+            # the server refusing, not the network failing - so a standing
             # unlock is dropped rather than preserved by accident.
             if status_refusal(response.status_code):
                 logger.info(
-                    "License refused with HTTP %s — dropping unlock",
+                    "License refused with HTTP %s - dropping unlock",
                     response.status_code,
                 )
                 self._unlocked = False
@@ -410,7 +410,7 @@ class KiriLicenseService:
             )
         # A fresh verified token replaces the cache; a status-only reply
         # (which carries no token by design) reuses the one we already
-        # verified — the assignment must come after that read, or every
+        # verified - the assignment must come after that read, or every
         # refresh wipes the cache with None and unlocks nothing.
         if claims is not None:
             self.claims = claims

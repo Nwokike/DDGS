@@ -1,4 +1,4 @@
-"""DDGS — Dux Distributed Global Search.
+"""DDGS - Dux Distributed Global Search.
 
 Minimal entry point.  All business logic lives in AppController;
 the declarative UI tree is mounted by page.render().
@@ -8,6 +8,13 @@ from __future__ import annotations
 
 import flet as ft
 
+from core.tls import ensure_ca_bundle
+
+# Runs before AppController, i.e. before any httpx client can exist: on
+# Android the runtime ships SSL_CERT_FILE pointing at a missing path and
+# httpx raises FileNotFoundError at construction. See core.tls.
+_CA_STATUS = ensure_ca_bundle()
+
 
 async def main(page: ft.Page):
     from app_controller import AppController
@@ -16,7 +23,7 @@ async def main(page: ft.Page):
     await controller.init()
 
     # Wire lifecycle hooks
-    # Flet 1.0 exits without running atexit/buffered writes — flush
+    # Flet 1.0 exits without running atexit/buffered writes - flush
     # synchronously and stop the embedded Kiri router here. The disconnect
     # hook must stay synchronous too: the event loop is already closing by
     # then, so page.run_task would leave the coroutine un-awaited.
@@ -34,6 +41,7 @@ if __name__ == "__main__":
     from core.utils import logger
 
     logger.info("Starting DDGS on Python %s", __import__("sys").version)
+    logger.info("TLS trust store: %s", _CA_STATUS)
     try:
         import primp
 

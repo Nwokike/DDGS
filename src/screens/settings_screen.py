@@ -1,4 +1,4 @@
-"""SettingsScreen — all app settings with theme, search rules, backends, etc.
+"""SettingsScreen - all app settings with theme, search rules, backends, etc.
 
 Converted from views/settings/view_builder.py to declarative @ft.component.
 During migration, section builders are imported from old views/settings/.
@@ -17,6 +17,7 @@ from core.styles import build_banner_ad
 from core.theme import AppColors
 from core.tokens import (
     FONT_LG,
+    FONT_XS,
     ICON_MD,
 )
 
@@ -128,6 +129,7 @@ def SettingsScreen() -> Control:
         build_theme_section,
     )
     from components.settings.sections_premium import build_premium_section
+    from core.build_channel import CHANNEL
 
     page = _get_page()
 
@@ -162,7 +164,14 @@ def SettingsScreen() -> Control:
         [
             build_theme_section(page, _current_theme(), _change_theme),
             build_ai_section(page, controller.save_async),
-            build_premium_section(page),
+            # Owner: exactly three banners in Settings - after Assistant
+            # (before Premium), after search results (before search
+            # source), and before About. A guard test pins the order.
+            build_banner_ad(page),
+            # The Play AAB has no premium card at all (KTV Player rule):
+            # no purchase surface, nothing to declare, ads stay on. The
+            # gate is the stamped channel, decided at build time.
+            *([] if CHANNEL == "play" else [build_premium_section(page)]),
             build_search_rules_section(
                 page,
                 controller.save_async,
@@ -176,6 +185,7 @@ def SettingsScreen() -> Control:
             build_performance_section(page, controller.save_async),
             build_logs_section(page),
             build_storage_section(page, _show_clear_dialog),
+            build_banner_ad(page),
             build_about_section(
                 page,
                 "https://kiri.ng/privacy",
@@ -184,14 +194,13 @@ def SettingsScreen() -> Control:
             ft.Container(
                 content=ft.Text(
                     "Dux Distributed Global Search (DDGS)",
-                    size=10,
+                    size=FONT_XS,
                     text_align=ft.TextAlign.CENTER,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                 ),
                 alignment=ft.Alignment.CENTER,
                 padding=ft.Padding(0, 12, 0, 24),
             ),
-            build_banner_ad(page),
         ],
         spacing=16,
         scroll=ft.ScrollMode.AUTO,

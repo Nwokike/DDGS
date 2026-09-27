@@ -1,4 +1,4 @@
-"""Offline banner — persistent, non-blocking "you're offline" strip.
+"""Offline banner - persistent, non-blocking "you're offline" strip.
 
 Shown on the Home screen while ``state.is_online`` is False.  Purely
 presentational: the caller passes the current ``visible`` flag, and the

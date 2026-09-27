@@ -1,6 +1,7 @@
 """Design tokens."""
 
-FONT_XS = 10
+# The legibility floor: no user-facing text below 11pt (Apple UI guidance).
+FONT_XS = 11
 FONT_SM = 12
 FONT_MD = 14
 FONT_LG = 16

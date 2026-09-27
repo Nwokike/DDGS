@@ -97,7 +97,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
 
     if is_bytes:
         display = ft.Text(
-            f"[Binary content — {len(content)} bytes]",
+            f"[Binary content: {len(content)} bytes]",
             size=tokens.FONT_SM,
             color=ft.Colors.ON_SURFACE_VARIANT,
             font_family="Outfit",

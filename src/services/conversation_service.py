@@ -65,7 +65,7 @@ def _title_from_messages(messages: list[dict]) -> str:
 def flat_from_turns(turns: list[dict]) -> list[dict]:
     """Project a rendered transcript into the flat pairs that are stored.
 
-    The screen owns exactly one list — `turns`, the thing the user sees —
+    The screen owns exactly one list - `turns`, the thing the user sees -
     and this is the only place it becomes `{"role", "content"}`. What is
     written to disk and what the model is handed are the same projection,
     so they cannot disagree.
@@ -117,15 +117,36 @@ def _read(path: Path) -> dict | None:
 
 
 def _write(path: Path, payload: dict) -> bool:
+    """Write atomically; two saves racing must not fight over one file.
+
+    The fixed ".json.tmp" name meant a turn-final save and a cancel save
+    arriving together collided on Windows (Errno 13 / WinError 32 in the
+    field: one temp file, opened and renamed by two writers). Each write
+    gets its own temp name now, and the replace retries briefly if a
+    reader still holds the target open.
+    """
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        tmp.replace(path)
-        return True
-    except (OSError, ValueError, TypeError) as exc:
+    except OSError as exc:
         logger.warning("conversation write failed (%s): %s", path.name, exc)
         return False
+    text = json.dumps(payload, ensure_ascii=False)
+    for attempt in range(3):
+        tmp = path.with_name(f"{path.stem}.{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(path)
+            return True
+        except (OSError, ValueError, TypeError) as exc:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            if attempt == 2:
+                logger.warning("conversation write failed (%s): %s", path.name, exc)
+                return False
+            time.sleep(0.05 * (attempt + 1))
+    return False
 
 
 def new_conversation_id() -> str:

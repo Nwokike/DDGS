@@ -202,21 +202,24 @@ def test_premium_is_a_separate_settings_card():
     assert title(build_premium_section(page)) == "DDGS Premium"
 
 
-def test_router_disclosure_lives_in_settings_not_the_chat_surface():
-    """The disclosure stays available, but not pasted under the composer."""
+def test_router_disclosure_row_is_gone_outright():
+    """The owner deleted the 'Where your messages go' row: not moved, not
+    edited - gone from settings, gone from the constant, never in chat."""
     import sys
     from pathlib import Path
 
     src = Path(__file__).resolve().parents[1] / "src"
     chat = (src / "screens" / "chat_screen.py").read_text(encoding="utf-8")
     assert "ROUTER_DISCLOSURE" not in chat
-    assert "if it's down" not in chat
-
-    sys.path.insert(0, str(src))
-    from services.ai_service import ROUTER_DISCLOSURE
-
-    assert "router" in ROUTER_DISCLOSURE.lower()
     settings_ai = (src / "components" / "settings" / "sections_ai.py").read_text(
         encoding="utf-8"
     )
-    assert "ROUTER_DISCLOSURE" in settings_ai
+    assert "Where your messages go" not in settings_ai
+    assert "ROUTER_DISCLOSURE" not in settings_ai
+
+    sys.path.insert(0, str(src))
+    from services import ai_service
+
+    assert not hasattr(ai_service, "ROUTER_DISCLOSURE"), (
+        "the constant died with the row"
+    )

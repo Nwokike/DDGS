@@ -1,4 +1,4 @@
-"""Agentic chat turn — DDGS tools, hard caps, COST_STEP per model step.
+"""Agentic chat turn - DDGS tools, hard caps, COST_STEP per model step.
 
 The model gets 11 tools over our real capabilities: five searches plus
 fetch, save, download, scrape, schedule and cancel. Six are read-only and
@@ -72,7 +72,7 @@ SYSTEM_PROMPT = (
     "You are DDGS AI, a private search assistant WITH TOOLS running inside the "
     "DDGS app. For anything current or factual, call your search_* tools first "
     "(pick the best category), then optionally fetch_page on at most 2 URLs to "
-    "verify. Answer ONLY from tool results — never invent sources. Cite claims "
+    "verify. Answer ONLY from tool results - never invent sources. Cite claims "
     "with [1], [2] … matching the order of the results you actually used. "
     "Keep answers 2-6 sentences unless the user asks for more. Always end with "
     "a final line exactly in this form:\n"
@@ -87,7 +87,7 @@ SYSTEM_PROMPT = (
     "broader query or a different search tool, then answer with what you have. "
     "When search_images returns image_url values, show the single best match "
     "in your reply as ![short description](image_url) so the user sees the "
-    "picture, not just a description of it — one image, not a gallery. "
+    "picture, not just a description of it - one image, not a gallery. "
     "If no tool is needed (greetings, math, opinions), just answer."
 )
 
@@ -211,38 +211,42 @@ def build_tools() -> list[dict]:
 
 
 def pretty_label(name: str, args: dict) -> str:
-    """User-legible tool label — never raw JSON."""
+    """User-legible tool label: verb first, no quotes, no trailing ellipsis.
+
+    The renderer shows labels verbatim, so every decorative element that
+    used to be stripped back off in chat_screen is gone at the source.
+    """
     query = str(args.get("query") or "").strip()
     url = str(args.get("url") or "").strip()
     if name == "search_web":
-        return f"Searching the web for “{query}”…"
+        return f"Searching the web: {query[:80]}"
     if name == "search_images":
-        return f"Searching images for “{query}”…"
+        return f"Searching images: {query[:80]}"
     if name == "search_videos":
-        return f"Searching videos for “{query}”…"
+        return f"Searching videos: {query[:80]}"
     if name == "search_news":
-        return f"Searching news for “{query}”…"
+        return f"Searching news: {query[:80]}"
     if name == "search_books":
-        return f"Searching books for “{query}”…"
+        return f"Searching books: {query[:80]}"
     if name == "fetch_page":
         host = url.split("/")[2] if "//" in url else url
-        return f"Fetching {host[:50]}…"
+        return f"Fetching {host[:50]}"
     if name == "save_page":
         fmt = str(args.get("format") or "markdown")
         host = url.split("/")[2] if "//" in url else url
-        return f"Saving {host[:40]} as {fmt}…"
+        return f"Saving {host[:40]} as {fmt}"
     if name == "download_media":
         host = url.split("/")[2] if "//" in url else url
-        return f"Downloading media from {host[:40]}…"
+        return f"Downloading media from {host[:40]}"
     if name == "scrape_site":
         host = url.split("/")[2] if "//" in url else url
-        return f"Crawling {host[:40]} and saving pages…"
+        return f"Crawling {host[:40]}"
     if name == "schedule_scrape":
         host = url.split("/")[2] if "//" in url else url
-        return f"Scheduling a crawl of {host[:40]}…"
+        return f"Scheduling a crawl of {host[:40]}"
     if name == "cancel_scrape":
-        return "Canceling scheduled crawl…"
-    return f"Working ({name})…"
+        return "Cancelling scheduled crawl"
+    return f"Running {name}"
 
 
 def _fmt(args: dict) -> str:
@@ -402,11 +406,23 @@ async def settle_turn(credits, tx_id: str | None, steps: int) -> int:
     return await credits.commit_amount(tx_id, amount)
 
 
+def _charged_steps(steps: int, content_parts: list[str]) -> int:
+    """Steps to bill: one floor whenever the user actually saw text.
+
+    Every terminal branch settles through this rule. The Stop button
+    delivers CancelledError before `steps` increments, so a branch billing
+    raw steps refunded delivered tokens; a crash or dropped connection did
+    the same. Delivered work is worth one step, whatever ended the turn.
+    """
+    delivered = bool("".join(content_parts).strip())
+    return max(steps, 1) if delivered else steps
+
+
 def _error_text(exc: BaseException) -> str:
     """A message a human can act on for any exception.
 
     `str(TimeoutError())` is the empty string, and the tool row falls back
-    to "no results" when the error is empty — so a 30-second search stall
+    to "no results" when the error is empty - so a 30-second search stall
     was reported to the user as "no results". That is both wrong and
     unactionable. Name the exception when it has no message.
     """
@@ -466,7 +482,7 @@ def tool_outcome(name: str, out: object) -> str:
 
     Write tools return a report dict instead of a result list, so
     `count = len(results)` was always 0 and the UI rendered a bare green
-    tick with no evidence anything happened — no file, no page count, no
+    tick with no evidence anything happened - no file, no page count, no
     path. The system prompt tells the model to report exact paths; this
     puts the same fact in the step row where the user can see it without
     reading the model's prose.
@@ -501,12 +517,15 @@ async def run_turn(
     on_thought: Callable[[str], None] | None = None,
     ask_confirm: Callable[[str], Any] | None = None,
 ) -> None:
-    """One agent turn — COST_STEP credits per model step, settled on every exit.
+    """One agent turn - COST_STEP credits per model step, settled on every exit.
 
     Soft metering: a low balance is never a mid-run kill switch; the turn
     always finishes (balance may clamp to 0). A 0 balance starts blocked.
     """
     credits = getattr(state, "credit_service", None)
+    # The question is recorded before any gate: an out-of-credits turn
+    # still shows the user what they asked, and Retry can re-send it.
+    emit("user", {"text": user_text})
     if credits is None:
         emit("error", {"kind": "unavailable", "steps": 0, "cost": 0})
         return
@@ -518,12 +537,11 @@ async def run_turn(
     # (settlement then charges directly). Credits must never block the work.
     tx = await credits.reserve(COST_STEP)
 
-    emit("user", {"text": user_text})
     emit("assistant_start", {})
     if balance < COST_STEP * 3:
         emit(
             "nudge",
-            {"text": "Low credit balance — this message finishes regardless."},
+            {"text": "Low credit balance. This message finishes regardless."},
         )
 
     messages: list[dict] = (
@@ -695,7 +713,7 @@ async def run_turn(
                 and steps < AGENT_MAX_ITERS
             ):
                 # Reasoning models can burn the entire budget before any text
-                # appears — retry once with a bigger budget, same step count.
+                # appears - retry once with a bigger budget, same step count.
                 empty_retried = True
                 max_tokens = (max_tokens or ai_service.ANSWER_MAX_TOKENS) * 2
                 messages.append(
@@ -730,6 +748,7 @@ async def run_turn(
             )
             return
         clean, related = ai_service.parse_related(final_text)
+        charge = _charged_steps(steps, content_parts)
         emit(
             "text_final",
             {
@@ -737,91 +756,82 @@ async def run_turn(
                 "related": related,
                 "served_by": served_by,
                 "model": used_model,
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
-        await settle_turn(credits, tx, steps)
+        await settle_turn(credits, tx, charge)
     except ChatCancelled:
         # on_token raises the cancel before stream_llm returns, so `steps`
         # is still 0 even though tokens reached the screen. Refunding that
         # would give away delivered work: a model call happened, it just
-        # did not finish. Count one step when the user actually saw text.
-        delivered = bool("".join(content_parts).strip())
-        charge_steps = max(steps, 1) if delivered else steps
-        await settle_turn(credits, tx, charge_steps)
+        # did not finish. _charged_steps applies the floor.
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)
         emit(
             "stopped",
             {
                 "partial": "".join(content_parts),
-                "steps": charge_steps,
-                "cost": charge_steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
     except ai_service.AIMidStream:
-        await settle_turn(credits, tx, steps)  # partial work delivered — charge it
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)  # partial work delivered - charge it
         emit(
             "error",
             {
                 "kind": "midstream",
                 "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
-            },
-        )
-    except ai_service.AIRateLimited as exc:
-        # Capped, not broken. Carry the model's own words and a concrete
-        # alternative so the UI can offer one tap instead of shrugging.
-        await settle_turn(credits, tx, steps)
-        logger.info("chat turn rate limited: %s", exc)
-        emit(
-            "error",
-            {
-                "kind": "rate_limited",
-                "message": exc.message,
-                "suggestion": exc.suggestion,
-                "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
     except ai_service.AIUnavailable as exc:
-        await settle_turn(credits, tx, steps)
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)
         logger.info("chat turn unavailable: %s", exc)
         emit(
             "error",
             {
                 "kind": "unavailable",
+                # ai_service messages are already consumer-facing
+                # (terse, no internals) - show the router's own words.
+                "message": str(exc).strip(),
                 "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
     except asyncio.CancelledError:
         # Hard cancel (the Stop button). CancelledError is a BaseException,
         # so it escapes `except Exception` entirely and would leave the
-        # reservation un-settled until the 240s auto-rollback fired. Settle
-        # what was actually delivered, then let the cancellation through.
-        await settle_turn(credits, tx, steps)
-        logger.info("chat turn cancelled after %d step(s)", steps)
+        # reservation un-settled until the auto-rollback fired. This is the
+        # branch Stop actually lands in: settle by what was delivered, then
+        # let the cancellation through.
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)
+        logger.info("chat turn cancelled after %d step(s)", charge)
         emit(
             "stopped",
             {
                 "partial": "".join(content_parts),
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )
         raise
     except Exception:
-        await settle_turn(credits, tx, steps)
+        charge = _charged_steps(steps, content_parts)
+        await settle_turn(credits, tx, charge)
         logger.exception("chat turn failed")
         emit(
             "error",
             {
                 "kind": "unavailable",
-                "partial": "",
-                "steps": steps,
-                "cost": steps * COST_STEP,
+                "partial": "".join(content_parts),
+                "steps": charge,
+                "cost": charge * COST_STEP,
             },
         )

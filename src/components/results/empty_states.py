@@ -48,15 +48,14 @@ def build_error_box(
         err_icon = ft.Icons.WIFI_OFF_ROUNDED
         err_title = "No Internet Connection"
         err_desc = (
-            "Unable to reach search servers. Please check your Wi-Fi or mobile data "
-            "connection and try again."
+            "Unable to reach search servers. Check your connection and try again."
         )
     elif category == "server":
         err_icon = ft.Icons.CLOUD_OFF_ROUNDED
         err_title = "Server Unavailable"
         err_desc = (
             f"The search server returned a non-200 error ({error}). "
-            "Please try again in a few moments."
+            "Try again in a few moments."
         )
     else:
         err_icon = ft.Icons.ERROR_OUTLINE_ROUNDED
@@ -137,9 +136,9 @@ def build_video_rate_limit_box(query: str, on_restart: Callable) -> ft.Container
                     font_family="Outfit",
                 ),
                 ft.Text(
-                    "DuckDuckGo strictly rate-limits automated video search queries. "
+                    "DuckDuckGo rate-limits automated video searches. "
                     "When rate-limited, zero video results are returned.\n\n"
-                    "Please try again later or switch to Web search.",
+                    "Try again later or switch to Web search.",
                     size=tokens.FONT_SM,
                     text_align=ft.TextAlign.CENTER,
                     style=ft.TextStyle(height=1.4),

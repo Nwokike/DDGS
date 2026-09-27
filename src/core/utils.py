@@ -69,20 +69,25 @@ class InMemoryLogHandler(logging.Handler):
 in_memory_log_handler = InMemoryLogHandler()
 
 
-def setup_logging():
-    # Try different folders for log file
-    storage_env = os.getenv("FLET_APP_STORAGE_DATA")
-    log_dirs = [
-        os.path.join(storage_env, "logs") if storage_env else None,
-        os.path.join(os.path.expanduser("~"), ".ddgs_ui", "logs"),
-        os.path.join(
-            os.getenv("APPDATA") or os.path.expanduser("~"), ".ddgs_ui", "logs"
-        )
-        if os.name == "nt"
-        else None,
+def _log_dir_candidates() -> list[str]:
+    """Where log files may live, best tier first.
+
+    Per .flet/README the log home is data/ (durable app data - the phone
+    already writes files/data/logs), resolved by the single storage
+    resolver. Two emergency fallbacks remain for environments where
+    data/ itself is unwritable; they are deliberately scratch-tier.
+    """
+    from core.storage_paths import data_dir
+
+    return [
+        str(data_dir() / "logs"),
         os.path.join(tempfile.gettempdir(), "ddgs_ui", "logs"),
         os.path.join(os.getcwd(), "logs"),
     ]
+
+
+def setup_logging():
+    log_dirs = _log_dir_candidates()
 
     file_handler = None
     log_file_path = None

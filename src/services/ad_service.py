@@ -1,4 +1,4 @@
-"""AdMob service — banner and interstitial ads.
+"""AdMob service - banner and interstitial ads.
 
 Direct port of Sherlock's production AdService pattern.
 Uses test Ad IDs until Play Store launch.
@@ -84,7 +84,7 @@ class AdService:
         try:
             # Sherlock's production pattern: flet-ads auto-registers on
             # construction, but a service whose refcount drops can be
-            # unregistered — keep it in page.services explicitly.
+            # unregistered - keep it in page.services explicitly.
             self._consent_manager = fta.ConsentManager()
             if self._consent_manager not in self.page.services:
                 self.page.services.append(self._consent_manager)
@@ -184,6 +184,9 @@ class AdService:
         logger.error("InterstitialAd error: %s", getattr(e, "data", e))
         self.interstitial = None
         self._interstitial_loaded = False
+        # Nothing will show: let the next trigger queue a fresh load
+        # instead of returning "queued" forever.
+        self._pending_interstitial = False
 
     async def _show_loaded(self):
         if self.interstitial is None or self._interstitial_shown:
@@ -191,6 +194,8 @@ class AdService:
         try:
             await self.interstitial.show()
             self._interstitial_shown = True
+            # The queued impression fired: this is when the gap is spent.
+            state.last_interstitial_ts = time.time()
         except (
             ValueError,
             TypeError,
@@ -229,7 +234,6 @@ class AdService:
         now = time.time()
         if now - state.last_interstitial_ts < self.MIN_INTERSTITIAL_GAP:
             return False
-        state.last_interstitial_ts = now
         ad = self.interstitial
         if (
             ad is not None
@@ -239,6 +243,8 @@ class AdService:
             try:
                 await ad.show()
                 self._interstitial_shown = True
+                # The gap is spent only by an impression that really fired.
+                state.last_interstitial_ts = now
                 return True
             except (
                 ValueError,
@@ -250,25 +256,33 @@ class AdService:
             ):
                 self.interstitial = None
                 self._interstitial_loaded = False
-        # No usable ad: load a fresh one; it shows automatically once loaded.
+        if self._pending_interstitial:
+            # Already queued by an earlier trigger; its show stamps the gap.
+            return True
+        # Queue a fresh load: it shows automatically once loaded, and
+        # _show_loaded stamps the gap then. A load that cannot even start
+        # leaves the gap unspent - a no-op must not lock out a real ad.
         self._pending_interstitial = True
         if self.interstitial is None:
             await self.preload_interstitial(self._on_close)
+            if self.interstitial is None:
+                self._pending_interstitial = False
+                return False
         return True
 
     async def show_rewarded_interstitial(self, on_close: Callable) -> bool:
         """Show a rewarded interstitial ad, triggering on_close when closed.
 
         Returns False when no ad could be shown, and grants nothing in that
-        case. It used to call `on_close` anyway — for premium users, when
+        case. It used to call `on_close` anyway - for premium users, when
         flet_ads is missing, and on mobile web where `_is_mobile()` is
-        False — so credits were handed out for an impression nobody saw:
+        False - so credits were handed out for an impression nobody saw:
         two every 30 seconds against a 200/day cap, with the cooldown held
         only in memory and cleared by a relaunch. A reward has to be paid
         for by an ad that actually closed.
         """
         if state.is_premium or not _HAS_ADS or not self._is_mobile():
-            logger.info("No rewarded ad available — granting nothing")
+            logger.info("No rewarded ad available - granting nothing")
             return False
 
         try:

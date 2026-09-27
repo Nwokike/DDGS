@@ -1,4 +1,4 @@
-"""use_search — wraps search/extract logic for components.
+"""use_search - wraps search/extract logic for components.
 
 Provides a clean interface for triggering searches from UI components.
 """

@@ -5,10 +5,68 @@ from collections.abc import Callable
 import flet as ft
 
 from components.settings.version import _APP_VERSION
+from core import ui
+from core.constants import (
+    CONTACT_EMAIL,
+    GITHUB_REPO_URL,
+    KIRI_APPS_PLAY_URL,
+    KIRI_APPS_URL,
+)
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
 from core.utils import in_memory_log_handler
+from services.update_service import PLAY_STORE_URL
+
+
+def _launch(page, url: str) -> None:
+    async def _run():
+        await ft.UrlLauncher().launch_url(url)
+
+    page.run_task(_run)
+
+
+def _external_trailing() -> ft.Icon:
+    return ft.Icon(
+        ft.Icons.OPEN_IN_NEW_ROUNDED,
+        size=15,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+    )
+
+
+def _more_apps_url(page) -> str:
+    """Store devices open the Play developer listing; everything else
+    the kiri.ng showcase that links every repo with downloads (KTV's
+    exact split, same constants)."""
+    return KIRI_APPS_PLAY_URL if _is_store_device(page) else KIRI_APPS_URL
+
+
+def _more_apps_subtitle(page) -> str:
+    return (
+        "All our apps on Google Play"
+        if _is_store_device(page)
+        else "Sherlock, DDGS, CollabShell and more"
+    )
+
+
+def _is_store_device(page) -> bool:
+    """Phones and TV are the Play audience; desktop has no listing (KTV)."""
+    try:
+        return page.platform in (
+            ft.PagePlatform.ANDROID,
+            ft.PagePlatform.IOS,
+            ft.PagePlatform.ANDROID_TV,
+        )
+    except Exception:
+        return False
+
+
+def _rate_url(page) -> str:
+    return PLAY_STORE_URL if _is_store_device(page) else GITHUB_REPO_URL
+
+
+def _rate_subtitle(page) -> str:
+    return "Rate us on Google Play" if _is_store_device(page) else "Star us on GitHub"
 
 
 def build_logs_dialog(page: ft.Page):
@@ -155,32 +213,22 @@ def build_storage_section(
 
 
 def _open_version_dialog(page: ft.Page):
+    from components.update_dialog import show_update_dialog
     from core.state import state as _st
 
     if getattr(_st, "update_available", False) and getattr(_st, "update_data", None):
-        from components.update_dialog import show_update_dialog
-
         show_update_dialog(page, _st.update_data)
     else:
-        from components.settings.version import _APP_VERSION as _ver
-        from components.update_dialog import show_update_dialog
-
-        fallback = {
-            "version": _ver,
-            "type": "update",
-            "title": f"DDGS {_ver}",
-            "release_notes": "• You're up to date on v"
-            + _ver
-            + "!\n• Search 10 engines privately · download videos & images · scrape any page as Markdown, HTML or text\n• Full update history on GitHub Releases",
-            "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
-            "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs",
-        }
-        show_update_dialog(page, fallback)
+        # Up-to-date mode (KTV Player's shape): the installed version and a
+        # live re-check. Never fabricate an update the feed never announced.
+        show_update_dialog(page, None)
 
 
 def build_about_section(
     page: ft.Page, privacy_url: str, terms_url: str
 ) -> ft.Container:
+    from core.build_channel import CHANNEL
+
     return AppStyles.section_card(
         "About Info",
         ft.Icons.INFO_ROUNDED,
@@ -212,6 +260,34 @@ def build_about_section(
                     tooltip="Tap to view changelog",
                     on_click=lambda e: _open_version_dialog(page),
                 ),
+                *(
+                    [
+                        ft.Row(
+                            [
+                                ft.Text(
+                                    "Edition", size=FONT_SM, font_family="Outfit"
+                                ),
+                                ft.TextButton(
+                                    content=ft.Text(
+                                        "Google Play Edition · Full edition on GitHub",
+                                        size=FONT_SM,
+                                        weight=ft.FontWeight.W_600,
+                                        color=AppColors.PRIMARY,
+                                    ),
+                                    on_click=lambda e: _launch(
+                                        page, GITHUB_REPO_URL
+                                    ),
+                                    style=ft.ButtonStyle(
+                                        padding=ft.Padding(0, 0, 0, 0)
+                                    ),
+                                ),
+                            ],
+                            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                        )
+                    ]
+                    if CHANNEL == "play"
+                    else []
+                ),
                 ft.Row(
                     [
                         ft.Text("Edition", size=FONT_SM, font_family="Outfit"),
@@ -241,6 +317,29 @@ def build_about_section(
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
+                # KTV Player's About shape: icon rows with a real subtitle,
+                # whole row tappable (Contact / Rate / More apps).
+                ui.setting_row(
+                    ft.Icons.MAIL_OUTLINE_ROUNDED,
+                    "Contact developer",
+                    CONTACT_EMAIL,
+                    _external_trailing(),
+                    on_click=lambda e: _launch(page, f"mailto:{CONTACT_EMAIL}"),
+                ),
+                ui.setting_row(
+                    ft.Icons.STAR_ROUNDED,
+                    "Rate 5 stars",
+                    _rate_subtitle(page),
+                    _external_trailing(),
+                    on_click=lambda e: _launch(page, _rate_url(page)),
+                ),
+                ui.setting_row(
+                    ft.Icons.APPS_ROUNDED,
+                    "More apps from Kiri",
+                    _more_apps_subtitle(page),
+                    _external_trailing(),
+                    on_click=lambda e: _launch(page, _more_apps_url(page)),
+                ),
                 ft.Divider(
                     height=1,
                     color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
@@ -251,13 +350,13 @@ def build_about_section(
                             "Privacy Policy",
                             icon=ft.Icons.PRIVACY_TIP_ROUNDED,
                             style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                            action=ft.OpenUrl(privacy_url),
+                            on_click=lambda e: _launch(page, privacy_url),
                         ),
                         ft.TextButton(
                             "Terms of Service",
                             icon=ft.Icons.GAVEL_ROUNDED,
                             style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                            action=ft.OpenUrl(terms_url),
+                            on_click=lambda e: _launch(page, terms_url),
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_EVENLY,

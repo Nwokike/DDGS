@@ -168,9 +168,14 @@ async def download_media(url: str, quality: str = "best", svc=None) -> str:
             raise RuntimeError("could not resolve the YouTube video")
         url = stream.url
         ext = stream.ext or "mp4"
+        # The quality lands in the file name (and in the tool's outcome
+        # line), so a 1080p request that honestly downgraded to a muxed
+        # 360p stream says so instead of hiding it.
+        stem = f"youtube-{stream.quality_label or 'video'}-{int(time.time()) % 100000}"
     else:
         ext = ext_from_url(url, "mp4")
-    dest = unique_path(default_save_dir(), f"media-{int(time.time()) % 100000}.{ext}")
+        stem = f"media-{int(time.time()) % 100000}"
+    dest = unique_path(default_save_dir(), f"{stem}.{ext}")
     written = await asyncio.wait_for(
         _dl(url, dest, referer=None, expect_media=False), DL_TIMEOUT
     )

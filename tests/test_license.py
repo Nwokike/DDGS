@@ -306,10 +306,11 @@ def test_play_products_map_to_license_tiers():
 def test_play_build_never_offers_a_purchase_control(monkeypatch):
     """A Play build must render no purchase UI of any kind.
 
-    Guards the whole channel decision by walking the real rendered card
-    with CHANNEL stamped to "play", on Android with a live billing
-    service. It fails if any buy, subscribe, checkout or recovery control
-    ever becomes reachable in the store build.
+    Two layers, both KTV Player's rule ("not even a disabled card —
+    nothing to declare"): settings_screen skips the premium card entirely
+    when the stamped channel is "play", and even a directly-built card
+    shows no purchase control because a play-channel PremiumService is
+    unavailable by construction.
     """
     import flet as ft
 
@@ -321,28 +322,25 @@ def test_play_build_never_offers_a_purchase_control(monkeypatch):
     monkeypatch.setattr(build_channel, "CHANNEL", "play", raising=False)
     monkeypatch.setattr(ps, "CHANNEL", "play", raising=False)
 
-    class Billing:
-        """Present and healthy, so only CHANNEL can be doing the work."""
+    # Layer 1: the settings screen never renders the card on play.
+    screen_source = (SRC / "screens" / "settings_screen.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'if CHANNEL == "play" else [build_premium_section(page)]' in (
+        screen_source
+    ), "settings_screen must skip the whole premium card on the play channel"
 
+    # Layer 2: the card itself, built against a play-channel service.
     class Controller:
-        billing = Billing()
+        billing = None
         storage = None
-
-        async def _grant_premium_benefits(self, *, first_time=False):
-            return False
-
-        async def _sync_premium_storage(self):
-            pass
-
-        async def verify_purchases(self):
-            pass
+        premium = None
 
     class Page:
         platform = ft.PagePlatform.ANDROID
         width = 390
         height = 800
         theme_mode = ft.ThemeMode.LIGHT
-        _ddgs_controller = Controller()
 
         def run_task(self, handler, *a, **k):
             pass
@@ -353,14 +351,18 @@ def test_play_build_never_offers_a_purchase_control(monkeypatch):
         def update(self):
             pass
 
+    page = Page()
+    page._ddgs_controller = Controller()
+    Controller.premium = ps.PremiumService(None, None)  # play → backend "none"
     state.is_premium = False
+    state.license_status = ""
     state.license_recovery_id = ""
     state.license_prices = {
         "monthly": "$3.99 USD",
         "yearly": "$24.99 USD",
         "lifetime": "$49.99 USD",
     }
-    card = build_premium_section(Page())
+    card = build_premium_section(page)
 
     blob: list[str] = []
 
@@ -368,6 +370,8 @@ def test_play_build_never_offers_a_purchase_control(monkeypatch):
         blob.append(type(control).__name__)
         if isinstance(control, ft.Text) and control.value:
             blob.append(str(control.value))
+        if isinstance(control, str):
+            blob.append(control)
         for child in getattr(control, "controls", None) or []:
             walk(child)
         for attr in ("content", "leading", "trailing", "title", "icon"):
@@ -382,9 +386,9 @@ def test_play_build_never_offers_a_purchase_control(monkeypatch):
         assert forbidden not in rendered, (
             f"the Play build must not offer {forbidden!r}"
         )
-    # It should still explain itself, not leave the user at a dead end.
-    assert "Premium is not sold in this build" in rendered
-    assert "direct APK" in rendered, "point the user somewhere Premium exists"
+    # KTV Player declares nothing at all: no cross-sell of other channels.
+    assert "not sold in this build" not in rendered
+    assert "direct APK" not in rendered
 
 
 def test_direct_build_offers_the_purchase_flow(monkeypatch):
@@ -433,6 +437,13 @@ def test_direct_build_offers_the_purchase_flow(monkeypatch):
 
     state.is_premium = False
     state.license_recovery_id = ""
+    # Seed the prices this test depends on: it must not rely on whatever a
+    # previously-run test left behind in the shared state singleton.
+    state.license_prices = {
+        "monthly": "$3.99 USD",
+        "yearly": "$24.99 USD",
+        "lifetime": "$49.99 USD",
+    }
     card = build_premium_section(Page())
 
     blob: list[str] = []

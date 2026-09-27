@@ -163,19 +163,74 @@ def test_network_failure_keeps_the_verdict_but_a_refusal_drops_it(
     async def offline(*args, **kwargs):
         raise license_service.LicenseUnavailable("unreachable")
 
-    monkeypatch.setattr(service.license, "refresh", offline)
+    # reconcile uses the token-issuing restore path (KTV Player), never
+    # /status: a network failure must not revoke.
+    monkeypatch.setattr(service.license, "restore", offline)
     asyncio.run(service.reconcile())
     assert state.is_premium is True, "a network failure must not revoke"
 
     # A refusal is the server ruling: the client clears the unlock itself.
-    class Refusing:
-        async def refresh(self):
-            service.license._unlocked = False
-            raise license_service.LicenseUnavailable("404 license_not_found")
+    async def refusing(recovery_id):
+        service.license._unlocked = False
+        raise license_service.LicenseUnavailable("404 license_not_found")
 
-    monkeypatch.setattr(service.license, "refresh", Refusing().refresh)
+    monkeypatch.setattr(service.license, "restore", refusing)
     asyncio.run(service.reconcile())
     assert state.is_premium is False, "a refusal must revoke"
+
+
+def test_reconcile_uses_the_token_issuing_path(monkeypatch):
+    """`/status` issues no token; reconcile must call restore or a renewal
+    lapses the cached token and locks out a paying subscriber (KTV rule)."""
+    from core.state import state
+    from services import license_service, premium_service
+
+    monkeypatch.setattr(premium_service, "CHANNEL", "direct")
+    service = premium_service.PremiumService(
+        None, FakeStorage({"kiri_recovery_id": "KIRI-L-" + "A" * 24})
+    )
+    calls: list[str] = []
+
+    async def restore(recovery_id):
+        calls.append(f"restore:{recovery_id}")
+        return license_service.LicenseStatus(
+            status="active", product="monthly", recovery_id=recovery_id
+        )
+
+    async def refresh(*args, **kwargs):
+        calls.append("refresh")
+
+    monkeypatch.setattr(service.license, "restore", restore)
+    monkeypatch.setattr(service.license, "refresh", refresh)
+    asyncio.run(service.reconcile())
+    assert calls and calls[0].startswith("restore:"), (
+        f"reconcile must take the token-issuing path, got {calls}"
+    )
+    assert "refresh" not in calls, "reconcile must not use /status"
+    # no recovery ID ever saved → nothing to reconcile, no request at all
+    service2 = premium_service.PremiumService(None, FakeStorage())
+    calls.clear()
+    asyncio.run(service2.reconcile())
+    assert not calls, "with no purchase history there is nothing to ask"
+    assert state.is_premium in (True, False)  # untouched
+
+
+def test_reconcile_is_debounced_for_resume_bursts(monkeypatch):
+    """RESUME/SHOW bursts must not burn the Worker's 20 req/60s budget."""
+    from services import premium_service
+
+    monkeypatch.setattr(premium_service, "CHANNEL", "direct")
+    # No recovery ID → the real reconcile stamps and returns without any
+    # network call, so this exercises the genuine stamping path.
+    service = premium_service.PremiumService(None, FakeStorage())
+    initial = service._last_reconcile_at
+    asyncio.run(service.reconcile_if_due())
+    assert service._last_reconcile_at > initial, "the first check must stamp"
+    stamped = service._last_reconcile_at
+    asyncio.run(service.reconcile_if_due())
+    assert service._last_reconcile_at == stamped, (
+        "a burst inside RESUME_DEBOUNCE must be swallowed"
+    )
 
 
 def test_kiri_check_status_does_not_claim_an_unreachable_server(monkeypatch):
@@ -423,11 +478,14 @@ def test_a_canceled_search_is_not_cached_or_logged():
 def test_a_gateway_outage_is_not_a_rate_limit():
     from services import ai_service
 
+    # the whole rate-limit outcome class is gone: every failure is an
+    # honest AIUnavailable with consumer-facing copy, and the router owns
+    # model rotation (`auto` is its own model).
+    assert not hasattr(ai_service, "AIRateLimited")
+    assert not hasattr(ai_service, "rate_limit_advice")
     source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
-    # the blanket conversion is gone; the flag gates it
-    assert "rate_limited = True" in source
-    assert "if rate_limited:" in source
-    assert issubclass(ai_service.AIRateLimited, Exception)
+    assert "rate_limited" not in source
+    assert '"model": chosen' in source, "the request model must pass through"
 
 
 # ── log retention must include rotated backups ──────────────────────────
@@ -503,3 +561,298 @@ def test_rollback_seconds_matches_the_implementation():
     assert "asyncio.sleep(ROLLBACK_SECONDS)" in source
     assert "Auto-rollback after 60 seconds" not in source
     assert ROLLBACK_SECONDS > 0
+
+
+def test_youtube_fallback_is_callable_the_way_it_is_called():
+    """A de-indented helper kept its `self` param while the call site still
+    said `self._youtube_video_fallback` → AttributeError, swallowed by the
+    broad handler → video rescue silently dead."""
+    import inspect
+
+    from services import search_service
+    from services.search_service import SearchService
+
+    helper = search_service._youtube_video_fallback
+    assert inspect.iscoroutinefunction(helper)
+    params = list(inspect.signature(helper).parameters)
+    assert params == ["query"], f"a module-level helper must not take self: {params}"
+    source = (SRC / "services" / "search_service.py").read_text(encoding="utf-8")
+    assert "self._youtube_video_fallback" not in source, (
+        "the call site must not look for a method that is not on the class"
+    )
+    # the sibling genuinely lives on the class
+    assert hasattr(SearchService, "_openlibrary_book_fallback")
+
+
+# ── the uncommitted premium fix must stay in place ──────────────────────
+def test_premium_verdict_is_never_persisted_to_storage():
+    """Entitlement is the signed token, never a local flag (KTV rule).
+
+    The pre-Phase-1 working tree removed the _persist_verdict /
+    _sync_premium_storage mechanism that wrote the derived verdict back to
+    disk; these guards keep it gone.
+    """
+    from services import premium_service
+
+    service_source = (SRC / "services" / "premium_service.py").read_text(
+        encoding="utf-8"
+    )
+    controller_source = (SRC / "app_controller.py").read_text(encoding="utf-8")
+    assert "_persist_verdict" not in service_source
+    assert "_sync_premium_storage" not in controller_source
+    assert not hasattr(premium_service.PremiumService, "_persist_verdict")
+
+
+def test_wallet_reads_live_premium_state():
+    """Buying while the wallet dialog is open must update it immediately.
+
+    The countdown and the watch handler read state.is_premium at run time;
+    a snapshot captured at dialog build would keep counting down against a
+    stale verdict.
+    """
+    source = (SRC / "components" / "wallet.py").read_text(encoding="utf-8")
+    # _countdown: loops while live premium is False
+    assert "if state.is_premium:" in source
+    # _on_watch: refuses at run time, not at build time
+    assert "        if state.is_premium:\n            return" in source
+
+
+# ── a stopped or crashed turn must not refund delivered work ────────────
+def test_settlement_floors_every_terminal_branch():
+    """_charged_steps bills one step for any branch where text reached the
+    screen; the Stop button lands in CancelledError with steps still 0."""
+    from services.chat_agent import _charged_steps
+
+    assert _charged_steps(0, ["delivered"]) == 1, "floor for delivered text"
+    assert _charged_steps(0, []) == 0, "nothing delivered is fully refunded"
+    assert _charged_steps(0, ["   "]) == 0, "whitespace is not delivery"
+    assert _charged_steps(2, ["delivered"]) == 2, "completed steps bill as-is"
+
+    source = (SRC / "services" / "chat_agent.py").read_text(encoding="utf-8")
+    # definition + text_final, ChatCancelled, MidStream, Unavailable,
+    # CancelledError, Exception: every terminal path routes through it.
+    assert source.count("_charged_steps(") >= 7, (
+        "a terminal branch settled raw steps and would refund delivery"
+    )
+
+
+def test_out_of_credits_still_records_the_question(monkeypatch):
+    """A 0-balance turn must record the user's message before erroring, or
+    the question vanishes and Retry has nothing to re-send."""
+    import asyncio
+
+    from core.state import state
+    from services import chat_agent
+
+    events: list[str] = []
+
+    class ZeroCredits:
+        async def get_balance(self):
+            return 0
+
+    monkeypatch.setattr(state, "credit_service", ZeroCredits(), raising=False)
+    asyncio.run(
+        chat_agent.run_turn(
+            "what is the weather",
+            [],
+            lambda kind, data: events.append(kind),
+            asyncio.Event(),
+        )
+    )
+    assert events[0] == "user", f"question must be recorded first: {events}"
+    assert "error" in events
+
+
+# ── the 90s gap is spent by impressions, not by attempts ────────────────
+def test_a_noop_interstitial_does_not_burn_the_gap(monkeypatch):
+    """A trigger that cannot even create an ad must leave the central gap
+    unspent, or one failure locks out the next real impression for 90s."""
+    import asyncio
+
+    from core.state import state
+    from services import ad_service as mod
+
+    class Page:
+        platform = mod.ft.PagePlatform.ANDROID
+        web = False
+
+        def __init__(self):
+            self.services = []
+
+        def run_task(self, *a, **k):
+            pass
+
+    svc = mod.AdService(Page())
+    state.is_premium = False
+    state.last_interstitial_ts = 0.0
+
+    async def _fail_preload(on_close=None):
+        # The constructor failed: interstitial stays None, nothing queued.
+        pass
+
+    monkeypatch.setattr(svc, "preload_interstitial", _fail_preload)
+    shown = asyncio.run(svc.show_interstitial())
+    assert shown is False, "a no-op must not report success"
+    assert state.last_interstitial_ts == 0.0, "the gap must stay unspent"
+
+
+def test_a_queued_impression_stamps_the_gap_when_it_shows(monkeypatch):
+    import asyncio
+
+    from core.state import state
+    from services import ad_service as mod
+
+    class Page:
+        platform = mod.ft.PagePlatform.ANDROID
+        web = False
+
+        def __init__(self):
+            self.services = []
+
+        def run_task(self, *a, **k):
+            pass
+
+    class Ad:
+        async def show(self):
+            pass
+
+    svc = mod.AdService(Page())
+    state.is_premium = False
+    state.last_interstitial_ts = 0.0
+
+    async def _queued_preload(on_close=None):
+        svc.interstitial = Ad()
+        svc._interstitial_loaded = True
+
+    monkeypatch.setattr(svc, "preload_interstitial", _queued_preload)
+    assert asyncio.run(svc.show_interstitial()) is True
+    assert state.last_interstitial_ts == 0.0, "queueing is not an impression"
+    asyncio.run(svc._show_loaded())
+    assert state.last_interstitial_ts > 0.0, "the fired impression stamps the gap"
+
+
+# ── backend truth: what we offer and what we send must exist in ddgs ────
+def test_backend_options_match_the_ddgs_registry():
+    """ddgs substitutes an invalid backend silently; every offered source
+    must exist in the runtime registry for its category."""
+    from ddgs.engines import ENGINES
+
+    from core.constants import (
+        BACKEND_OPTIONS_BOOKS,
+        BACKEND_OPTIONS_IMAGES,
+        BACKEND_OPTIONS_NEWS,
+        BACKEND_OPTIONS_TEXT,
+        BACKEND_OPTIONS_VIDEOS,
+    )
+
+    for options, category in (
+        (BACKEND_OPTIONS_TEXT, "text"),
+        (BACKEND_OPTIONS_IMAGES, "images"),
+        (BACKEND_OPTIONS_NEWS, "news"),
+        (BACKEND_OPTIONS_VIDEOS, "videos"),
+        (BACKEND_OPTIONS_BOOKS, "books"),
+    ):
+        for option in options:
+            if option["key"] == "auto":
+                continue
+            assert option["key"] in ENGINES[category], (
+                f"{option['key']!r} is not a {category} engine in ddgs 9.16"
+            )
+
+
+def test_stale_backend_is_corrected_in_state_and_at_the_send_site():
+    """The dropdown used to display 'auto' while state kept the stale
+    engine, and search_service sent it verbatim."""
+    home = (SRC / "screens" / "home_screen.py").read_text(encoding="utf-8")
+    assert 'controller.save("backend", "auto")' in home, (
+        "a stale backend must be corrected in state, not just displayed"
+    )
+    search = (SRC / "services" / "search_service.py").read_text(encoding="utf-8")
+    assert "ENGINES.get(search_type" in search, (
+        "the send site must validate against the runtime registry"
+    )
+    reader = (SRC / "screens" / "content_reader_screen.py").read_text(
+        encoding="utf-8"
+    )
+    assert reader.count("run_task(_fetch, _current_url, True)") == 2, (
+        "Refresh and Retry must bypass the 24h page cache"
+    )
+    assert "force=force" in reader
+
+
+# ── the Allow button: YouTube resolution must hand back a real stream ────
+def test_pick_format_never_returns_a_dead_or_silent_stream():
+    """The AI's Allow button failed because the picker returned an ANDROID
+    adaptive format with neither url nor cipher. Adaptive streams are also
+    video-only (the app has no muxer), so only muxed formats qualify, and
+    a too-high ask downgrades to something playable instead of failing."""
+    from services.youtube.format_parser import _pick_format
+
+    muxed_360 = {
+        "itag": 18,
+        "mimeType": 'video/mp4; codecs="avc1.42001E, mp4a.40.2"',
+        "height": 360,
+        "qualityLabel": "360p",
+        "url": "http://x/18",
+    }
+    muxed_720 = {
+        "itag": 22,
+        "mimeType": 'video/mp4; codecs="avc1.64001F, mp4a.40.2"',
+        "height": 720,
+        "qualityLabel": "720p",
+        "url": "http://x/22",
+    }
+    # What YouTube's ANDROID client actually returns for adaptive formats
+    # now: neither url nor signatureCipher.
+    dead_1080 = {
+        "itag": 137,
+        "mimeType": 'video/mp4; codecs="avc1.640028"',
+        "height": 1080,
+        "qualityLabel": "1080p",
+    }
+    dead_muxed = {"itag": 999, "mimeType": "video/mp4", "height": 480}
+
+    # 1080p ask: downgrade to the muxed stream instead of dying on the
+    # dead exact match (this was the user's failing Allow press).
+    picked = _pick_format(
+        {"streamingData": {"formats": [muxed_360], "adaptiveFormats": [dead_1080]}},
+        "1080p",
+    )
+    assert picked and picked["itag"] == 18, picked
+
+    # best prefers the muxed 720p progressive.
+    picked = _pick_format(
+        {"streamingData": {"formats": [muxed_360, muxed_720]}}, "best"
+    )
+    assert picked and picked["itag"] == 22, picked
+
+    # A muxed entry with no url and no cipher is dead weight: never return it.
+    assert (
+        _pick_format({"streamingData": {"formats": [dead_muxed]}}, "best") is None
+    )
+
+    # Adaptive-only response: nothing with audio exists - fail rather than
+    # save a silent file.
+    assert (
+        _pick_format(
+            {"streamingData": {"formats": [], "adaptiveFormats": [dead_1080]}},
+            "1080p",
+        )
+        is None
+    )
+
+
+def test_null_view_count_does_not_destroy_the_row():
+    """int(None) on a null viewCount escaped the except tuple and degraded
+    the whole video row to a 'Parse Error' placeholder (live sweep log)."""
+    from core.state import SearchResult
+
+    row = SearchResult(
+        title="How generators work",
+        url="https://example.com/v",
+        snippet="",
+        search_type="videos",
+        raw_data={"statistics": {"viewCount": None}},
+    )
+    assert row.views is None
+    assert row.title == "How generators work", "the row must survive"

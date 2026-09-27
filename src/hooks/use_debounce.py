@@ -1,4 +1,4 @@
-"""use_debounce — debounces a value change with configurable delay.
+"""use_debounce - debounces a value change with configurable delay.
 
 Adapted from KTV Player's hooks/use_debounce.py.
 """

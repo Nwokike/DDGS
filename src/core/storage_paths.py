@@ -51,13 +51,38 @@ def clear_temp() -> int:
 
     Anything here is by definition disposable: in-flight scrape and
     download scratch from a previous run that did not exit cleanly.
+
+    Never touched, because on Android this directory IS the cache dir
+    (getTemporaryDirectory returns getCacheDir) and this wipe once
+    deleted the runtime's CA file seconds after launch - every httpx
+    client then died at construction on the missing SSL_CERT_FILE path:
+      - whatever SSL_CERT_FILE / SSL_CERT_DIR point at,
+      - *cacert.pem (the runtime's or certifi's extracted bundle),
+      - engine_local*.py (the router's offline tier).
     """
+    keep: set[str] = set()
+    for key in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+        value = os.environ.get(key)
+        if value:
+            keep.add(str(Path(value)))
     root = temp_dir()
+    # Android: temp IS cache (getTemporaryDirectory == getCacheDir), so a
+    # subdir here is a cache tier (cache/ddgs) - never rmtree it. On
+    # desktop temp is its own dir and scratch subdirs are fair game.
+    wipe_dirs = root.resolve() != cache_dir().resolve()
     removed = 0
     try:
         for child in root.iterdir():
+            if (
+                str(child) in keep
+                or child.name.endswith("cacert.pem")
+                or child.name.startswith("engine_local")
+            ):
+                continue
             try:
                 if child.is_dir():
+                    if not wipe_dirs:
+                        continue
                     shutil.rmtree(child, ignore_errors=True)
                 else:
                     child.unlink()

@@ -35,7 +35,7 @@ def _resolve_url(link: str, base_url: str = "") -> str:
 def _on_link_tap(
     page: ft.Page, url: str, base_url: str = "", from_dialog: bool = False
 ):
-    """Directly fetch the tapped link and update the current view — like browser navigation."""
+    """Directly fetch the tapped link and update the current view - like browser navigation."""
     if not url or url.startswith(("#", "mailto:")):
         return
     resolved = _resolve_url(url, base_url)
@@ -73,7 +73,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     sanitized = sanitize_url(url)
     if not sanitized:
         snack_tmp = ft.SnackBar(
-            ft.Text("Invalid URL format. Please provide a valid web link."),
+            ft.Text("Invalid URL. Paste a full web link."),
             bgcolor=AppColors.ERROR,
         )
         snack_tmp.open = True
@@ -135,7 +135,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         if classify_error(error_msg) == "offline":
             snack_tmp = ft.SnackBar(
                 ft.Text(
-                    "No internet connection. Please check your network and try again."
+                    "No internet connection. Check your network and try again."
                 ),
                 action=ft.SnackBarAction(
                     "Retry",

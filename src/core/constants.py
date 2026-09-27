@@ -1,4 +1,4 @@
-"""Application constants — all storage keys."""
+"""Application constants - all storage keys."""
 
 STORAGE_THEME = "theme"
 STORAGE_HISTORY = "search_history"
@@ -47,10 +47,17 @@ KIRI_LICENSE_PUBLIC_KEY = (
     "nddMmAGXFI2J8sbC4gWY2POKc8hVrn0_uHxDZ9ufzwzg4buUimW-IEw4Uw"
 )
 # Stable app identifier sent to the Worker. The same value is used for
-# checkout, restore and status — a temporary install id would orphan
+# checkout, restore and status - a temporary install id would orphan
 # purchases on reinstall.
 KIRI_LICENSE_APP_ID = "ng.kiri.ddgs"
 KIRI_LICENSE_TIMEOUT = 15.0
+
+# The engine (kiri-router run.py) is fetched LIVE from here on every cold
+# start and cached to user storage. The engine itself is never vendored:
+# owner directive, LM Router pattern (upstream changes constantly and a
+# bundled snapshot would silently shadow it). This URL is the one allowed
+# constant, exactly like LM Router's ENGINE_URL.
+ENGINE_URL = "https://router.kiri.ng/run.py"
 
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
@@ -168,7 +175,7 @@ VIDEO_LICENSE_OPTIONS = [
 
 # ── AI mode (DDGS 2.0) ───────────────────────────────────────────────────
 DAILY_FREE_CREDITS = 50
-PREMIUM_DAILY_CREDITS = 200
+PREMIUM_DAILY_CREDITS = 500
 COST_STEP = 1  # one Assistant step = one model call
 COST_OVERVIEW = 0  # passive search overview is free
 COST_SUMMARY = 0  # passive page summary is free
@@ -239,3 +246,12 @@ VIDEO_QUALITY_OPTIONS = [
     {"key": "480p", "label": "480p"},
     {"key": "360p", "label": "360p"},
 ]
+
+# Contact and repository (KTV Player keeps the same address).
+CONTACT_EMAIL = "hello@kiri.ng"
+GITHUB_REPO_URL = "https://github.com/Nwokike/DDGS"
+# "More apps from Kiri": both values byte-match KTV Player's constants -
+# store devices open the shared Play developer listing, everything else
+# the kiri.ng showcase that links every repo with downloads.
+KIRI_APPS_PLAY_URL = "https://play.google.com/store/apps/dev?id=5797833969564243342"
+KIRI_APPS_URL = "https://kiri.ng/projects"

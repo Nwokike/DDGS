@@ -1,4 +1,4 @@
-"""ContentReaderScreen — full-screen reader for extracted web content.
+"""ContentReaderScreen - full-screen reader for extracted web content.
 
 Pushed as a ft.View when the user taps "Open in Reader" from the
 extract card.  Uses imperative state (not hooks) since it's rendered
@@ -42,7 +42,7 @@ def build_content_reader(
     copy_btn = ft.Ref[ft.IconButton]()
     open_btn = ft.Ref[ft.IconButton]()
 
-    async def _fetch(target_url: str):
+    async def _fetch(target_url: str, force: bool = False):
         nonlocal _current_url, _current_content, _is_loading, _error
         _is_loading = True
         _error = None
@@ -52,7 +52,10 @@ def build_content_reader(
             from services.search_service import SearchService
 
             svc = SearchService()
-            result, err = await svc.extract_url(target_url, fmt=_format)
+            # force bypasses the 24h page cache: Refresh and Retry must
+            # show what the server serves now, or Retry after a failed
+            # extract re-renders the same failure from cache.
+            result, err = await svc.extract_url(target_url, fmt=_format, force=force)
             if err:
                 _error = err
                 _current_content = None
@@ -134,7 +137,7 @@ def build_content_reader(
             _exit_reader()
 
     def _exit_reader():
-        """Always exit the reader — pop back to whatever was underneath."""
+        """Always exit the reader - pop back to whatever was underneath."""
         try:
             page.on_keyboard_event = None
             if len(page.views) > 1:
@@ -245,7 +248,7 @@ def build_content_reader(
                 icon=ft.Icons.REFRESH_ROUNDED,
                 icon_size=tokens.ICON_SM,
                 tooltip="Refresh content",
-                on_click=lambda _: page.run_task(_fetch, _current_url),
+                on_click=lambda _: page.run_task(_fetch, _current_url, True),
             ),
             ft.IconButton(
                 icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
@@ -330,7 +333,7 @@ def build_content_reader(
                 ft.FilledButton(
                     "Retry",
                     icon=ft.Icons.REFRESH_ROUNDED,
-                    on_click=lambda _: page.run_task(_fetch, _current_url),
+                    on_click=lambda _: page.run_task(_fetch, _current_url, True),
                     style=ft.ButtonStyle(
                         bgcolor=AppColors.PRIMARY,
                         color=ft.Colors.WHITE,

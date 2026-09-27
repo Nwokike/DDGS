@@ -303,7 +303,12 @@ def test_concurrent_credits_are_not_lost():
     from services.credit_service import CreditService
 
     async def scenario():
-        service = CreditService(_Store({"ddgs_credits": "100"}))
+        from datetime import UTC, datetime
+
+        today = datetime.now(tz=UTC).date().isoformat()
+        service = CreditService(
+            _Store({"ddgs_credits": "100", "ddgs_last_reset": today})
+        )
         await service.initialize()
         await asyncio.gather(*[service.add_credits(1) for _ in range(20)])
         balance = await service.get_balance()
@@ -336,19 +341,6 @@ def test_daily_reset_does_not_delete_live_holds():
     asyncio.run(scenario())
 
 
-def test_a_stopped_turn_charges_for_delivered_text(tmp_path, monkeypatch):
-    """on_token raises before steps increments, so a partial answer that
-    reached the screen used to settle at zero and refund delivered work."""
-
-    class Store(_Store):
-        pass
-
-    source = (SRC / "services" / "chat_agent.py").read_text(encoding="utf-8")
-    assert "charge_steps = max(steps, 1) if delivered else steps" in source, (
-        "a stopped turn with visible text must be charged"
-    )
-    assert "delivered = bool" in source
-
 
 def test_cancel_scrape_needs_approval():
     """It deletes a user's recurring crawl and persists the change, yet it
@@ -375,63 +367,22 @@ def test_a_timeout_says_timed_out_not_no_results():
 
 
 # ── model picker and rate limits ─────────────────────────────────────────
-def test_rate_limit_suggests_the_most_generous_model():
+def test_the_app_has_no_model_suggestion_layer():
+    """Rate-limit advice and app-side ranking were removed.
+
+    The router owns selection (`auto_order` in run.py); a 429 that reaches
+    the app is the router's final answer and surfaces as a plain
+    AIUnavailable with consumer-facing copy.
+    """
     from services import ai_service
 
-    catalog = [
-        {"id": "auto", "status": "active", "rate_hint": {"label": "rotates"}},
-        {
-            "id": "tight",
-            "status": "active",
-            "latency_ms": 400,
-            "rate_hint": {"approx_per_hour": 10, "label": "10/hour"},
-        },
-        {
-            "id": "open",
-            "status": "active",
-            "latency_ms": 500,
-            "rate_hint": {"approx_per_hour": 500, "label": "500/hour"},
-        },
-        {
-            "id": "medium",
-            "status": "active",
-            "latency_ms": 100,
-            "rate_hint": {"approx_per_hour": 100, "label": "100/hour"},
-        },
-    ]
-    original = ai_service._catalog
-    ai_service._catalog = catalog
-    try:
-        _, suggestion = ai_service.rate_limit_advice("tight")
-        # The old key sorted the cap ascending, so it recommended the
-        # 10/hour model here — the opposite of useful.
-        assert suggestion == "open", f"suggested {suggestion!r}, wanted the generous one"
-    finally:
-        ai_service._catalog = original
-
-
-def test_non_chat_endpoints_are_not_request_candidates():
-    from services.ai_service import rank_models
-
-    def m(mid, etype="/chat.completion", latency=100, status="active"):
-        return {
-            "id": mid,
-            "endpoint_type": etype,
-            "latency_ms": latency,
-            "status": status,
-        }
-
-    ranked = rank_models(
-        [
-            m("fast-chat", latency=150),
-            m("slow-chat", latency=900),
-            m("muse-spark", etype="/response", latency=10),
-            m("jev", etype="/systemone", latency=20),
-            m("dead-chat", status="failed"),
-            m("limited", status="rate limited"),
-        ]
-    )
-    assert ranked == ["fast-chat", "slow-chat"], ranked
+    assert not hasattr(ai_service, "rate_limit_advice")
+    assert not hasattr(ai_service, "AIRateLimited")
+    source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
+    # no candidate loop on the request path
+    assert "for candidate in candidates" not in source
+    assert '"model": chosen' in source
+    assert "Try again shortly" in source  # the429 keeps honest copy
 
 
 def test_a_stopped_router_outranks_a_stale_catalog():
@@ -447,8 +398,8 @@ def test_a_stopped_router_outranks_a_stale_catalog():
     ai_service._catalog_fetched_at = time.monotonic()
     try:
         for status, expected in (
-            ("stopped", "Router stopped"),
-            ("unavailable", "Router unavailable"),
+            ("stopped", "Offline"),
+            ("unavailable", "Offline"),
         ):
             state.ai_router_status = status
             state.ai_model = "ling-3.0-flash"
@@ -544,28 +495,37 @@ def test_step_done_carries_the_outcome():
     assert '"outcome": tool_outcome(name, model_out)' in source
 
 
-# ── stop shows a live indicator ──────────────────────────────────────────
-def test_stop_button_is_a_spinner_not_a_bare_icon():
-    """A static red square was the only sign the app was alive."""
+# ── one composer button that morphs into stop ───────────────────────────
+def test_composer_button_morphs_between_send_and_stop():
+    """The two-button pair (with its spinner ring) is one circular button
+    now: send when idle, stop when busy. First-token liveness moved to the
+    transcript's Working ring, which this also pins."""
+    from core.theme import AppColors
+
     ChatSession, Page = _session_stub()
     session = ChatSession(Page())
-    assert isinstance(session.stop_btn, ft.Container), "needs content for a ring"
-    assert session.stop_btn.on_click is not None, "it must still stop"
-    assert session.stop_btn.visible is False, "hidden until busy"
-    assert session.stop_btn.tooltip == "Stop"
 
-    def walk(control, found):
-        if isinstance(control, ft.ProgressRing):
-            found.append(control)
-        for child in getattr(control, "controls", None) or []:
-            walk(child, found)
-        content = getattr(control, "content", None)
-        if content is not None and hasattr(content, "controls"):
-            walk(content, found)
+    btn = session.send_btn
+    assert btn.tooltip == "Send"
+    assert btn.icon == ft.Icons.SEND_ROUNDED
 
-    rings: list = []
-    walk(session.stop_btn.content, rings)
-    assert rings, "the stop button must contain a progress ring"
+    session._set_busy_ui(True)
+    assert btn.tooltip == "Stop", "busy state must offer stop"
+    assert btn.icon == ft.Icons.STOP_ROUNDED
+    assert btn.style.bgcolor == AppColors.ERROR, "stop is the red face"
+
+    session._set_busy_ui(False)
+    assert btn.tooltip == "Send"
+    assert btn.style.bgcolor == AppColors.PRIMARY
+
+    # Idle click with an empty field is a no-op that does not start a turn.
+    session._on_composer_button()
+    assert session.busy is False
+
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert '"Working…"' in source, (
+        "first-token liveness now lives in the transcript's Working ring"
+    )
 
 
 # ── the model must be able to show a picture, not just describe it ───────
@@ -767,3 +727,369 @@ def test_history_marks_the_open_chat_and_reads_disk_every_time(
     titles = conversations.list_conversations()
     assert len(titles) >= 2
     assert {t["title"] for t in titles} >= {"Alpha chat", "Beta chat"}
+
+
+# ── Phase 3 design guards ───────────────────────────────────────────────
+def test_transcript_uses_listview_with_auto_scroll():
+    """The hand-rolled pin detector read attributes flet 1.0.1 does not
+    have, so auto-scroll never yielded; ListView.auto_scroll is the real
+    mechanism and the old hack must not return."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "ft.ListView(" in source
+    assert "auto_scroll=True" in source
+    assert "scroll_offset" not in source, "the dead pin detector must stay dead"
+    assert "_on_scroll" not in source
+    assert "self._pinned" not in source
+
+
+def test_composer_is_one_morphing_button_with_shift_enter():
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "shift_enter=True" in source, "Enter sends, Shift+Enter newlines"
+    assert "stop_btn" not in source, "the second composer button is gone"
+    assert "_on_composer_button" in source
+    assert "hint_text=\"Ask anything\"" in source
+
+
+def test_message_actions_are_revealed_not_parked():
+    """No always-visible icon rows: actions open from a long-press sheet."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "_action_row" not in source
+    assert "def _message_actions" in source
+    assert source.count("on_long_press") >= 2, "both message roles take long-press"
+
+
+def test_step_labels_are_written_once_at_the_source():
+    """pretty_label owns the format: no smart quotes, no trailing ellipsis,
+    and the renderer no longer strips either."""
+    from services.chat_agent import pretty_label
+
+    label = pretty_label("search_web", {"query": "privacy tools"})
+    assert label == "Searching the web: privacy tools", label
+    assert "…" not in label and "“" not in label
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "removesuffix" not in source, "the renderer must show labels verbatim"
+    assert "Assistant used" not in source, "the receipt is the meta line now"
+
+
+def test_finished_steps_fold_into_the_meta_line():
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "def _meta_row" in source
+    assert "steps_open" in source
+    assert "def _toggle_steps" in source
+
+
+def test_empty_state_offers_tappable_starters():
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "_SUGGESTION_ROWS" in source
+    assert "I can search across" not in source, "the run-on paragraph is gone"
+    assert "Ask me anything" not in source
+
+
+def test_overview_has_one_expand_affordance():
+    """The header expand icon duplicated the at-cut 'Read full report'
+    button; the button stays, the header icon goes."""
+    source = (SRC / "components" / "ai_overview.py").read_text(encoding="utf-8")
+    assert '"Read full report"' in source
+    assert 'tooltip="Show less"' not in source, "the duplicate header toggle is gone"
+
+
+def test_summary_sheet_has_no_nested_scroller():
+    source = (SRC / "components" / "ai_summary.py").read_text(encoding="utf-8")
+    assert "height=240" not in source, "the fixed column height is gone"
+    assert "ScrollMode" not in source, "no scroll-within-scroll on a phone"
+    assert '"Get credits"' in source, "the credits branch offers the action"
+
+
+def test_model_picker_selection_is_a_single_signal():
+    source = (SRC / "components" / "model_picker.py").read_text(encoding="utf-8")
+    assert "with_opacity(0.05" not in source, "no bg + bold + color triple"
+    assert '"No models match' in source, "the filter needs an empty state"
+    assert '_reloading["active"]' in source, "the dialog re-entry guard stays"
+    assert "Offline" in source, "the two-state resting label"
+
+
+def test_wallet_builds_its_watch_button_once():
+    source = (SRC / "components" / "wallet.py").read_text(encoding="utf-8")
+    assert source.count("_watch_content(") >= 3, "one shape, three labels"
+    assert source.count("ft.Icons.PLAY_CIRCLE_ROUNDED") <= 3, (
+        "the icon belongs to the builder, not every state"
+    )
+
+
+def test_appbar_pair_is_history_icon_plus_new_chat():
+    """The hamburger implied navigation; the sheet is the chat log, so the
+    header carries LM Router's pair: history icon + new-chat plus."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "ft.Icons.HISTORY_ROUNDED" in source
+    assert "ft.Icons.MENU_ROUNDED" not in source, "no hamburger left"
+    assert 'tooltip="New chat"' in source
+    assert "self.new_conversation()" in source, "the plus starts a chat"
+
+
+def test_appbar_action_order_matches_the_owners_call():
+    """Plus first, history next, credits, and the model selector last."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    block = source.split("Right controls", 1)[1].split("]", 1)[0]
+    plus = block.index('tooltip="New chat"')
+    history = block.index("_history_button_control")
+    credits = block.index("credits_chip")
+    model = block.index("model_chip")
+    assert plus < history < credits < model, (
+        f"header order is plus/history/credits/model: {plus} {history} {credits} {model}"
+    )
+
+
+def test_header_follows_sherlocks_scroll_rule():
+    """Sherlock's header is the owner's sample: one row, left/right
+    groups, SPACE_BETWEEN, and horizontal scroll when the controls are
+    too big for a narrow screen - never clipping, never overlapping the
+    title. The ft.AppBar that did both is gone (its actions get
+    unbounded width, so nothing inside could ever scroll)."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "ft.AppBar(" not in source, "the chat header is Sherlock-shaped now"
+    block = source.split("header = ft.Container", 1)[1].split("self.view", 1)[0]
+    assert "scroll=ft.ScrollMode.AUTO" in block, "oversized controls must scroll"
+    assert "ft.MainAxisAlignment.SPACE_BETWEEN" in block, "left/right groups"
+    # plus and history stay a tight pair (owner: no space between them)
+    assert source.count("ft.Padding(2, 6, 2, 6)") >= 2
+
+
+def test_model_pick_refreshes_the_header_chip_instantly():
+    """The chat view is imperative: without a direct refresh the pill only
+    caught up on the next render (the owner had to press New chat)."""
+    source = (SRC / "components" / "model_picker.py").read_text(encoding="utf-8")
+    select_block = source.split("def _select(", 1)[1]
+    assert "_chat_session" in select_block
+    assert "refresh_model_chip" in select_block
+
+
+def test_starters_show_scraping_and_save_formats():
+    """The empty state must demonstrate the powers people miss: scrape a
+    homepage to HTML, save a page as Markdown (the tools take
+    markdown | html | text)."""
+    from screens.chat_screen import _SUGGESTION_ROWS
+
+    prompts = [text for _icon, text in _SUGGESTION_ROWS]
+    assert len(prompts) >= 5, "the owner asked for more starters"
+    assert any("Scrape" in p for p in prompts), prompts
+    assert any("save it as Markdown" in p for p in prompts), prompts
+
+
+def test_starters_cover_every_ability_and_all_of_them_render():
+    """Owner: "a sample cover every single ability." One row per tool
+    (11) plus plain chat, and the welcome must render the WHOLE list -
+    the old 5-row slice left the download row defined but never shown."""
+    from screens.chat_screen import _SUGGESTION_ROWS
+
+    prompts = [text for _icon, text in _SUGGESTION_ROWS]
+    assert len(prompts) == 10, prompts
+    for needle in (
+        "tech this week",       # search_news
+        "privacy tools",        # search_web
+        "Rust tutorial",        # search_videos + download_media
+        "wallpaper",            # search_images
+        "history of Rome",      # search_books
+        "BBC News",             # scrape_site / save as HTML
+        "solar power",          # save_page as Markdown
+        "website for changes",  # schedule_scrape
+        "Wikipedia",            # fetch_page + summarize
+        "like I'm 12",          # plain chat, no tools
+    ):
+        assert any(needle in p for p in prompts), f"no starter covers: {needle}"
+
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = []
+    session._render()
+
+    # Walk the welcome and count tappable rows: exactly one per ability.
+    tappable = []
+
+    def walk(control):
+        if callable(getattr(control, "on_click", None)):
+            tappable.append(control)
+        for child in getattr(control, "controls", None) or []:
+            walk(child)
+        content = getattr(control, "content", None)
+        if content is not None:
+            walk(content)
+
+    walk(session._list.controls[0])
+    assert len(tappable) == 10, (
+        f"welcome rendered {len(tappable)} starter rows, expected all 10"
+    )
+
+
+def test_thought_toggle_uses_the_container_on_click_contract():
+    """on_tap_down dead-ends on an ink=True Container: the InkWell claims
+    the gesture and the toggle never fires (owner-reported regression).
+    LM Router's ThinkingBlock uses the same Container + on_click contract."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    toggle = "self._toggle_thought(t)"
+    assert f"on_click=lambda e, t=turn: {toggle}" in source
+    assert f"on_tap_down=lambda e, t=turn: {toggle}" not in source
+
+
+def test_credit_changes_poke_the_imperative_chat_header():
+    """Settlement already refreshes via emit; the two credits that change
+    OUTSIDE the chat (ad top-up, premium grant) must poke the pill too."""
+    wallet = (SRC / "components" / "wallet.py").read_text(encoding="utf-8")
+    watch_block = wallet.split("async def _on_watch_success", 1)[1]
+    assert "_refresh_credits_chip" in watch_block, "ad top-up must poke the pill"
+    controller = (SRC / "app_controller.py").read_text(encoding="utf-8")
+    grant_block = controller.split("async def _grant_premium_benefits", 1)[1]
+    assert "_refresh_credits_chip" in grant_block, "premium grant must poke the pill"
+
+
+def test_thought_header_click_expands_and_collapses_end_to_end():
+    """Drive the REAL handler the thought Container binds: the toggle must
+    flip thought_open and the expanded render must contain the reasoning
+    text (owner-reported regression, verified without the input layer)."""
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    turn = {
+        "role": "assistant",
+        "text": "the answer",
+        "thought": "step one: ripeness",
+        "thought_open": False,
+        "steps_rows": [],
+        "cards": [],
+        "related": [],
+        "error": None,
+        "partial": False,
+        "stopped": False,
+        "cost": 1,
+        "steps": 1,
+        "model": "auto",
+        "served_by": "router",
+        "receipt": "",
+    }
+    session.turns = [turn]
+
+    def find_header(control):
+        if (
+            getattr(control, "tooltip", None) == "Tap to expand or collapse"
+            and getattr(control, "on_click", None) is not None
+        ):
+            return control
+        for child in getattr(control, "controls", None) or []:
+            found = find_header(child)
+            if found:
+                return found
+        content = getattr(control, "content", None)
+        if content is not None:
+            return find_header(content)
+        return None
+
+    header = find_header(session._render_assistant(turn, 0))
+    assert header is not None, "the thought header must exist and be clickable"
+    header.on_click(None)          # what a physical tap invokes
+    assert turn["thought_open"] is True, "the toggle must flip"
+    header2 = find_header(session._render_assistant(turn, 0))
+    header2.on_click(None)
+    assert turn["thought_open"] is False, "the toggle must flip back"
+
+
+def _thought_turn(**over) -> dict:
+    turn = {
+        "role": "assistant",
+        "text": "the answer",
+        "thought": "step one: ripeness",
+        "steps_rows": [],
+        "cards": [],
+        "related": [],
+        "error": None,
+        "partial": False,
+        "stopped": False,
+        "cost": 1,
+        "steps": 1,
+        "model": "auto",
+        "served_by": "router",
+        "receipt": "",
+    }
+    turn.update(over)
+    return turn
+
+
+def _walk_texts(controls) -> list[str]:
+    out: list[str] = []
+
+    def walk(control):
+        if isinstance(control, ft.Text) and isinstance(control.value, str):
+            out.append(control.value)
+        for child in getattr(control, "controls", None) or []:
+            walk(child)
+        content = getattr(control, "content", None)
+        if content is not None:
+            walk(content)
+
+    for control in controls:
+        walk(control)
+    return out
+
+
+def _find_header(controls):
+    def walk(control):
+        if (
+            getattr(control, "tooltip", None) == "Tap to expand or collapse"
+            and getattr(control, "on_click", None) is not None
+        ):
+            return control
+        for child in getattr(control, "controls", None) or []:
+            found = walk(child)
+            if found:
+                return found
+        content = getattr(control, "content", None)
+        return walk(content) if content is not None else None
+
+    for control in controls:
+        found = walk(control)
+        if found:
+            return found
+    return None
+
+
+def test_thought_toggle_paints_without_an_external_render(tmp_path, monkeypatch):
+    """The tap itself must repaint: after the last token no emit is coming,
+    so a flag flip with no render was invisible on a finished reply (the
+    "AI is done before I can expand it" report)."""
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = [_thought_turn(thought_open=False)]
+    session._render()
+    assert "step one: ripeness" not in _walk_texts(session._list.controls)
+
+    header = _find_header(session._list.controls)
+    assert header is not None, "the thought header must exist"
+    header.on_click(None)  # what a physical tap invokes
+    # No manual _render here: the handler has to paint the flip itself.
+    assert "step one: ripeness" in _walk_texts(session._list.controls)
+
+    header = _find_header(session._list.controls)
+    header.on_click(None)
+    assert "step one: ripeness" not in _walk_texts(session._list.controls)
+
+
+def test_reasoning_is_open_while_the_model_thinks(tmp_path, monkeypatch):
+    """LM Router's rule, derived state only: with no explicit flag the
+    block is open while the model reasons, so the owner watches it live."""
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = [_thought_turn(partial=True, text="")]
+    session._render()
+    texts = _walk_texts(session._list.controls)
+    assert "step one: ripeness" in texts, "reasoning must be visible live"
+    assert any(t.startswith("Thinking") for t in texts)
+
+
+def test_first_answer_word_collapses_unset_reasoning(tmp_path, monkeypatch):
+    """Same derived default: once answer text exists the flag-free block
+    reads closed, so the reply never stays pushed under open reasoning."""
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = [_thought_turn(partial=True, text="the answer")]
+    session._render()
+    assert "step one: ripeness" not in _walk_texts(session._list.controls)

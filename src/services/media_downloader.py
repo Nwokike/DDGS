@@ -1,4 +1,4 @@
-"""Media downloader — streams video/image bytes with ``primp`` (no new deps).
+"""Media downloader - streams video/image bytes with ``primp`` (no new deps).
 
 Uses ``primp``'s async client with browser impersonation so it can fetch from
 sites that otherwise block automated requests (the same approach used to pull

@@ -1,4 +1,4 @@
-"""Controller callbacks context — exposes AppController methods to the
+"""Controller callbacks context - exposes AppController methods to the
 component tree.
 
 ``AppShell`` is rendered via ``page.render()`` with no positional args,
@@ -63,7 +63,7 @@ class ControllerMethods:
 
     Mutable (not frozen) so AppController can build it incrementally.
     All defaults are real no-ops whose signatures match the AppController
-    methods — important because use_context returns this dataclass and
+    methods - important because use_context returns this dataclass and
     components await the callables directly.
     """
 

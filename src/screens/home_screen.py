@@ -1,4 +1,4 @@
-"""HomeScreen — compact search-first dashboard.
+"""HomeScreen - compact search-first dashboard.
 
 Search bar above the fold, compact category chips, recent searches,
 and privacy banner.  Marketing content moved to onboarding only.
@@ -177,7 +177,7 @@ def _history_row(
                 ),
                 ft.Text(
                     timestamp,
-                    size=10,
+                    size=tokens.FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     font_family="Outfit",
                 ),
@@ -458,6 +458,12 @@ def HomeScreen() -> Control:
     # Search tools panel
     backend_options = BACKEND_OPTIONS_MAP.get(active_tab, BACKEND_OPTIONS_TEXT)
     current_backend = state.backend or "auto"
+    if not any(b["key"] == current_backend for b in backend_options):
+        # The dropdown already shows "auto", but the stale value is what
+        # the next search sends - correct STATE too, or the chosen source
+        # is silently substituted by ddgs with no signal to the user.
+        current_backend = "auto"
+        controller.save("backend", "auto")
 
     if active_tab == "extract":
         tools_controls = [
@@ -666,7 +672,7 @@ def HomeScreen() -> Control:
                     tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
                 ),
             ),
-            # Search field — modern SearchBar
+            # Search field - modern SearchBar
             ft.Container(
                 alignment=ft.Alignment.CENTER,
                 content=ft.SearchBar(
@@ -892,12 +898,12 @@ def HomeScreen() -> Control:
                 if recent_rows
                 else []
             ),
-            # Banner ad (after category chips)
+            # Banner ad (after category chips). Vertical rhythm only: the
+            # horizontal SPACE_LG inset used to break full width (Sherlock
+            # calls the banner bare and lets the glass stretch).
             ft.Container(
                 content=build_banner_ad(_get_page()),
-                padding=ft.Padding(
-                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
-                ),
+                padding=ft.Padding(0, tokens.SPACE_SM, 0, 0),
             ),
             # What DDGS Can Do (condensed - 3 features)
             ft.Container(
@@ -921,7 +927,7 @@ def HomeScreen() -> Control:
                         _feature_card(
                             ft.Icons.LANGUAGE_ROUNDED,
                             "Instant Page Fetch",
-                            "Paste any URL and get clean content instantly — as text, Markdown or HTML. Read it, save it, or feed it to your tools.",
+                            "Paste any URL and read it as text, Markdown or HTML.",
                             AppColors.PRIMARY_DARK,
                             page=_get_page(),
                         ),
@@ -940,12 +946,11 @@ def HomeScreen() -> Control:
                     tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
                 ),
             ),
-            # Banner ad (after features)
+            # Banner ad (after features). Vertical rhythm only: no
+            # horizontal inset, the glass must reach both edges.
             ft.Container(
                 content=build_banner_ad(_get_page()),
-                padding=ft.Padding(
-                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_SM
-                ),
+                padding=ft.Padding(0, 0, 0, tokens.SPACE_SM),
             ),
             # How It Works (3 steps)
             ft.Container(
@@ -961,7 +966,7 @@ def HomeScreen() -> Control:
                         _step_row(
                             "1",
                             "Choose",
-                            "Pick what you're looking for — web, images, videos, news, books, or fetch a page",
+                            "Pick what you're looking for: web, images, videos, news, books, or fetch a page",
                         ),
                         _step_row(
                             "2",

@@ -5,13 +5,13 @@ with ECDSA P-256 / SHA-256 via WebCrypto, which emits a **raw r‖s** (IEEE
 P1363, 64-byte) signature over the ASCII bytes of the payload segment.
 
 Verification is pure Python (P-256 ECDSA over SHA-256), tested against
-tokens signed by the Worker's own ``token.js`` — no crypto dependency, so
+tokens signed by the Worker's own ``token.js`` - no crypto dependency, so
 there is no wheel to resolve for Android and nothing to cross-compile.
 
 Trust model (see kiri-license/docs/client-integration.md): the Worker is
 authoritative whenever the app is online. The token is a signed cache that
 keeps premium working offline, so a valid signature plus the claim checks
-below are what unlock the app — never a bare client-side flag.
+below are what unlock the app - never a bare client-side flag.
 """
 
 from __future__ import annotations
@@ -180,7 +180,7 @@ def verify_token(
         raise TokenRejected("malformed_token", "payload is not an object")
 
     # WebCrypto signs the ASCII bytes of the base64url payload segment, not
-    # the decoded JSON — matching that is what makes the signature verify.
+    # the decoded JSON - matching that is what makes the signature verify.
     if not _verify_signature(public_key, payload_b64.encode("utf-8"), signature):
         raise TokenRejected("bad_signature")
 

@@ -1,4 +1,4 @@
-"""ResultsScreen — search results display with loading, error, and result cards.
+"""ResultsScreen - search results display with loading, error, and result cards.
 
 Converted from views/results/view_builder.py to declarative @ft.component.
 During migration, card builders and empty states are imported from the old

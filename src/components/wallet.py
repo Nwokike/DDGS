@@ -1,4 +1,4 @@
-"""AI credit pill + wallet dialog — SpanInsight's pattern, DDGS copy."""
+"""AI credit pill + wallet dialog - SpanInsight's pattern, DDGS copy."""
 
 from __future__ import annotations
 
@@ -8,7 +8,8 @@ import time
 import flet as ft
 
 from contexts.app_state_ctx import AppStateCtx
-from core import tokens
+from core import tokens, ui
+from core.build_channel import CHANNEL
 from core.constants import (
     AD_TOPUP_COOLDOWN_SEC,
     AD_TOPUP_CREDITS,
@@ -63,7 +64,11 @@ def show_wallet_dialog(page: ft.Page) -> None:
     if not hasattr(state, "ad_cooldown_end"):
         state.ad_cooldown_end = 0.0
 
-    is_mobile = page.platform in (ft.PagePlatform.ANDROID, ft.PagePlatform.IOS)
+    # Ads exist only in native mobile builds: flet-ads raises on web and on
+    # desktop, so the top-up row and button render exactly where an ad can
+    # actually play, never as a dead affordance (single source: ad_service).
+    ad_service = getattr(state, "ad_service", None)
+    ads_available = bool(ad_service) and ad_service._is_mobile()
     is_premium = state.is_premium
 
     balance_text = ft.Text(
@@ -78,25 +83,24 @@ def show_wallet_dialog(page: ft.Page) -> None:
     # it pretended to play an ad on desktop, where no ad will ever exist.
     # Desktop users are pointed at Premium instead.
     topup_label = f"Watch Ad (+{AD_TOPUP_CREDITS} Credits)"
-    watch_btn = ft.FilledButton(
-        content=ft.Row(
+
+    def _watch_content(text: str) -> ft.Control:
+        """The button's one shape; only its label changes state."""
+        return ft.Row(
             [
                 ft.Icon(
                     ft.Icons.PLAY_CIRCLE_ROUNDED,
                     size=tokens.ICON_SM,
                     color=ft.Colors.WHITE,
                 ),
-                ft.Text(
-                    topup_label
-                    if not is_premium
-                    else f"Premium active, {PREMIUM_DAILY_CREDITS}/day",
-                    size=tokens.FONT_SM,
-                    color=ft.Colors.WHITE,
-                ),
+                ft.Text(text, size=tokens.FONT_SM, color=ft.Colors.WHITE),
             ],
             spacing=6,
             tight=True,
-        ),
+        )
+
+    watch_btn = ft.FilledButton(
+        content=_watch_content(topup_label),
         bgcolor=AppColors.PRIMARY,
         disabled=is_premium,
     )
@@ -125,40 +129,17 @@ def show_wallet_dialog(page: ft.Page) -> None:
     async def _countdown():
         while dialog_open:
             remaining = int(state.ad_cooldown_end - time.time())
-            if is_premium:
+            # Read live: the local above was captured when the dialog was
+            # built, so a purchase made while it was open kept counting down
+            # against a verdict that had already changed.
+            if state.is_premium:
                 break
             if remaining > 0:
                 watch_btn.disabled = True
-                watch_btn.content = ft.Row(
-                    [
-                        ft.Icon(
-                            ft.Icons.PLAY_CIRCLE_ROUNDED,
-                            size=tokens.ICON_SM,
-                            color=ft.Colors.WHITE,
-                        ),
-                        ft.Text(
-                            f"Cooldown ({remaining}s)",
-                            size=tokens.FONT_SM,
-                            color=ft.Colors.WHITE,
-                        ),
-                    ],
-                    spacing=6,
-                    tight=True,
-                )
+                watch_btn.content = _watch_content(f"Cooldown ({remaining}s)")
             else:
                 watch_btn.disabled = False
-                watch_btn.content = ft.Row(
-                    [
-                        ft.Icon(
-                            ft.Icons.PLAY_CIRCLE_ROUNDED,
-                            size=tokens.ICON_SM,
-                            color=ft.Colors.WHITE,
-                        ),
-                        ft.Text(topup_label, size=tokens.FONT_SM, color=ft.Colors.WHITE),
-                    ],
-                    spacing=6,
-                    tight=True,
-                )
+                watch_btn.content = _watch_content(topup_label)
             try:
                 watch_btn.update()
             except Exception:
@@ -170,6 +151,17 @@ def show_wallet_dialog(page: ft.Page) -> None:
     async def _on_watch_success():
         new_balance = await _credits().add_credits(AD_TOPUP_CREDITS)
         state.credits_remaining = new_balance
+        # The chat header is an imperative view, not a state subscriber:
+        # poke its pill or the balance behind this dialog stays stale until
+        # the next chat render.
+        refresh = getattr(
+            getattr(page, "_chat_session", None), "_refresh_credits_chip", None
+        )
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                pass
         balance_text.value = str(new_balance)
         balance_text.color = _credit_color(new_balance)
         cooldown_label.value = f"+{AD_TOPUP_CREDITS} credits added!"
@@ -180,11 +172,11 @@ def show_wallet_dialog(page: ft.Page) -> None:
             pass
 
     async def _on_watch(e):
-        if is_premium:
+        if state.is_premium:
             return
         now = time.time()
         if state.ad_cooldown_end > now:
-            cooldown_label.value = f"Please wait {int(state.ad_cooldown_end - now)}s."
+            cooldown_label.value = f"Wait {int(state.ad_cooldown_end - now)}s."
             try:
                 cooldown_label.update()
             except Exception:
@@ -221,44 +213,8 @@ def show_wallet_dialog(page: ft.Page) -> None:
         subtitle: str,
         trailing: ft.Control,
     ) -> ft.Container:
-        icon_box = ft.Container(
-            content=ft.Icon(icon, size=tokens.ICON_MD, color=ft.Colors.ON_SURFACE_VARIANT),
-            width=36,
-            height=36,
-            border_radius=10,
-            bgcolor=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
-            alignment=ft.Alignment.CENTER,
-        )
-        return ft.Container(
-            content=ft.Row(
-                [
-                    icon_box,
-                    ft.Column(
-                        [
-                            ft.Text(
-                                title,
-                                size=tokens.FONT_MD,
-                                weight=ft.FontWeight.W_500,
-                                font_family="Outfit",
-                            ),
-                            ft.Text(
-                                subtitle,
-                                size=tokens.FONT_XS,
-                                color=ft.Colors.with_opacity(
-                                    0.6, ft.Colors.ON_SURFACE
-                                ),
-                            ),
-                        ],
-                        spacing=2,
-                        expand=True,
-                    ),
-                    trailing,
-                ],
-                spacing=tokens.SPACE_MD,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            padding=ft.Padding(0, tokens.SPACE_XS, 0, tokens.SPACE_XS),
-        )
+        """Wallet row; the shape lives in core.ui."""
+        return ui.setting_row(icon, title, subtitle, trailing)
 
     def _cost_row(label: str, cost: str) -> ft.Control:
         if cost == "free":
@@ -276,9 +232,9 @@ def show_wallet_dialog(page: ft.Page) -> None:
         return _row(
             ft.Icons.BOLT_ROUNDED,
             label,
-            "One assistant step",
+            "Each reply and tool call",
             ft.Text(
-                f"{cost} credit",
+                str(cost),
                 size=tokens.FONT_SM,
                 weight=ft.FontWeight.W_600,
                 color=AppColors.PRIMARY,
@@ -290,7 +246,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
             ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
             "Assistant credits",
             f"of {PREMIUM_DAILY_CREDITS if is_premium else DAILY_FREE_CREDITS} "
-            "free daily, resets 00:00 UTC",
+            "daily · resets 00:00 UTC",
             balance_text,
         ),
         ft.Divider(
@@ -298,37 +254,46 @@ def show_wallet_dialog(page: ft.Page) -> None:
             thickness=1,
             color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
         ),
-        _cost_row("Chat reply, search, or page fetch", credit_word(COST_STEP)),
+        _cost_row("Assistant model step", credit_word(COST_STEP)),
         ft.Divider(
             height=1,
             thickness=1,
             color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
         ),
         _cost_row("Search overview and page summary", "free"),
-        ft.Divider(
-            height=1,
-            thickness=1,
-            color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
-        ),
-        _row(
-            ft.Icons.PLAY_CIRCLE_ROUNDED,
-            topup_label,
-            "A short ad adds credits. Unused ad credits carry over",
-            ft.Icon(
-                ft.Icons.PLAY_CIRCLE_ROUNDED,
-                size=tokens.ICON_SM,
-                color=AppColors.ACCENT,
-            ),
-        ),
     ]
 
-    if is_mobile and not is_premium:
+    # The watch-ad row exists only where an ad can play (native mobile)
+    # and only while it earns something (not for premium).
+    if ads_available and not is_premium:
+        rows.extend(
+            [
+                ft.Divider(
+                    height=1,
+                    thickness=1,
+                    color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
+                ),
+                _row(
+                    ft.Icons.PLAY_CIRCLE_ROUNDED,
+                    topup_label,
+                    "",
+                    ft.Icon(
+                        ft.Icons.PLAY_CIRCLE_ROUNDED,
+                        size=tokens.ICON_SM,
+                        color=AppColors.ACCENT,
+                    ),
+                ),
+            ]
+        )
+
+    if ads_available and not is_premium:
         actions: list[ft.Control] = [cooldown_label, watch_btn]
-    elif not is_premium:
-        # Desktop: no ad to watch, so offer the thing that actually works.
+    elif not is_premium and CHANNEL != "play":
+        # No ad exists here (desktop, web): offer the credits, never the
+        # words "remove ads" - there are no ads to remove.
         actions = [
             ft.TextButton(
-                f"Go Premium, remove ads and get {PREMIUM_DAILY_CREDITS} a day",
+                f"Get {PREMIUM_DAILY_CREDITS} credits a day",
                 icon=ft.Icons.WORKSPACE_PREMIUM_ROUNDED,
                 icon_color=AppColors.PRIMARY,
                 on_click=lambda e: _open_premium(),
@@ -357,7 +322,7 @@ def show_wallet_dialog(page: ft.Page) -> None:
     page.show_dialog(dlg)
     # The cooldown loop only has anything to update when the ad button is
     # actually on screen.
-    if not is_premium and is_mobile:
+    if not is_premium and ads_available:
         page.run_task(_countdown)
 
 

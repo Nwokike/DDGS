@@ -1,4 +1,4 @@
-"""Cached-results banner — tells the user results came from disk.
+"""Cached-results banner - tells the user results came from disk.
 
 When a search hits the 30-minute cache we render instantly and let the
 live search replace the list underneath. This strip is how the user knows
