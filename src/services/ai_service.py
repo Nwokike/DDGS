@@ -103,7 +103,7 @@ def _hint(entry: dict) -> str:
     elif status == "failed":
         parts.append("failing right now")
     if entry.get("id") == "auto" and not parts:
-        parts.append("Free tier, rotates across available models")
+        parts.append("Rotates across available models")
     return " · ".join(parts) or "free tier"
 
 

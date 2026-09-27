@@ -164,6 +164,10 @@ def SettingsScreen() -> Control:
         [
             build_theme_section(page, _current_theme(), _change_theme),
             build_ai_section(page, controller.save_async),
+            # Owner: exactly three banners in Settings - after Assistant
+            # (before Premium), after search results (before search
+            # source), and before About. A guard test pins the order.
+            build_banner_ad(page),
             # The Play AAB has no premium card at all (KTV Player rule):
             # no purchase surface, nothing to declare, ads stay on. The
             # gate is the stamped channel, decided at build time.
@@ -181,6 +185,7 @@ def SettingsScreen() -> Control:
             build_performance_section(page, controller.save_async),
             build_logs_section(page),
             build_storage_section(page, _show_clear_dialog),
+            build_banner_ad(page),
             build_about_section(
                 page,
                 "https://kiri.ng/privacy",
@@ -196,7 +201,6 @@ def SettingsScreen() -> Control:
                 alignment=ft.Alignment.CENTER,
                 padding=ft.Padding(0, 12, 0, 24),
             ),
-            build_banner_ad(page),
         ],
         spacing=16,
         scroll=ft.ScrollMode.AUTO,

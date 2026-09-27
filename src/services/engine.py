@@ -25,7 +25,7 @@ import httpx
 
 from components.settings.version import _APP_VERSION
 from core.constants import ENGINE_URL
-from core.storage_paths import cache_dir
+from core.storage_paths import data_dir
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,13 @@ class EngineUnavailable(RuntimeError):
 
 
 def engine_cache_path() -> Path:
-    """Last-known-good engine, in user cache storage (not the repo)."""
-    return cache_dir() / "engine_local.py"
+    """Last-known-good engine, in user DATA storage (not the repo).
+
+    Not cache/: on Android the cache dir doubles as the temp dir, our
+    own clear_temp() empties it at startup and the OS may trim it at any
+    moment - the offline tier has to survive launches to exist at all.
+    """
+    return data_dir() / "engine_local.py"
 
 
 async def _download(url: str) -> bytes:

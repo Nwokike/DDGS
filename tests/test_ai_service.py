@@ -143,7 +143,10 @@ def test_catalog_hint_formats():
     )
     assert "120ms" in h and "200 requests/hour" in h
     assert "rate limited" in _hint({"id": "x", "status": "rate limited"})
-    assert "rotates" in _hint({"id": "auto", "status": "active"})
+    # Owner's copy (edited 2026-09-27): no "Free tier," lead-in.
+    assert _hint({"id": "auto", "status": "active"}) == (
+        "Rotates across available models"
+    )
 
 
 # ── SSE leniency and the probe cache ─────────────────────────────────────
