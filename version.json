@@ -1,9 +1,9 @@
 {
-  "build_number": 4,
-  "version": "1.2.1",
+  "build_number": 7,
+  "version": "2.0.1",
   "type": "update",
-  "title": "DDGS 1.2.1",
-  "release_notes": "You're up to date on v1.2.1!",
+  "title": "DDGS 2.0.1",
+  "release_notes": "The Assistant is here: give it a mission and it searches the web, fetches pages, saves files, downloads videos and images, and schedules crawls for you, asking once before anything is written. 50 credits a day with a receipt on every reply; Premium raises it to 500 and removes ads. Expandable reasoning, a live model catalog, and this release fixes the Assistant screen scrolling on phones.",
   "mandatory": false,
   "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
   "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"

@@ -186,9 +186,9 @@ Linux DEB/RPM/TAR. The Play AAB builds from the `playstore` branch with the
 build channel stamped in.
 
 **Version policy:** `pyproject.toml` is the single source of truth; CI fails
-on any drift. `version.json` (the in-app update feed) is deliberately held
-back until the Play AAB upload ships: CI prints a NOTICE while it lags and
-fails if it ever runs ahead of the app.
+on any drift. `version.json` (the in-app update feed) tracks the published
+app: CI prints a NOTICE while it lags a pending release and fails if it
+ever runs ahead of the app.
 
 | Layer | Technology |
 | :--- | :--- |
