@@ -167,14 +167,25 @@ jobs:
           body: |
             **Search everything. Download anything.**
 
-            Private search across 10 engines — download videos & images, scrape any page as Markdown, HTML or text, no account, no tracking.
+            Private search across 10 engines: download videos and images, scrape any page as Markdown, HTML or text, no account, no tracking.
+
+            ## Highlights
+
+            - **The Assistant**: an agent that acts, not just explains. Give it a mission and it searches the web, fetches pages, saves files, downloads videos and images, and schedules recurring crawls, asking once for approval before anything is written.
+            - **Credits with receipts**: 50 free credits a day, 1 credit per model step, a receipt on every reply. Search overviews and page summaries are free, and a low balance never stops a turn mid-way.
+            - **DDGS Premium**: $3.99/month, $24.99/year or $49.99 lifetime removes ads and raises credits to 500 a day. In-app checkout with card, bank transfer or USDC.
+            - **Expandable reasoning**: watch the model think while it works; it collapses to a "Thought for Ns" line once answered and stays re-expandable.
+            - **Live model catalog**: latency and rate hints per model, `auto` rotates across healthy models, and the gateway engine is fetched fresh on every launch.
+            - **Android, hardened**: stable TLS trust store, storage tiers per the Flet contract, and a header that scrolls instead of clipping on narrow screens.
+
+            ## The core, still the point
 
             - YouTube video downloads with quality picker (best/1080p/720p/480p/360p)
             - Image downloads with save dialog, progress and cancel
-            - Any URL → Markdown / HTML / rich text / plain text / raw source, saved to file
+            - Any URL to Markdown / HTML / rich text / plain text / raw source, saved to file
             - Share, copy or open every result in one tap
 
-            *The Play Store edition blocks YouTube downloads for Play policy — this GitHub build is the full version. Feature comparison in the README.*
+            *The Play Store edition blocks YouTube downloads for Play policy: this GitHub build is the full version. Feature comparison in the README.*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

@@ -129,6 +129,17 @@
   </tr>
 </table>
 
+<table>
+  <tr>
+    <td width="50%"><img src="screenshots/results_images_dark_mobile.png" width="280" alt="Image results" /></td>
+    <td width="50%"><img src="screenshots/results_videos_dark_mobile.png" width="280" alt="Video results" /></td>
+  </tr>
+  <tr>
+    <td align="center"><em>Image grid with one-tap save</em></td>
+    <td align="center"><em>Video results with duration and views</em></td>
+  </tr>
+</table>
+
 ---
 
 ## The Assistant

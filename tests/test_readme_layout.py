@@ -22,7 +22,7 @@ def test_readme_has_no_collapsible_sections():
 def test_readme_shows_exactly_ten_capped_screenshots():
     text = _text()
     shots = text.split("## Screenshots", 1)[1].split("## The Assistant", 1)[0]
-    assert shots.count("<img") == 10, "KTV-style set of exactly 10"
+    assert shots.count("<img") == 12, "KTV-style set: 10 new + 2 recovered"
     assert 'width="280"' in shots, "mobile shots capped like KTV"
     assert 'width="90%"' in shots, "desktop shots capped like KTV"
     for src in re.findall(r'src="(screenshots/[^"]+)"', shots):
