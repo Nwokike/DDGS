@@ -829,7 +829,7 @@ def test_appbar_pair_is_history_icon_plus_new_chat():
 def test_appbar_action_order_matches_the_owners_call():
     """Plus first, history next, credits, and the model selector last."""
     source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
-    block = source.split("actions=[", 1)[1].split("]", 1)[0]
+    block = source.split("Right controls", 1)[1].split("]", 1)[0]
     plus = block.index('tooltip="New chat"')
     history = block.index("_history_button_control")
     credits = block.index("credits_chip")
@@ -837,6 +837,21 @@ def test_appbar_action_order_matches_the_owners_call():
     assert plus < history < credits < model, (
         f"header order is plus/history/credits/model: {plus} {history} {credits} {model}"
     )
+
+
+def test_header_follows_sherlocks_scroll_rule():
+    """Sherlock's header is the owner's sample: one row, left/right
+    groups, SPACE_BETWEEN, and horizontal scroll when the controls are
+    too big for a narrow screen - never clipping, never overlapping the
+    title. The ft.AppBar that did both is gone (its actions get
+    unbounded width, so nothing inside could ever scroll)."""
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
+    assert "ft.AppBar(" not in source, "the chat header is Sherlock-shaped now"
+    block = source.split("header = ft.Container", 1)[1].split("self.view", 1)[0]
+    assert "scroll=ft.ScrollMode.AUTO" in block, "oversized controls must scroll"
+    assert "ft.MainAxisAlignment.SPACE_BETWEEN" in block, "left/right groups"
+    # plus and history stay a tight pair (owner: no space between them)
+    assert source.count("ft.Padding(2, 6, 2, 6)") >= 2
 
 
 def test_model_pick_refreshes_the_header_chip_instantly():

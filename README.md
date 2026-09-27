@@ -59,8 +59,7 @@
 | 🎩 **Linux (Fedora/RHEL)** | [![Linux RPM](https://img.shields.io/badge/Download_Linux_RPM-E91E63?style=flat-square&logo=redhat&logoColor=white)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.rpm) | Fedora, openSUSE, RHEL, CentOS |
 | 📦 **Linux (Universal)** | [![Linux TAR.GZ](https://img.shields.io/badge/Download_Linux_TAR.GZ-9C27B0?style=flat-square&logo=linux&logoColor=white)](https://github.com/Nwokike/DDGS/releases/latest/download/DDGS.tar.gz) | Portable archive for any distro |
 
-<details>
-<summary><b>Android builds (GitHub edition): per-architecture APKs</b></summary>
+#### Android builds (GitHub edition): per-architecture APKs
 
 | Variant | Download | Notes |
 | :--- | :---: | :--- |
@@ -68,81 +67,67 @@
 | 📱 **ARMv7** (older phones) | [**ddgs-armeabi-v7a.apk**](https://github.com/Nwokike/DDGS/releases/latest/download/ddgs-armeabi-v7a.apk) | Legacy 32-bit devices |
 | 💻 **x86_64** (emulators) | [**ddgs-x86_64.apk**](https://github.com/Nwokike/DDGS/releases/latest/download/ddgs-x86_64.apk) | Chromebooks, Android emulators |
 
-</details>
-
 ---
 
 ## Screenshots
 
+### Desktop
+
 <p align="center">
   <img src="screenshots/home_desktop.png" width="90%" alt="Home, dark mode" />
 </p>
-<p align="center"><em>Search-first home: category tabs, instant fetch bar, recent searches, capability cards</em></p>
-
-<p align="center">
-  <img src="screenshots/results_desktop.png" width="90%" alt="Results with Assistant overview" />
-</p>
-<p align="center"><em>Results with the Assistant overview: cited answer, source chips, related searches, flat result rows</em></p>
-
-<details>
-<summary><b>More screenshots (Extract mode + mobile)</b></summary>
+<p align="center"><em>Home in dark mode: search-first layout, category tabs, recent searches, capability cards</em></p>
 
 <p align="center">
   <img src="screenshots/home_extract_desktop.png" width="90%" alt="Extract mode, light theme" />
 </p>
 <p align="center"><em>Extract mode in light theme: paste any URL and read it as Markdown, HTML or text</em></p>
 
+### Mobile
+
 <table>
   <tr>
-    <td width="50%"><img src="screenshots/home_light_mobile.png" width="100%" alt="Home Light" /></td>
-    <td width="50%"><img src="screenshots/home_dark_mobile.png" width="100%" alt="Home Dark" /></td>
+    <td width="50%"><img src="screenshots/home_light_mobile.png" width="280" alt="Home" /></td>
+    <td width="50%"><img src="screenshots/results_text_light_mobile.png" width="280" alt="Results with the Assistant overview" /></td>
   </tr>
   <tr>
-    <td align="center"><em>Home (light)</em></td>
-    <td align="center"><em>Home (dark)</em></td>
+    <td align="center"><em>Home with search tools and recents</em></td>
+    <td align="center"><em>Results with the Assistant overview, sources and related searches (light)</em></td>
   </tr>
 </table>
 
 <table>
   <tr>
-    <td width="50%"><img src="screenshots/results_images_dark_mobile.png" width="100%" alt="Image results" /></td>
-    <td width="50%"><img src="screenshots/results_videos_dark_mobile.png" width="100%" alt="Video results" /></td>
+    <td width="50%"><img src="screenshots/results_text_dark_mobile.png" width="280" alt="Results, dark mode" /></td>
+    <td width="50%"><img src="screenshots/settings_premium_dark_mobile.png" width="280" alt="Premium in Settings" /></td>
   </tr>
   <tr>
-    <td align="center"><em>Image grid with one-tap save</em></td>
-    <td align="center"><em>Video results with duration and views</em></td>
+    <td align="center"><em>Assistant overview in dark mode</em></td>
+    <td align="center"><em>Premium active: 500 credits a day, ads removed</em></td>
   </tr>
 </table>
 
 <table>
   <tr>
-    <td width="50%"><img src="screenshots/extract_results_dark_mobile.png" width="100%" alt="Reader" /></td>
-    <td width="50%"><img src="screenshots/results_news_dark_mobile.png" width="100%" alt="News results" /></td>
+    <td width="50%"><img src="screenshots/assistant_scrape_light_mobile.png" width="280" alt="Scrape with approval" /></td>
+    <td width="50%"><img src="screenshots/assistant_video_light_mobile.png" width="280" alt="Video download mission" /></td>
   </tr>
   <tr>
-    <td align="center"><em>Built-in reader with format switch</em></td>
-    <td align="center"><em>News with publishers and timestamps</em></td>
+    <td align="center"><em>Assistant crawling a site, one approval before it writes</em></td>
+    <td align="center"><em>Give it a mission: search, pick and download a video</em></td>
   </tr>
 </table>
 
 <table>
   <tr>
-    <td width="33%"><img src="screenshots/settings_rules_dark_mobile.png" width="100%" alt="Search rules" /></td>
-    <td width="33%"><img src="screenshots/settings_backends_downloads_dark_mobile.png" width="100%" alt="Sources and downloads" /></td>
-    <td width="33%"><img src="screenshots/settings_network_performance_dark_mobile.png" width="100%" alt="Network and diagnostics" /></td>
+    <td width="50%"><img src="screenshots/assistant_download_dark_mobile.png" width="280" alt="Downloaded file" /></td>
+    <td width="50%"><img src="screenshots/assistant_models_light_mobile.png" width="280" alt="Model picker" /></td>
   </tr>
   <tr>
-    <td align="center"><em>Search rules</em></td>
-    <td align="center"><em>Sources &amp; downloads</em></td>
-    <td align="center"><em>Proxy &amp; live terminal</em></td>
+    <td align="center"><em>File saved straight to your device</em></td>
+    <td align="center"><em>Live model catalog with rate hints</em></td>
   </tr>
 </table>
-
-<p align="center">
-  <img src="screenshots/history_light_mobile.png" width="45%" alt="Search history" />
-</p>
-
-</details>
 
 ---
 
@@ -150,10 +135,10 @@
 
 Turn on **Assistant mode** in Settings and an **Ask Assistant** button appears on the search screen. It is an agent that **acts, not just explains**:
 
-- **Searches and cites**: web, images, videos, news, books, streamed with tappable citations, collapsible tool steps and related searches.
+- **Searches and cites**: web, images, videos, news, books, with tappable citations and related searches.
 - **Acts with approval**: save pages as Markdown/HTML/text, download video (YouTube included) or images, crawl a site, schedule recurring crawls. Each asks once before writing.
-- **1 credit per model step** with a receipt on every answer. Overviews and page summaries are free; manual search, scraping and downloads never use credits; a low balance never stops a turn mid-way.
-- **Runs on your router**: requests go to the in-app Kiri router first (free models, your IP) and fall back to Kiri's gateway only if it is down. The model picker shows the live catalog with rate hints; `auto` rotates across healthy models for you.
+- **1 credit per model step** with a receipt on every answer. Overviews and summaries are free; manual search and downloads never use credits; a low balance never stops a turn mid-way.
+- **Runs on your router**: in-app Kiri router first (free models, your IP), Kiri gateway only if it is down. The model picker shows the live catalog with rate hints; `auto` rotates across healthy models.
 
 **DDGS Premium:** **$3.99/mo · $24.99/yr · $49.99 lifetime** (direct APK and desktop). Premium raises credits to **500/day** and removes ads on mobile.
 
@@ -180,7 +165,7 @@ DDGS is a metasearch and content-extraction tool for public search engines and p
 ```bash
 uv sync --frozen     # install exactly what uv.lock pins (includes dev tools)
 uv run ruff check src tests
-uv run pytest -q     # 250 tests
+uv run pytest -q     # 268 tests
 uv run flet run      # desktop app
 ```
 
@@ -194,54 +179,13 @@ on any drift. `version.json` (the in-app update feed) is deliberately held
 back until the Play AAB upload ships: CI prints a NOTICE while it lags and
 fails if it ever runs ahead of the app.
 
-<details>
-<summary><b>Architecture, stack &amp; performance</b></summary>
-
-| Layer | Technology | Purpose |
-| :--- | :--- | :--- |
-| **Frontend** | Flet 1.0.1 (Flutter engine) | Cross-platform UI |
-| **Search Core** | `ddgs` 9.16.0 | Metasearch across 10 providers |
-| **HTTP Client** | `primp` (Rust) | Async HTTP/2 with browser emulation |
-| **Local Storage** | JSON file / SharedPreferences | Settings and history on-device |
-| **Async Runtime** | `asyncio` + `threading` | Cancellable progress reporting |
-
-```mermaid
-graph TB
-    subgraph DDGS_CLIENT ["📱 DDGS CLIENT (Local-First Metasearch App)"]
-        UI["🎨 Flet Reactive UI (Home | Results | History | Settings)"]
-        Engine["⚙️ DDGS Search Engine (ddgs library)"]
-        Storage["💾 Local Storage (JSON file / SharedPreferences)"]
-        UI --> Engine
-        UI --> Storage
-    end
-
-    subgraph SEARCH_PROVIDERS ["🌐 10 SEARCH ENGINES"]
-        DDG["🦆 DuckDuckGo"]
-        Google["🔍 Google"]
-        Brave["🦁 Brave"]
-        Bing["🔵 Bing"]
-        Yahoo["👻 Yahoo"]
-        Others["📡 Wikipedia, Startpage, Mojeek, Grokipedia, AnnasArchive & more"]
-    end
-
-    Engine ==>|primp HTTP/2| DDG
-    Engine ==>|primp HTTP/2| Google
-    Engine ==>|primp HTTP/2| Brave
-    Engine ==>|primp HTTP/2| Bing
-    Engine ==>|primp HTTP/2| Yahoo
-    Engine ==>|primp HTTP/2| Others
-```
-
-| Search Type | Backend | Typical Results |
-| :--- | :---: | :--- |
-| **Web** | Auto (all engines) | 20-100 results in 2-5 seconds |
-| **Images** | DuckDuckGo / Bing | 20-60 results in 1-3 seconds |
-| **Videos** | DuckDuckGo | 10-30 results in 1-3 seconds |
-| **News** | DuckDuckGo / Bing / Yahoo | 20-50 results in 1-3 seconds |
-| **Books** | Anna's Archive | 10-20 results in 2-4 seconds |
-| **Page Extract** | Direct HTTP fetch | Instant content extraction |
-
-</details>
+| Layer | Technology |
+| :--- | :--- |
+| Frontend | Flet 1.0.1 (Flutter engine) |
+| Search core | `ddgs` 9.16.0 across 10 providers |
+| HTTP | `primp` (Rust, HTTP/2 with browser emulation) |
+| Assistant | in-app Kiri router first, Kiri gateway fallback |
+| Storage | on-device JSON (settings, history, conversations) |
 
 ---
 

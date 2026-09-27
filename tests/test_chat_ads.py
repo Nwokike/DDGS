@@ -181,7 +181,10 @@ def test_chat_view_has_no_other_banner(tmp_path, monkeypatch):
     session.turns = _chat(2)
     session._render()
 
-    column = session.view.controls[0].content
+    # view = [SafeArea > Container > Column(header, list, composer)]:
+    # SafeArea carries the status-bar inset the old AppBar provided.
+    host = session.view.controls[0]
+    column = host.content.content
     assert len(column.controls) == 3, "a banner sibling crept into the view"
     # and the transcript banners are the only ad controls anywhere
     assert isinstance(column.controls[1].content, ft.ListView)

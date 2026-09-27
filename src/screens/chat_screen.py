@@ -245,42 +245,66 @@ class ChatSession:
         # ready / stopped) and the selected model, rebuilt on every render.
         self.model_chip = build_model_pill(page)
 
-        appbar = ft.AppBar(
-            leading=ft.IconButton(
-                icon=ft.Icons.ARROW_BACK_ROUNDED,
-                tooltip="Minimize assistant",
-                on_click=lambda e: self.close(),
-            ),
-            title=ft.Row(
-                [
-                    ft.Icon(_CHAT, size=20, color=AppColors.PRIMARY),
-                    ft.Text(
-                        "Assistant",
-                        size=tokens.FONT_MD,
-                        weight=ft.FontWeight.W_700,
-                        font_family="Outfit",
+        # Sherlock's header shape (the owner's sample): ONE row with a
+        # left group and a right group, SPACE_BETWEEN, and scroll on the
+        # whole row so oversized controls scroll instead of clipping
+        # (Sherlock's rule: "header must scroll horizontally when extra
+        # action buttons make it overflow narrow screens"). A ft.AppBar
+        # cannot do this: its actions get unbounded width, so wide pills
+        # pushed the + off and painted over the title (the owner's dark
+        # screenshots).
+        header = ft.Container(
+            content=ft.Row(
+                controls=[
+                    ft.Row(
+                        [
+                            ft.IconButton(
+                                icon=ft.Icons.ARROW_BACK_ROUNDED,
+                                tooltip="Minimize assistant",
+                                on_click=lambda e: self.close(),
+                            ),
+                            ft.Icon(_CHAT, size=20, color=AppColors.PRIMARY),
+                            ft.Text(
+                                "Assistant",
+                                size=tokens.FONT_MD,
+                                weight=ft.FontWeight.W_700,
+                                font_family="Outfit",
+                            ),
+                        ],
+                        spacing=6,
+                        tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    # Right controls: creation first, history next, then
+                    # the readouts, model selector last (owner's call).
+                    # Plus and history carry tight padding (owner: "there
+                    # should not be space between plus and history").
+                    ft.Row(
+                        [
+                            ft.IconButton(
+                                icon=ft.Icons.ADD_ROUNDED,
+                                icon_size=18,
+                                icon_color=AppColors.PRIMARY,
+                                tooltip="New chat",
+                                style=ft.ButtonStyle(
+                                    padding=ft.Padding(2, 6, 2, 6)
+                                ),
+                                on_click=lambda e: self.new_conversation(),
+                            ),
+                            self._history_button_control(),
+                            self.credits_chip,
+                            self.model_chip,
+                        ],
+                        spacing=4,
+                        tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
                 ],
-                spacing=6,
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                scroll=ft.ScrollMode.AUTO,
             ),
-            actions=[
-                # Creation first, history next, then the readouts, and the
-                # model selector last (owner's call: it is the pill people
-                # reach for most).
-                ft.IconButton(
-                    icon=ft.Icons.ADD_ROUNDED,
-                    icon_size=18,
-                    icon_color=AppColors.PRIMARY,
-                    tooltip="New chat",
-                    on_click=lambda e: self.new_conversation(),
-                ),
-                self._history_button_control(),
-                self.credits_chip,
-                self.model_chip,
-                ft.Container(width=6),
-            ],
-            bgcolor=ft.Colors.TRANSPARENT,
-            elevation=0,
+            padding=ft.Padding(6, 6, 8, 6),
         )
 
         composer = ft.Container(
@@ -295,14 +319,24 @@ class ChatSession:
         self.view = ft.View(
             route="/chat",
             controls=[
-                ft.Container(
-                    content=ft.Column(
-                        [appbar, ft.Container(self._list, expand=True), composer],
-                        spacing=0,
+                # SafeArea replaces the AppBar's status-bar inset: the
+                # header is a plain Sherlock-style row now, not a material
+                # AppBar, so the top inset has to come from here.
+                ft.SafeArea(
+                    top=True,
+                    content=ft.Container(
+                        content=ft.Column(
+                            [
+                                header,
+                                ft.Container(self._list, expand=True),
+                                composer,
+                            ],
+                            spacing=0,
+                            expand=True,
+                        ),
                         expand=True,
+                        bgcolor=ft.Colors.SURFACE,
                     ),
-                    expand=True,
-                    bgcolor=ft.Colors.SURFACE,
                 )
             ],
             padding=0,
@@ -764,6 +798,9 @@ class ChatSession:
             icon_size=18,
             icon_color=AppColors.PRIMARY,
             tooltip="Chat history",
+            # Same tight padding as the plus: the pair sits close
+            # (owner's call), the rest of the row keeps its own spacing.
+            style=ft.ButtonStyle(padding=ft.Padding(2, 6, 2, 6)),
             on_click=lambda e: self._open_history_dialog(),
         )
 
