@@ -618,7 +618,13 @@ class ChatSession:
         self._render(force=True)
 
     def _toggle_thought(self, turn: dict) -> None:
-        turn["thought_open"] = not bool(turn.get("thought_open", False))
+        # Flip against what is VISIBLE: while the model is still thinking
+        # the block defaults open with no explicit flag stored yet.
+        default_open = bool(turn.get("partial")) and not turn.get("text")
+        turn["thought_open"] = not bool(turn.get("thought_open", default_open))
+        # Repaint, like _toggle_steps: after the last token no emit is
+        # coming, so a flag flip without a render was invisible.
+        self._render(force=True)
 
     def _toggle_steps(self, turn: dict) -> None:
         turn["steps_open"] = not bool(turn.get("steps_open"))
@@ -1544,10 +1550,11 @@ class ChatSession:
         kids: list[ft.Control] = []
 
         if (turn.get("thought") or "").strip():
-            # Collapsed by default: reasoning is metadata, not the answer
-            # (Claude/ChatGPT show it as a one-line chevron).
-            thinking_open = bool(turn.get("thought_open", False))
             still_thinking = bool(turn.get("partial")) and not turn.get("text")
+            # Open while the model is thinking (LM Router's rule: you watch
+            # the reasoning live), closed from the first answer word on.
+            # An explicit user toggle always wins over the default.
+            thinking_open = bool(turn.get("thought_open", still_thinking))
             elapsed = _thought_seconds(turn)
             label = (
                 "Thinking…"

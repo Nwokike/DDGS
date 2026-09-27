@@ -928,3 +928,108 @@ def test_thought_header_click_expands_and_collapses_end_to_end():
     header2 = find_header(session._render_assistant(turn, 0))
     header2.on_click(None)
     assert turn["thought_open"] is False, "the toggle must flip back"
+
+
+def _thought_turn(**over) -> dict:
+    turn = {
+        "role": "assistant",
+        "text": "the answer",
+        "thought": "step one: ripeness",
+        "steps_rows": [],
+        "cards": [],
+        "related": [],
+        "error": None,
+        "partial": False,
+        "stopped": False,
+        "cost": 1,
+        "steps": 1,
+        "model": "auto",
+        "served_by": "router",
+        "receipt": "",
+    }
+    turn.update(over)
+    return turn
+
+
+def _walk_texts(controls) -> list[str]:
+    out: list[str] = []
+
+    def walk(control):
+        if isinstance(control, ft.Text) and isinstance(control.value, str):
+            out.append(control.value)
+        for child in getattr(control, "controls", None) or []:
+            walk(child)
+        content = getattr(control, "content", None)
+        if content is not None:
+            walk(content)
+
+    for control in controls:
+        walk(control)
+    return out
+
+
+def _find_header(controls):
+    def walk(control):
+        if (
+            getattr(control, "tooltip", None) == "Tap to expand or collapse"
+            and getattr(control, "on_click", None) is not None
+        ):
+            return control
+        for child in getattr(control, "controls", None) or []:
+            found = walk(child)
+            if found:
+                return found
+        content = getattr(control, "content", None)
+        return walk(content) if content is not None else None
+
+    for control in controls:
+        found = walk(control)
+        if found:
+            return found
+    return None
+
+
+def test_thought_toggle_paints_without_an_external_render(tmp_path, monkeypatch):
+    """The tap itself must repaint: after the last token no emit is coming,
+    so a flag flip with no render was invisible on a finished reply (the
+    "AI is done before I can expand it" report)."""
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = [_thought_turn(thought_open=False)]
+    session._render()
+    assert "step one: ripeness" not in _walk_texts(session._list.controls)
+
+    header = _find_header(session._list.controls)
+    assert header is not None, "the thought header must exist"
+    header.on_click(None)  # what a physical tap invokes
+    # No manual _render here: the handler has to paint the flip itself.
+    assert "step one: ripeness" in _walk_texts(session._list.controls)
+
+    header = _find_header(session._list.controls)
+    header.on_click(None)
+    assert "step one: ripeness" not in _walk_texts(session._list.controls)
+
+
+def test_reasoning_is_open_while_the_model_thinks(tmp_path, monkeypatch):
+    """LM Router's rule, derived state only: with no explicit flag the
+    block is open while the model reasons, so the owner watches it live."""
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = [_thought_turn(partial=True, text="")]
+    session._render()
+    texts = _walk_texts(session._list.controls)
+    assert "step one: ripeness" in texts, "reasoning must be visible live"
+    assert any(t.startswith("Thinking") for t in texts)
+
+
+def test_first_answer_word_collapses_unset_reasoning(tmp_path, monkeypatch):
+    """Same derived default: once answer text exists the flag-free block
+    reads closed, so the reply never stays pushed under open reasoning."""
+    monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = [_thought_turn(partial=True, text="the answer")]
+    session._render()
+    assert "step one: ripeness" not in _walk_texts(session._list.controls)
