@@ -246,7 +246,7 @@ jobs:
           # while reporting success; failOnUnmatchedFiles makes a wrong
           # glob a hard error from now on.
           files: build/aab/*.aab
-          failOnUnmatchedFiles: error
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
