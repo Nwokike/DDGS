@@ -52,6 +52,13 @@ KIRI_LICENSE_PUBLIC_KEY = (
 KIRI_LICENSE_APP_ID = "ng.kiri.ddgs"
 KIRI_LICENSE_TIMEOUT = 15.0
 
+# The engine (kiri-router run.py) is fetched LIVE from here on every cold
+# start and cached to user storage. The engine itself is never vendored:
+# owner directive, LM Router pattern (upstream changes constantly and a
+# bundled snapshot would silently shadow it). This URL is the one allowed
+# constant, exactly like LM Router's ENGINE_URL.
+ENGINE_URL = "https://router.kiri.ng/run.py"
+
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
     {"key": "duckduckgo", "label": "DuckDuckGo"},
@@ -243,3 +250,6 @@ VIDEO_QUALITY_OPTIONS = [
 # Contact and repository (KTV Player keeps the same address).
 CONTACT_EMAIL = "hello@kiri.ng"
 GITHUB_REPO_URL = "https://github.com/Nwokike/DDGS"
+# The developer's own profile: destination of the "More apps" row on
+# desktop (Play's developer page carries the store audience).
+GITHUB_PROFILE_URL = "https://github.com/Nwokike"

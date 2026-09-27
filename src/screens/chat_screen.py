@@ -43,6 +43,11 @@ _KIND_ICONS = {
 # 900 characters used to hide the reasoning the user asked to see.
 _THROUGHT_CAP = 8000
 
+# Owner rule (LM Router's chat): one ad after every AI reply, and the
+# thread never ends on an ad (the newest reply earns its banner once the
+# next message exists). Tunable here, positionally derived in _render.
+BANNER_AD_EVERY_N_REPLIES = 1
+
 _SUGGESTION_ROWS = [
     (ft.Icons.NEWSPAPER_ROUNDED, "What happened in tech this week?"),
     (ft.Icons.SHIELD_ROUNDED, "Find me the best free privacy tools"),
@@ -1184,6 +1189,32 @@ class ChatSession:
 
     # ── Rendering ──────────────────────────────────────────────────────────
 
+    def _pooled_ad(self, slot: int) -> ft.Control | None:
+        """One native ad per transcript slot, reused across renders.
+
+        emit() re-renders up to 5x per second while streaming; building a
+        fresh BannerAd every time would churn the native ad view per token.
+        The pool is keyed by reply position so a slot keeps the same
+        control identity across renders (the same reason LM Router derives
+        its banners positionally instead of pushing them on stream events).
+        Premium and desktop return None: no placeholder rows, so a paid or
+        wide conversation has no stray gaps.
+        """
+        from core.styles import build_banner_ad
+
+        if state.is_premium or self.page.platform not in (
+            ft.PagePlatform.ANDROID,
+            ft.PagePlatform.IOS,
+        ):
+            return None
+        pool = getattr(self, "_ad_pool", None)
+        if pool is None:
+            pool = []
+            self._ad_pool = pool
+        while len(pool) <= slot:
+            pool.append(build_banner_ad(self.page))
+        return pool[slot]
+
     def _render(self, force: bool = True) -> None:
         """Rebuild the turn list and push it to the client.
 
@@ -1200,12 +1231,27 @@ class ChatSession:
         controls: list[ft.Control] = []
         if not self.turns:
             controls.append(self._welcome())
+        assistant_replies = 0
         for idx, turn in enumerate(self.turns):
             controls.append(
                 self._render_user(turn, idx)
                 if turn.get("role") == "user"
                 else self._render_assistant(turn, idx)
             )
+            if turn.get("role") != "user":
+                assistant_replies += 1
+                # Ad after every AI reply, never as the last row (owner
+                # rule, LM Router): the thread must end on a message, so
+                # the newest reply gets its banner with the next turn.
+                # Positional, so streaming re-reenders regenerate the
+                # identical layout instead of stacking duplicates.
+                if (
+                    assistant_replies % BANNER_AD_EVERY_N_REPLIES == 0
+                    and idx + 1 < len(self.turns)
+                ):
+                    ad = self._pooled_ad(assistant_replies - 1)
+                    if ad is not None:
+                        controls.append(ad)
         if state.scheduled_scrapes:
             controls.append(self._render_schedules())
         self._list.controls = controls

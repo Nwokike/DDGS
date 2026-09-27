@@ -898,12 +898,12 @@ def HomeScreen() -> Control:
                 if recent_rows
                 else []
             ),
-            # Banner ad (after category chips)
+            # Banner ad (after category chips). Vertical rhythm only: the
+            # horizontal SPACE_LG inset used to break full width (Sherlock
+            # calls the banner bare and lets the glass stretch).
             ft.Container(
                 content=build_banner_ad(_get_page()),
-                padding=ft.Padding(
-                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
-                ),
+                padding=ft.Padding(0, tokens.SPACE_SM, 0, 0),
             ),
             # What DDGS Can Do (condensed - 3 features)
             ft.Container(
@@ -946,12 +946,11 @@ def HomeScreen() -> Control:
                     tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_LG
                 ),
             ),
-            # Banner ad (after features)
+            # Banner ad (after features). Vertical rhythm only: no
+            # horizontal inset, the glass must reach both edges.
             ft.Container(
                 content=build_banner_ad(_get_page()),
-                padding=ft.Padding(
-                    tokens.SPACE_LG, 0, tokens.SPACE_LG, tokens.SPACE_SM
-                ),
+                padding=ft.Padding(0, 0, 0, tokens.SPACE_SM),
             ),
             # How It Works (3 steps)
             ft.Container(

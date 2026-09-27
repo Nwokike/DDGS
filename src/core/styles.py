@@ -10,7 +10,19 @@ logger = logging.getLogger(__name__)
 
 
 def build_banner_ad(page: ft.Page, unit_id: str | None = None) -> ft.Control:
-    """Build a glass-container-wrapped banner ad (mobile only)."""
+    """Full-width glass banner: Sherlock's exact sizing, no label.
+
+    Revenue-critical sizing: the glass stretches edge-to-edge on every
+    screen. Home/History/Results wrap banners in shrink-wrap Columns that
+    would pin a bare container at 320px and left-align it, so an outer Row
+    (rows fill what their parent offers) hosts an expand=True glass that
+    equalizes every parent; the native ad stays 320x50, centered inside
+    the stretched glass.
+
+    Never set alignment on a wide Container: it can expand to fill the
+    parent's offer, which caused the full-page regression in Sherlock.
+    No SPONSORED label by design: Sherlock removed it on purpose.
+    """
     from core.state import state
 
     if state.is_premium or page.platform not in (
@@ -48,27 +60,19 @@ def build_banner_ad(page: ft.Page, unit_id: str | None = None) -> ft.Control:
         logger.warning("Failed to load BannerAd: %s", e)
         return ft.Container(width=0, height=0)
 
-    return ft.Container(
+    from core.theme import adaptive_glass_bg, adaptive_glass_border
+
+    glass = ft.Container(
         content=ft.Column(
-            [
-                ft.Text(
-                    "SPONSORED",
-                    size=8,
-                    weight=ft.FontWeight.W_700,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                    style=ft.TextStyle(letter_spacing=1),
-                ),
-                ad,
-            ],
+            [ft.Container(content=ad, width=320, height=50)],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=tokens.SPACE_XS,
+            tight=True,
         ),
-        alignment=ft.Alignment.CENTER,
+        expand=True,
         padding=tokens.SPACE_SM,
         border_radius=tokens.RADIUS_LG,
-        bgcolor=ft.Colors.with_opacity(0.05, ft.Colors.ON_SURFACE),
-        border=ft.Border.all(1, ft.Colors.with_opacity(0.1, ft.Colors.ON_SURFACE)),
-        margin=ft.Margin(
-            tokens.SPACE_LG, tokens.SPACE_XS, tokens.SPACE_LG, tokens.SPACE_XS
-        ),
+        bgcolor=adaptive_glass_bg(page),
+        border=ft.Border.all(1, adaptive_glass_border(page)),
     )
+    return ft.Row(controls=[glass], alignment=ft.MainAxisAlignment.CENTER)

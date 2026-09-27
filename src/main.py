@@ -8,6 +8,13 @@ from __future__ import annotations
 
 import flet as ft
 
+from core.tls import ensure_ca_bundle
+
+# Runs before AppController, i.e. before any httpx client can exist: on
+# Android the runtime ships SSL_CERT_FILE pointing at a missing path and
+# httpx raises FileNotFoundError at construction. See core.tls.
+_CA_STATUS = ensure_ca_bundle()
+
 
 async def main(page: ft.Page):
     from app_controller import AppController
@@ -34,6 +41,7 @@ if __name__ == "__main__":
     from core.utils import logger
 
     logger.info("Starting DDGS on Python %s", __import__("sys").version)
+    logger.info("TLS trust store: %s", _CA_STATUS)
     try:
         import primp
 

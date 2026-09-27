@@ -2,8 +2,9 @@
 
 The rule: no em-dash (or en-dash) anywhere in the app's words. Enforced
 over every string constant in src/ (UI copy, docstrings, logs, model
-prompts) and over comments. The vendored Kiri router is third-party code
-and exempt, like it is from ruff.
+prompts) and over comments. The sweep is total: with the Kiri router no
+longer vendored (engine is fetched live from router.kiri.ng), no file
+under src/ is exempt.
 """
 
 from __future__ import annotations
@@ -16,11 +17,9 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-VENDORED = SRC / "services" / "router" / "run.py"
-
 
 def _app_files() -> list[Path]:
-    return [p for p in sorted(SRC.rglob("*.py")) if p != VENDORED]
+    return sorted(SRC.rglob("*.py"))
 
 
 def _offending_strings() -> list[str]:

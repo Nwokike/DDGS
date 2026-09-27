@@ -12,6 +12,10 @@ dependencies = [
     # httpx is also a base flet dependency, so this pins the floor without
     # adding a family.
     "httpx>=0.28.1",
+    # Imported by src/core/tls.py as the CA bundle of last resort. Already
+    # httpx's own requirement and already in uv.lock: declaring it adds no
+    # package, it only makes the direct import honest.
+    "certifi>=2026.7.22",
     # Imported by src/services/agent_files.py. Ceiling rule (owner's own
     # builds): pypi.flet.dev tops out at lxml 6.1.1 while PyPI has 6.1.3 -
     # never raise this floor past the Android ceiling or only the APK job
@@ -62,9 +66,6 @@ dev = [
 
 [tool.ruff]
 lint.extend-ignore = ["BLE001", "S110"]
-# Vendored Kiri Router (src/services/router/run.py) is third-party code —
-# keep it byte-identical to kiri-router/dist-scripts/run.py.
-lint.per-file-ignores = { "src/services/router/run.py" = ["ALL"] }
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

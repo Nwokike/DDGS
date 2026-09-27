@@ -7,8 +7,10 @@ per-conversation stickiness and in-request failover itself (`auto_order`,
 run.py). The app only fetches /v1/models to fill the model picker.
 
 - Router discovery attaches to ANY Kiri router already listening in
-  8082-8092 (the user's own instance) before embedding run.py ourselves;
-  embed only when none exists.
+  8082-8092 (the user's own instance) before starting our own from the
+  live engine (run.py fetched from router.kiri.ng on every cold start,
+  cached to user storage, never vendored: owner directive, LM Router
+  pattern); embed only when none exists.
 - Streaming returns finish_reason + assembled `tool_calls` deltas so the
   chat agent can run DDGS tools (OpenAI streaming tool_calls contract:
   arguments arrive as string fragments per index - concatenate, parse at
@@ -35,6 +37,7 @@ from datetime import datetime
 import httpx
 
 from core.state import state
+from services.engine import EngineUnavailable, load_engine
 
 logger = logging.getLogger(__name__)
 
@@ -133,20 +136,27 @@ async def _probe_existing_router() -> int | None:
     global _probe_miss_until
     if time.monotonic() < _probe_miss_until:
         return None
-    async with httpx.AsyncClient(http2=False) as client:
-        for port in range(ROUTER_BASE_PORT, ROUTER_BASE_PORT + ROUTER_SPAN + 1):
-            try:
-                resp = await client.get(
-                    f"http://{ROUTER_HOST}:{port}/health", timeout=0.5
-                )
-                if (
-                    resp.status_code == 200
-                    and resp.json().get("adapter") == "kiri-router"
-                ):
-                    _probe_miss_until = 0.0
-                    return port
-            except Exception:
-                pass  # closed port or not a router - keep scanning
+    try:
+        async with httpx.AsyncClient(http2=False) as client:
+            for port in range(ROUTER_BASE_PORT, ROUTER_BASE_PORT + ROUTER_SPAN + 1):
+                try:
+                    resp = await client.get(
+                        f"http://{ROUTER_HOST}:{port}/health", timeout=0.5
+                    )
+                    if (
+                        resp.status_code == 200
+                        and resp.json().get("adapter") == "kiri-router"
+                    ):
+                        _probe_miss_until = 0.0
+                        return port
+                except Exception:
+                    pass  # closed port or not a router - keep scanning
+    except Exception as exc:
+        # A broken probe (client construction: the Android CA crash escaped
+        # here and killed the picker callback) is NOT a miss. Never poison
+        # the miss-TTL from one and never let it reach the caller.
+        logger.debug("router scan failed: %r", exc)
+        return None
     _probe_miss_until = time.monotonic() + PROBE_MISS_TTL
     return None
 
@@ -192,7 +202,7 @@ async def ensure_router(*, verify: bool = False) -> int | None:
     calls it with verify=True; the normal request path does not, because
     paying a 2s probe on every turn is not worth it.
     """
-    global _router_server, _router_port
+    global _router_server, _router_port, _probe_miss_until
     with _router_lock:
         if _router_port is not None:
             known = _router_port
@@ -208,12 +218,21 @@ async def ensure_router(*, verify: bool = False) -> int | None:
         with _router_lock:
             if _router_port == known:
                 _router_port = None
+        # A just-forgotten port must be rescanned for real: our own server
+        # may still be listening, and a stale miss-TTL shortcut returning
+        # None here is what double-embedded 8082 and 8083 in the field log.
+        _probe_miss_until = 0.0
         logger.info("AI router on %s is gone; re-attaching", known)
 
     # Publish "starting" before the slow parts so the picker can say so.
     _publish_status("starting", None)
 
     existing = await _probe_existing_router()
+    if existing is None:
+        # The full scan found nobody: if we still hold an embedded server
+        # object it is genuinely dead. Close it before starting a new one
+        # so a re-embed can never leak the previous listener.
+        stop_router()
     if existing is not None:
         _router_port = existing
         _publish_status("ready", existing)
@@ -221,12 +240,13 @@ async def ensure_router(*, verify: bool = False) -> int | None:
         return existing
 
     try:
-        from services.router import run as router_run
-
-        server, port = router_run.acquire_server(ROUTER_BASE_PORT, ROUTER_SPAN)
+        engine, how = await load_engine()
+        logger.info("AI router: engine %s", how)
+        server, port = engine.acquire_server(ROUTER_BASE_PORT, ROUTER_SPAN)
         if server is None:
             # Raced with another Kiri instance on the wanted port - attach.
             _router_port = port
+            _probe_miss_until = 0.0  # someone is listening: rescan live
             _publish_status("ready", port)
             logger.info("AI router: attached to instance on %d", port)
             return port
@@ -234,9 +254,16 @@ async def ensure_router(*, verify: bool = False) -> int | None:
         threading.Thread(target=server.serve_forever, daemon=True).start()
         with _router_lock:
             _router_server, _router_port = server, port
+        _probe_miss_until = 0.0  # our own server now listens: rescan live
         _publish_status("ready", port)
         logger.info("AI router: embedded on %s:%d", ROUTER_HOST, port)
         return port
+    except EngineUnavailable as exc:
+        # No engine and no cache: honest label. stream_llm already degrades
+        # to the gateway fallback on its own, so chat keeps working.
+        logger.warning("AI router: %s", exc)
+        _publish_status("unavailable", None)
+        return None
     except SystemExit:
         logger.warning(
             "AI router: no free port in %d..%d",

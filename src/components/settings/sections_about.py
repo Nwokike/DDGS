@@ -5,12 +5,38 @@ from collections.abc import Callable
 import flet as ft
 
 from components.settings.version import _APP_VERSION
-from core.constants import CONTACT_EMAIL, GITHUB_REPO_URL
+from core import ui
+from core.constants import CONTACT_EMAIL, GITHUB_PROFILE_URL, GITHUB_REPO_URL
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
 from core.utils import in_memory_log_handler
 from services.update_service import PLAY_STORE_URL
+
+# Kiri Research Labs on Play (both listings resolve to the same developer
+# id; verified live, the name-based URL 404s).
+PLAY_DEV_URL = "https://play.google.com/store/apps/dev?id=5797833969564243342"
+
+
+def _launch(page, url: str) -> None:
+    async def _run():
+        await ft.UrlLauncher().launch_url(url)
+
+    page.run_task(_run)
+
+
+def _external_trailing() -> ft.Icon:
+    return ft.Icon(
+        ft.Icons.OPEN_IN_NEW_ROUNDED,
+        size=15,
+        color=ft.Colors.ON_SURFACE_VARIANT,
+    )
+
+
+def _more_apps_url(page) -> str:
+    # Same KTV split as the rate row: store devices get the Play developer
+    # page, desktop gets GitHub where everything else lives.
+    return PLAY_DEV_URL if _is_store_device(page) else GITHUB_PROFILE_URL
 
 
 def _is_store_device(page) -> bool:
@@ -238,8 +264,8 @@ def build_about_section(
                                         weight=ft.FontWeight.W_600,
                                         color=AppColors.PRIMARY,
                                     ),
-                                    action=ft.OpenUrl(
-                                        "https://github.com/Nwokike/DDGS"
+                                    on_click=lambda e: _launch(
+                                        page, GITHUB_REPO_URL
                                     ),
                                     style=ft.ButtonStyle(
                                         padding=ft.Padding(0, 0, 0, 0)
@@ -263,37 +289,28 @@ def build_about_section(
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 ),
-                ft.Row(
-                    [
-                        ft.Text("Contact developer", size=FONT_SM, font_family="Outfit"),
-                        ft.TextButton(
-                            content=ft.Text(
-                                CONTACT_EMAIL,
-                                size=FONT_SM,
-                                weight=ft.FontWeight.W_600,
-                                color=AppColors.PRIMARY,
-                            ),
-                            action=ft.OpenUrl(f"mailto:{CONTACT_EMAIL}"),
-                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                # KTV Player's About shape: icon rows with a real subtitle,
+                # whole row tappable (Contact / Rate / More apps).
+                ui.setting_row(
+                    ft.Icons.MAIL_OUTLINE_ROUNDED,
+                    "Contact developer",
+                    CONTACT_EMAIL,
+                    _external_trailing(),
+                    on_click=lambda e: _launch(page, f"mailto:{CONTACT_EMAIL}"),
                 ),
-                ft.Row(
-                    [
-                        ft.Text("Rate 5 stars", size=FONT_SM, font_family="Outfit"),
-                        ft.TextButton(
-                            content=ft.Text(
-                                _rate_subtitle(page),
-                                size=FONT_SM,
-                                weight=ft.FontWeight.W_600,
-                                color=AppColors.PRIMARY,
-                            ),
-                            action=ft.OpenUrl(_rate_url(page)),
-                            style=ft.ButtonStyle(padding=ft.Padding(0, 0, 0, 0)),
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ui.setting_row(
+                    ft.Icons.STAR_ROUNDED,
+                    "Rate 5 stars",
+                    _rate_subtitle(page),
+                    _external_trailing(),
+                    on_click=lambda e: _launch(page, _rate_url(page)),
+                ),
+                ui.setting_row(
+                    ft.Icons.APPS_ROUNDED,
+                    "More apps",
+                    "More apps from Kiri Research Labs",
+                    _external_trailing(),
+                    on_click=lambda e: _launch(page, _more_apps_url(page)),
                 ),
                 ft.Divider(
                     height=1,
@@ -305,13 +322,13 @@ def build_about_section(
                             "Privacy Policy",
                             icon=ft.Icons.PRIVACY_TIP_ROUNDED,
                             style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                            action=ft.OpenUrl(privacy_url),
+                            on_click=lambda e: _launch(page, privacy_url),
                         ),
                         ft.TextButton(
                             "Terms of Service",
                             icon=ft.Icons.GAVEL_ROUNDED,
                             style=ft.ButtonStyle(color=AppColors.PRIMARY),
-                            action=ft.OpenUrl(terms_url),
+                            on_click=lambda e: _launch(page, terms_url),
                         ),
                     ],
                     alignment=ft.MainAxisAlignment.SPACE_EVENLY,
