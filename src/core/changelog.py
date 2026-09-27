@@ -4,6 +4,13 @@ current app version (components.settings.version._APP_VERSION) in sync
 when bumping (guarded by tests)."""
 
 CHANGELOG: dict[str, str] = {
+    "2.0.1": (
+        "- Fix: the Assistant screen would not scroll and the composer "
+        "slipped off the bottom on phones; the chat view fills the screen "
+        "again\n"
+        "- Fix: the header stays clear of the status bar and oversized "
+        "pills scroll instead of clipping"
+    ),
     "2.0.0": (
         "- Assistant: agentic chat that searches, reads and saves pages for you\n"
         "- Assistant credits: 50 a day free, 500 with Premium\n"

@@ -176,7 +176,7 @@ DDGS is a metasearch and content-extraction tool for public search engines and p
 ```bash
 uv sync --frozen     # install exactly what uv.lock pins (includes dev tools)
 uv run ruff check src tests
-uv run pytest -q     # 272 tests
+uv run pytest -q     # 273 tests
 uv run flet run      # desktop app
 ```
 

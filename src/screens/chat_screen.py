@@ -322,12 +322,18 @@ class ChatSession:
                 # SafeArea replaces the AppBar's status-bar inset: the
                 # header is a plain Sherlock-style row now, not a material
                 # AppBar, so the top inset has to come from here.
+                # expand=True is load-bearing (LM Router's shell does the
+                # same): as the View's top-level child it must fill the
+                # screen, or the Column gets loose height, the ListView
+                # never receives a bounded extent (no scrolling) and the
+                # composer stops being pinned to the bottom.
                 # NO top= kwarg: SafeArea's field is avoid_intrusions_top
                 # (default True). top= binds through the MRO to
                 # LayoutControl.top, a Number (double?) on the Dart side -
                 # a bool there crashed every Assistant open with
                 # "bool is not a subtype of double?".
                 ft.SafeArea(
+                    expand=True,
                     content=ft.Container(
                         content=ft.Column(
                             [
