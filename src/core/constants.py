@@ -1,5 +1,7 @@
 """Application constants - all storage keys."""
 
+APP_NAME = "DDGS"
+
 STORAGE_THEME = "theme"
 STORAGE_HISTORY = "search_history"
 STORAGE_SAFE_SEARCH = "safe_search"

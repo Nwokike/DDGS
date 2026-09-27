@@ -7,6 +7,7 @@ import flet as ft
 from components.settings.version import _APP_VERSION
 from core import ui
 from core.constants import (
+    APP_NAME,
     CONTACT_EMAIL,
     GITHUB_REPO_URL,
     KIRI_APPS_PLAY_URL,
@@ -14,7 +15,7 @@ from core.constants import (
 )
 from core.state import state
 from core.theme import AppColors, AppStyles
-from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
+from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS
 from core.utils import in_memory_log_handler
 from services.update_service import PLAY_STORE_URL
 
@@ -234,32 +235,6 @@ def build_about_section(
         ft.Icons.INFO_ROUNDED,
         ft.Column(
             [
-                ft.Container(
-                    content=ft.Image(
-                        src="icon.png",
-                        width=96,
-                        height=96,
-                        fit=ft.BoxFit.CONTAIN,
-                    ),
-                    alignment=ft.Alignment.CENTER,
-                    margin=ft.Margin(0, 0, 0, SPACING_SM),
-                ),
-                ft.Container(
-                    content=ft.Row(
-                        [
-                            ft.Text("Version", size=FONT_SM, font_family="Outfit"),
-                            ft.Text(
-                                _APP_VERSION,
-                                size=FONT_SM,
-                                color=ft.Colors.ON_SURFACE_VARIANT,
-                            ),
-                        ],
-                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    ),
-                    ink=True,
-                    tooltip="Tap to view changelog",
-                    on_click=lambda e: _open_version_dialog(page),
-                ),
                 *(
                     [
                         ft.Row(
@@ -321,6 +296,49 @@ def build_about_section(
                     _more_apps_subtitle(page),
                     _external_trailing(),
                     on_click=lambda e: _launch(page, _more_apps_url(page)),
+                ),
+                # KTV Player's version header: icon + app name + a LIVE
+                # status line. Tap opens the dialog; when the feed carries
+                # a newer build the line flips to "Update available - tap
+                # to view" (ported from KTV's settings, owner's call).
+                ft.Container(
+                    content=ft.Row(
+                        controls=[
+                            ft.Image(
+                                src="icon.png",
+                                width=56,
+                                height=56,
+                                fit=ft.BoxFit.CONTAIN,
+                            ),
+                            ft.Column(
+                                controls=[
+                                    ft.Text(
+                                        APP_NAME,
+                                        size=16,
+                                        weight=ft.FontWeight.BOLD,
+                                    ),
+                                    ft.Text(
+                                        "Update available · tap to view"
+                                        if state.update_available
+                                        else f"Version {_APP_VERSION} · Flet {ft.__version__}",
+                                        size=12,
+                                        color=(
+                                            AppColors.PRIMARY
+                                            if state.update_available
+                                            else ft.Colors.ON_SURFACE_VARIANT
+                                        ),
+                                    ),
+                                ],
+                                spacing=2,
+                            ),
+                        ],
+                        spacing=14,
+                    ),
+                    padding=ft.Padding(4, 8, 4, 8),
+                    ink=True,
+                    border_radius=10,
+                    tooltip="Tap to view changelog",
+                    on_click=lambda e: _open_version_dialog(page),
                 ),
                 ft.Divider(
                     height=1,

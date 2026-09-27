@@ -90,3 +90,35 @@ def test_rate_url_and_subtitles_stay_dynamic():
     assert sa._rate_subtitle(_AndroidPage()) == "Rate us on Google Play"
     assert sa._rate_url(_DesktopPage()) == sa.GITHUB_REPO_URL
     assert sa._rate_subtitle(_DesktopPage()) == "Star us on GitHub"
+
+
+def test_version_header_is_ktvs_live_header(monkeypatch):
+    """Owner: "this app does not even have the version header". KTV's
+    About card carries the app name plus a LIVE status line that flips
+    to "Update available - tap to view" when the feed carries a newer
+    build; DDGS had a static Version label that announced nothing."""
+    from components.settings.sections_about import build_about_section
+    from components.settings.version import _APP_VERSION
+    from core.state import state
+
+    def _values():
+        section = build_about_section(
+            _AndroidPage(),
+            "https://example.com/privacy",
+            "https://example.com/terms",
+        )
+        return {
+            c.value
+            for c in _texts(section)
+            if isinstance(c, ft.Text) and isinstance(c.value, str)
+        }
+
+    monkeypatch.setattr(state, "update_available", False, raising=False)
+    values = _values()
+    assert "DDGS" in values, "the app-name header"
+    assert f"Version {_APP_VERSION} · Flet {ft.__version__}" in values
+    assert not any(v.startswith("Update available") for v in values)
+
+    monkeypatch.setattr(state, "update_available", True, raising=False)
+    values = _values()
+    assert "Update available · tap to view" in values, "the live update line"
