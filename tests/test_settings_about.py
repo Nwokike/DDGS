@@ -60,16 +60,26 @@ def test_about_section_carries_the_ktv_rows():
     }
     assert "Contact developer" in values
     assert "Rate 5 stars" in values
-    assert "More apps" in values
+    assert "More apps from Kiri" in values
 
 
-def test_more_apps_url_follows_the_rate_row_split():
+def test_more_apps_url_and_subtitles_match_ktv_exactly():
+    """KTV Player's contract, constants byte-for-byte: store devices get
+    the shared Play developer listing, everything else the kiri.ng
+    showcase; subtitles identical to KTV's."""
     from components.settings import sections_about as sa
+    from core.constants import KIRI_APPS_PLAY_URL, KIRI_APPS_URL
 
-    # Store devices get the Play developer page (both Kiri listings share
-    # this id); desktop gets the GitHub profile.
-    assert sa._more_apps_url(_AndroidPage()) == sa.PLAY_DEV_URL
-    assert sa._more_apps_url(_DesktopPage()) == "https://github.com/Nwokike"
+    assert sa._more_apps_url(_AndroidPage()) == KIRI_APPS_PLAY_URL
+    assert KIRI_APPS_PLAY_URL.endswith("id=5797833969564243342")
+    assert sa._more_apps_url(_DesktopPage()) == KIRI_APPS_URL
+    assert KIRI_APPS_URL == "https://kiri.ng/projects"
+
+    assert sa._more_apps_subtitle(_AndroidPage()) == "All our apps on Google Play"
+    assert (
+        sa._more_apps_subtitle(_DesktopPage())
+        == "Sherlock, DDGS, CollabShell and more"
+    )
 
 
 def test_rate_url_and_subtitles_stay_dynamic():

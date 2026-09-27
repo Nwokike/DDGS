@@ -250,6 +250,8 @@ VIDEO_QUALITY_OPTIONS = [
 # Contact and repository (KTV Player keeps the same address).
 CONTACT_EMAIL = "hello@kiri.ng"
 GITHUB_REPO_URL = "https://github.com/Nwokike/DDGS"
-# The developer's own profile: destination of the "More apps" row on
-# desktop (Play's developer page carries the store audience).
-GITHUB_PROFILE_URL = "https://github.com/Nwokike"
+# "More apps from Kiri": both values byte-match KTV Player's constants -
+# store devices open the shared Play developer listing, everything else
+# the kiri.ng showcase that links every repo with downloads.
+KIRI_APPS_PLAY_URL = "https://play.google.com/store/apps/dev?id=5797833969564243342"
+KIRI_APPS_URL = "https://kiri.ng/projects"

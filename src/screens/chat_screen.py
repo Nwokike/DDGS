@@ -48,19 +48,30 @@ _THROUGHT_CAP = 8000
 # next message exists). Tunable here, positionally derived in _render.
 BANNER_AD_EVERY_N_REPLIES = 1
 
+# One row per ability, covering every tool the Assistant has (owner:
+# "a sample cover every single ability") plus plain chat. The welcome
+# slice shows the WHOLE list (see _welcome), so a row can never be
+# defined and silently never rendered the way the old download row was.
 _SUGGESTION_ROWS = [
     (ft.Icons.NEWSPAPER_ROUNDED, "What happened in tech this week?"),
     (ft.Icons.SHIELD_ROUNDED, "Find me the best free privacy tools"),
-    (
-        ft.Icons.CODE_ROUNDED,
-        "Scrape the BBC News homepage and save it as HTML",
-    ),
+    # search_videos -> download_media with the quality picker
+    (ft.Icons.VIDEO_LIBRARY_ROUNDED, "Find a Rust tutorial and download it"),
+    # search_images (best match is embedded in the reply)
+    (ft.Icons.IMAGE_ROUNDED, "Find a wallpaper of the northern lights"),
+    # search_books (OpenLibrary fallback proven live)
+    (ft.Icons.MENU_BOOK_ROUNDED, "Find a good book about the history of Rome"),
+    (ft.Icons.CODE_ROUNDED, "Scrape the BBC News homepage and save it as HTML"),
     (
         ft.Icons.SAVE_ROUNDED,
         "Find the best page about solar power and save it as Markdown",
     ),
+    # schedule_scrape (runs while the app is open - say so in the prompt)
+    (ft.Icons.SCHEDULE_ROUNDED, "Watch a website for changes while the app is open"),
+    # fetch_page + summarize
+    (ft.Icons.ARTICLE_ROUNDED, "Summarize the Wikipedia page on Rust"),
+    # no tools: plain conversation still counts as an ability
     (ft.Icons.LIGHTBULB_ROUNDED, "Explain a topic like I'm 12"),
-    (ft.Icons.DOWNLOAD_ROUNDED, "Download a video or image from a link"),
 ]
 
 
@@ -1272,9 +1283,11 @@ class ChatSession:
             pass
 
     def _welcome(self) -> ft.Container:
-        # Four tappable starter rows, not a paragraph over pills: options
-        # are prepopulated (NN/G), so the empty state teaches capability by
-        # offering actions the user can fire immediately.
+        # Tappable starter rows, not a paragraph over pills: options are
+        # prepopulated (NN/G), so the empty state teaches capability by
+        # offering actions the user can fire immediately. The slice shows
+        # the ENTIRE suggestion list (minus the URL row when one exists):
+        # every ability gets a sample, and none can be defined but hidden.
         kids: list[ft.Control] = [
             ft.Container(
                 content=ft.Icon(_CHAT, size=44, color=AppColors.PRIMARY),
@@ -1299,7 +1312,7 @@ class ChatSession:
                     _describe_prompt(url),
                 )
             )
-        for icon, prompt in _SUGGESTION_ROWS[: 5 - len(starters)]:
+        for icon, prompt in _SUGGESTION_ROWS[: len(_SUGGESTION_ROWS) - len(starters)]:
             starters.append((icon, prompt, prompt))
         kids.append(
             ft.Column(

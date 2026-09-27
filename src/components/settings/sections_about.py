@@ -6,16 +6,17 @@ import flet as ft
 
 from components.settings.version import _APP_VERSION
 from core import ui
-from core.constants import CONTACT_EMAIL, GITHUB_PROFILE_URL, GITHUB_REPO_URL
+from core.constants import (
+    CONTACT_EMAIL,
+    GITHUB_REPO_URL,
+    KIRI_APPS_PLAY_URL,
+    KIRI_APPS_URL,
+)
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
 from core.utils import in_memory_log_handler
 from services.update_service import PLAY_STORE_URL
-
-# Kiri Research Labs on Play (both listings resolve to the same developer
-# id; verified live, the name-based URL 404s).
-PLAY_DEV_URL = "https://play.google.com/store/apps/dev?id=5797833969564243342"
 
 
 def _launch(page, url: str) -> None:
@@ -34,9 +35,18 @@ def _external_trailing() -> ft.Icon:
 
 
 def _more_apps_url(page) -> str:
-    # Same KTV split as the rate row: store devices get the Play developer
-    # page, desktop gets GitHub where everything else lives.
-    return PLAY_DEV_URL if _is_store_device(page) else GITHUB_PROFILE_URL
+    """Store devices open the Play developer listing; everything else
+    the kiri.ng showcase that links every repo with downloads (KTV's
+    exact split, same constants)."""
+    return KIRI_APPS_PLAY_URL if _is_store_device(page) else KIRI_APPS_URL
+
+
+def _more_apps_subtitle(page) -> str:
+    return (
+        "All our apps on Google Play"
+        if _is_store_device(page)
+        else "Sherlock, DDGS, CollabShell and more"
+    )
 
 
 def _is_store_device(page) -> bool:
@@ -307,8 +317,8 @@ def build_about_section(
                 ),
                 ui.setting_row(
                     ft.Icons.APPS_ROUNDED,
-                    "More apps",
-                    "More apps from Kiri Research Labs",
+                    "More apps from Kiri",
+                    _more_apps_subtitle(page),
                     _external_trailing(),
                     on_click=lambda e: _launch(page, _more_apps_url(page)),
                 ),

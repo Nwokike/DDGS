@@ -856,8 +856,53 @@ def test_starters_show_scraping_and_save_formats():
 
     prompts = [text for _icon, text in _SUGGESTION_ROWS]
     assert len(prompts) >= 5, "the owner asked for more starters"
-    assert any("Scrape" in p and "HTML" in p for p in prompts), prompts
+    assert any("Scrape" in p for p in prompts), prompts
     assert any("save it as Markdown" in p for p in prompts), prompts
+
+
+def test_starters_cover_every_ability_and_all_of_them_render():
+    """Owner: "a sample cover every single ability." One row per tool
+    (11) plus plain chat, and the welcome must render the WHOLE list -
+    the old 5-row slice left the download row defined but never shown."""
+    from screens.chat_screen import _SUGGESTION_ROWS
+
+    prompts = [text for _icon, text in _SUGGESTION_ROWS]
+    assert len(prompts) == 10, prompts
+    for needle in (
+        "tech this week",       # search_news
+        "privacy tools",        # search_web
+        "Rust tutorial",        # search_videos + download_media
+        "wallpaper",            # search_images
+        "history of Rome",      # search_books
+        "BBC News",             # scrape_site / save as HTML
+        "solar power",          # save_page as Markdown
+        "website for changes",  # schedule_scrape
+        "Wikipedia",            # fetch_page + summarize
+        "like I'm 12",          # plain chat, no tools
+    ):
+        assert any(needle in p for p in prompts), f"no starter covers: {needle}"
+
+    ChatSession, Page = _session_stub()
+    session = ChatSession(Page())
+    session.turns = []
+    session._render()
+
+    # Walk the welcome and count tappable rows: exactly one per ability.
+    tappable = []
+
+    def walk(control):
+        if callable(getattr(control, "on_click", None)):
+            tappable.append(control)
+        for child in getattr(control, "controls", None) or []:
+            walk(child)
+        content = getattr(control, "content", None)
+        if content is not None:
+            walk(content)
+
+    walk(session._list.controls[0])
+    assert len(tappable) == 10, (
+        f"welcome rendered {len(tappable)} starter rows, expected all 10"
+    )
 
 
 def test_thought_toggle_uses_the_container_on_click_contract():
