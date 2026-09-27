@@ -322,8 +322,12 @@ class ChatSession:
                 # SafeArea replaces the AppBar's status-bar inset: the
                 # header is a plain Sherlock-style row now, not a material
                 # AppBar, so the top inset has to come from here.
+                # NO top= kwarg: SafeArea's field is avoid_intrusions_top
+                # (default True). top= binds through the MRO to
+                # LayoutControl.top, a Number (double?) on the Dart side -
+                # a bool there crashed every Assistant open with
+                # "bool is not a subtype of double?".
                 ft.SafeArea(
-                    top=True,
                     content=ft.Container(
                         content=ft.Column(
                             [

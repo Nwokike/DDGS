@@ -12,6 +12,7 @@ from __future__ import annotations
 import flet as ft
 
 from core import tokens
+from core.theme import AppColors
 
 ICON_BOX = 36
 ICON_BOX_RADIUS = 10
@@ -130,7 +131,10 @@ def notice(
     Action verbs are owned by the caller: "Try again", "Get credits".
     """
     color = (
-        ft.Colors.WARNING if level == "warning" else ft.Colors.ON_SURFACE_VARIANT
+        # AppColors.WARNING, not the flet Colors constant: flet 1.0.1
+        # ships no WARNING name (it is ORANGE), and the attribute miss
+        # raised AttributeError whenever a receipt notice rendered.
+        AppColors.WARNING if level == "warning" else ft.Colors.ON_SURFACE_VARIANT
     )
     controls: list[ft.Control] = [
         ft.Text(
