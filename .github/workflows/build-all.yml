@@ -241,7 +241,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare-release.outputs.TAG_NAME }}
-          files: build/apk/*.apk
+          # flet 1.0.1 outputs the bundle as build/aab/ddgs.aab. The merge
+          # carried main's APK glob here, so the AAB job uploaded nothing
+          # while reporting success; failOnUnmatchedFiles makes a wrong
+          # glob a hard error from now on.
+          files: build/aab/*.aab
+          failOnUnmatchedFiles: error
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
