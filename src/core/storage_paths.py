@@ -66,6 +66,10 @@ def clear_temp() -> int:
         if value:
             keep.add(str(Path(value)))
     root = temp_dir()
+    # Android: temp IS cache (getTemporaryDirectory == getCacheDir), so a
+    # subdir here is a cache tier (cache/ddgs) - never rmtree it. On
+    # desktop temp is its own dir and scratch subdirs are fair game.
+    wipe_dirs = root.resolve() != cache_dir().resolve()
     removed = 0
     try:
         for child in root.iterdir():
@@ -77,6 +81,8 @@ def clear_temp() -> int:
                 continue
             try:
                 if child.is_dir():
+                    if not wipe_dirs:
+                        continue
                     shutil.rmtree(child, ignore_errors=True)
                 else:
                     child.unlink()

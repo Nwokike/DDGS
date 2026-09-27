@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -51,17 +51,36 @@ from core.constants import (
     STORAGE_VERIFY_SSL,
     STORAGE_VIDEO_QUALITY,
 )
+from core.storage_paths import data_dir
 
 logger = logging.getLogger(__name__)
 
-# Use Flet sandbox data storage path on Android/iOS mobile to avoid Path.home() permission issues
-storage_env = os.getenv("FLET_APP_STORAGE_DATA")
-if storage_env:
-    _STORAGE_DIR = Path(storage_env)
-else:
-    _STORAGE_DIR = Path.home() / ".ddgs_ui"
+# Single resolver (.flet/README contract lives in core.storage_paths):
+# settings and history are durable user state, so they resolve through
+# data_dir() at CALL time - the same rule as conversations, logs and the
+# staged CA, instead of a third copy of the env/home logic.
+def _storage_dir() -> Path:
+    return data_dir()
 
-_STORAGE_FILE = _STORAGE_DIR / "storage.json"
+
+def _storage_file() -> Path:
+    return data_dir() / "storage.json"
+
+
+def _migrate_legacy_storage() -> None:
+    """Plain-python runs used ~/.ddgs_ui/storage.json before the single
+    resolver; carry it into data/ once so settings and history survive."""
+    legacy = Path.home() / ".ddgs_ui" / "storage.json"
+    target = _storage_file()
+    if target.exists() or not legacy.exists():
+        return
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(legacy), str(target))
+    except OSError:
+        pass
+
+
 _WRITE_DEBOUNCE_SEC = 1.0
 
 DEFAULTS: dict[str, Any] = {
@@ -106,9 +125,10 @@ class StorageService:
 
     def _load(self) -> None:
         try:
-            _STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-            if _STORAGE_FILE.exists():
-                raw = _STORAGE_FILE.read_text(encoding="utf-8")
+            _migrate_legacy_storage()
+            _storage_dir().mkdir(parents=True, exist_ok=True)
+            if _storage_file().exists():
+                raw = _storage_file().read_text(encoding="utf-8")
                 loaded = json.loads(raw) if raw else {}
                 self._cache.update(loaded)
         except (
@@ -125,11 +145,11 @@ class StorageService:
         if self._is_web:
             return  # web persists via async SharedPreferences in flush()
         try:
-            _STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+            _storage_dir().mkdir(parents=True, exist_ok=True)
             payload = json.dumps(self._cache, ensure_ascii=False, indent=2)
-            tmp = _STORAGE_FILE.with_suffix(".json.tmp")
+            tmp = _storage_file().with_suffix(".json.tmp")
             tmp.write_text(payload, encoding="utf-8")
-            tmp.replace(_STORAGE_FILE)
+            tmp.replace(_storage_file())
             self._dirty = False
             self._last_write = time.monotonic()
         except (

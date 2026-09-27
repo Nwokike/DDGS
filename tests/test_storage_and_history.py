@@ -367,9 +367,9 @@ def test_log_prune_removes_only_old_files(tmp_path):
 def test_storage_json_still_roundtrips_unchanged(tmp_path, monkeypatch):
     """The existing settings store must keep working alongside the new dirs.
 
-    storage_service resolves FLET_APP_STORAGE_DATA at import time (it has
-    done so since before this feature), so the env var has to be set in a
-    subprocess rather than via monkeypatch after the module is loaded.
+    storage_service now resolves through data_dir() at call time (the
+    single-resolver pass); the subprocess still proves a cold import with
+    the env set round-trips storage.json end to end.
     """
     import subprocess
     import sys as _sys

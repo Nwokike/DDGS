@@ -25,7 +25,7 @@ import httpx
 
 from components.settings.version import _APP_VERSION
 from core.constants import ENGINE_URL
-from core.storage_paths import data_dir
+from core.storage_paths import cache_dir
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +39,13 @@ class EngineUnavailable(RuntimeError):
 
 
 def engine_cache_path() -> Path:
-    """Last-known-good engine, in user DATA storage (not the repo).
+    """Last-known-good engine, in CACHE tier (not the repo).
 
-    Not cache/: on Android the cache dir doubles as the temp dir, our
-    own clear_temp() empties it at startup and the OS may trim it at any
-    moment - the offline tier has to survive launches to exist at all.
+    .flet/README: cache is for things that can be rebuilt, and this file
+    is exactly that - one download rebuilds it. clear_temp spares it by
+    name, and if the OS purges the dir the next start simply re-fetches.
     """
-    return data_dir() / "engine_local.py"
+    return cache_dir() / "engine_local.py"
 
 
 async def _download(url: str) -> bytes:
