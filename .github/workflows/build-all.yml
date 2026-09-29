@@ -199,6 +199,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      # Flutter 3.24.3 is what flet_cli hardcodes; without this every job
+      # re-downloads the SDK + engine artifacts (~1-2 GB, minutes each).
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/flutter
+          key: flutter-3.24.3-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: flutter-3.24.3-${{ runner.os }}-
+      - name: Cache flet templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.flet/cache
+          key: flet-tpl-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: flet-tpl-${{ runner.os }}-
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle
+          key: gradle-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: gradle-${{ runner.os }}-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -236,6 +256,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      # Flutter 3.24.3 is what flet_cli hardcodes; without this every job
+      # re-downloads the SDK + engine artifacts (~1-2 GB, minutes each).
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/flutter
+          key: flutter-3.24.3-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: flutter-3.24.3-${{ runner.os }}-
+      - name: Cache flet templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.flet/cache
+          key: flet-tpl-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: flet-tpl-${{ runner.os }}-
 
       - name: Build Windows Portable
         run: uv run flet build windows --yes --project ddgs --product "DDGS" --org ng.kiri --company "Kiri Research Labs" --build-version ${{ env.BUILD_VERSION }} --build-number ${{ env.BUILD_NUMBER }} -v
@@ -300,6 +334,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      # Flutter 3.24.3 is what flet_cli hardcodes; without this every job
+      # re-downloads the SDK + engine artifacts (~1-2 GB, minutes each).
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/flutter
+          key: flutter-3.24.3-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: flutter-3.24.3-${{ runner.os }}-
+      - name: Cache flet templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.flet/cache
+          key: flet-tpl-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: flet-tpl-${{ runner.os }}-
       - name: Install Linux Build Dependencies & Packaging Tools
         run: |
           sudo apt-get update

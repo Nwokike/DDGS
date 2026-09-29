@@ -43,6 +43,11 @@ product = "DDGS"
 company = "Kiri Research Labs"
 build_number = 8
 
+[tool.flet.android.gradle_properties]
+# flet's default is -Xmx8G + 4G metaspace - MORE than a GitHub runner
+# has (their own comment says so); the Android job risked an OOM kill.
+org.gradle.jvmargs = "-Xmx4g -XX:MaxMetaspaceSize=1G -XX:ReservedCodeCacheSize=512m -XX:+HeapDumpOnOutOfMemoryError"
+
 [tool.flet.app]
 path = "src"
 
