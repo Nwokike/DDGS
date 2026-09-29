@@ -60,9 +60,9 @@ Parked items name the reason — nothing is dropped silently.
 | D3 | **Leaner + repeatable**: `fields`/`fieldsets` on hot paths, `cache=` for instant repeat searches | ddgs fieldsets/cache |
 | D4 | **Correct links**: `make_links_absolute` + `iterlinks` in crawl/extract; configured `HTMLParser` (recover, no_network) | lxml |
 | D5 | **Image pipeline**: thumbnails before grid display (RAM/speed), WebP export option, **EXIF strip on save** (privacy), animated-badge | pillow |
-| D6 | **QR shelf**: "Open on phone" dialog (result URL), LAN handoff QR for saved files | qrcode + PIL |
+| D6 | **QR shelf** SHIPPED (open-on-phone): every detail sheet carries a QR button - the link renders as a QR dialog (qrcode -> PIL -> base64, no disk touch). LAN file handoff stays open | qrcode + PIL | scan to continue on mobile |
 | D7 | **Syntax highlighting** in Reader code fences (602 lexers) + colored diagnostics terminal + `export_html` shareable logs | pygments + rich |
-| D8 | **Filenames**: replace hand-rolled `_slug()`/`sanitize_filename()` with `slugify(..., word_boundary, max_length)` | slugify |
+| D8 | **Filenames** SHIPPED: sanitize_filename is python-slugify now (unidecode transliteration, 64-char cap, word boundaries) - international titles land readable on every filesystem | slugify + text_unidecode | CJK/Arabic titles survive |
 | D9 | **Regex safety**: `timeout=` circuit-breaker on YouTube patterns; fuzzy + Unicode-property history search | regex |
 
 ## Phase E — Time, files, throughput (arrow / dateutil / watchdog / anyio / jiter)

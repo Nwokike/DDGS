@@ -111,6 +111,49 @@ def _result_actions_sheet(page: ft.Page, r: SearchResult) -> None:
     )
 
 
+def _qr_dialog(page: ft.Page, url: str) -> None:
+    """Open-on-phone: a QR of the link (plan D6). Scan, keep browsing."""
+    import base64
+    import io
+
+    import qrcode
+
+    buffer = io.BytesIO()
+    qrcode.make(url, box_size=8, border=2).save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    page.show_dialog(
+        ft.AlertDialog(
+            title=ft.Text("Open on your phone", font_family="Outfit"),
+            content=ft.Column(
+                [
+                    ft.Image(src_base64=b64, width=240, height=240),
+                    ft.Text(
+                        "Scan to open this link on your device",
+                        size=tokens.FONT_SM,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        text_align=ft.TextAlign.CENTER,
+                        font_family="Outfit",
+                    ),
+                ],
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=tokens.SPACE_SM,
+            ),
+            actions=[
+                ft.FilledButton(
+                    "Done",
+                    on_click=lambda e: page.pop_dialog(),
+                    style=ft.ButtonStyle(
+                        bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE
+                    ),
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+    )
+
+
 def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     """Show an enriched bottom sheet with result info, preview, and actions."""
     is_dark = theme.is_dark_mode(page)
@@ -290,6 +333,12 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                     overflow=ft.TextOverflow.ELLIPSIS,
                     expand=True,
                     font_family="Outfit",
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.QR_CODE_ROUNDED,
+                    icon_size=tokens.ICON_MD,
+                    tooltip="Open on your phone",
+                    on_click=lambda e: _qr_dialog(page, r.url),
                 ),
                 ft.IconButton(
                     icon=ft.Icons.CLOSE_ROUNDED,
