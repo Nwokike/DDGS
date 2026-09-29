@@ -40,7 +40,7 @@ Parked items name the reason — nothing is dropped silently.
 | # | Item | Capability spent |
 | :-- | :--- | :--- |
 | C1 | **Undo SnackBars** (action/Undo) for history delete, conversation delete, schedule cancel — replace "cannot be undone" | material SnackBar |
-| C2 | **Badge** on nav: active downloads count + low-credit state | material Badge |
+| C2 | **Badge** CLOSES AS BLOCKED BY DESIGN: `test_no_badge_used_anywhere_in_assistant_ui` records that ft.Badge rendered as a red block over the FAB on this build - the app deliberately carries counts in its own colored chips (the credits chip already does this). Revisit only with an explicitly styled Badge | material Badge | standing pin respected |
 | C3 | **Context menus** on results/history/chat rows (right-click desktop, long-press mobile): copy, share, save, open external | ContextMenu/PopupMenu |
 | C4 | **SegmentedButton** result-type switcher (web/images/videos/news/books) | material SegmentedButton |
 | C5 | **Dismissible** swipe-to-delete on history + conversation rows (with confirm veto) | core Dismissible |

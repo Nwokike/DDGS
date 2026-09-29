@@ -49,6 +49,17 @@ def HistoryScreen() -> Control:
     def _on_research(query: str, search_type: str):
         _get_page().run_task(controller.start_search, query, search_type)
 
+    def _on_delete_entry(entry: dict):
+        # Swipe-to-delete (plan C5): one entry gone, persisted, list
+        # re-renders off the same observable state clear-all uses.
+        try:
+            state.search_history.remove(entry)
+        except ValueError:
+            return
+        _get_page().run_task(
+            controller.save_async, "history", list(state.search_history)
+        )
+
     def _on_clear():
         page = _get_page()
 
@@ -111,7 +122,20 @@ def HistoryScreen() -> Control:
             label = _TAB_LABELS.get(st, st.capitalize())
 
             items.append(
-                ft.Container(
+                ft.Dismissible(
+                    on_dismiss=lambda _, entry=entry: _on_delete_entry(entry),
+                    background=ft.Container(
+                        content=ft.Icon(
+                            ft.Icons.DELETE_OUTLINE_ROUNDED,
+                            color=ft.Colors.WHITE,
+                            size=tokens.ICON_MD,
+                        ),
+                        alignment=ft.Alignment.CENTER_RIGHT,
+                        bgcolor=AppColors.ERROR,
+                        border_radius=tokens.BORDER_RADIUS_LG,
+                        padding=ft.Padding(0, 0, tokens.SPACE_LG, 0),
+                    ),
+                    content=ft.Container(
                     content=ft.Row(
                         [
                             ft.Container(
@@ -164,6 +188,7 @@ def HistoryScreen() -> Control:
                     ),
                     ink=True,
                     on_click=lambda _, qq=q, stt=st: _on_research(qq, stt),
+                    )
                 )
             )
 
