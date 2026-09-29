@@ -26,6 +26,7 @@ import httpx
 from components.settings.version import _APP_VERSION
 from core.constants import ENGINE_URL
 from core.storage_paths import cache_dir
+from services.net_clients import httpx_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,9 @@ async def _download(url: str) -> bytes:
     last: Exception | None = None
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(http2=False) as client:
+            async with httpx.AsyncClient(
+                http2=False, proxy=httpx_proxy()
+            ) as client:
                 resp = await client.get(
                     url,
                     headers={"User-Agent": USER_AGENT},

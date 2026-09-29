@@ -36,6 +36,7 @@ from core.constants import (
     KIRI_LICENSE_TIMEOUT,
 )
 from services.license_token import LicenseClaims, TokenRejected, verify_token
+from services.net_clients import httpx_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +98,9 @@ class LicenseStatus:
 
 
 def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(http2=False, timeout=KIRI_LICENSE_TIMEOUT)
+    return httpx.AsyncClient(
+        http2=False, timeout=KIRI_LICENSE_TIMEOUT, proxy=httpx_proxy()
+    )
 
 
 class KiriLicenseService:

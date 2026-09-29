@@ -16,6 +16,8 @@ import urllib.parse
 
 import primp
 
+from services.net_clients import primp_kwargs
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_IMPERSONATE = "chrome_153"
@@ -88,48 +90,84 @@ async def download_media(
         headers["Referer"] = referer
 
     written = 0
-    async with primp.AsyncClient(
-        impersonate=impersonate, follow_redirects=True, timeout=timeout
-    ) as client:
-        r = await client.get(
-            url, headers=headers or None, stream=True, follow_redirects=True
-        )
-        r.raise_for_status()
-
-        ctype = (r.headers.get("content-type") or "").lower()
-        if expect_media and ctype.startswith("text/html"):
-            raise NotMediaError(
-                f"Response is not a media file (content-type: {ctype or 'unknown'})"
-            )
-
-        total = _safe_int(r.headers.get("content-length"))
-        completed = False
+    # One fresh-profile retry on an anti-bot block (audit A2): the pinned
+    # chrome_153 ages out of credibility while "random" tracks current
+    # releases. Only the pre-flight GET can retry - once writing starts,
+    # a failure is terminal (the cleanup below owns the partial file).
+    profiles = [impersonate]
+    if impersonate != "random":
+        profiles.append("random")
+    for profile in profiles:
         try:
-            f = await asyncio.to_thread(open, dest, "wb")
-            try:
-                async for chunk in r.aiter_bytes(chunk_size):
-                    if not chunk:
-                        continue
-                    if cancel_event is not None and cancel_event.is_set():
-                        raise DownloadCancelled()
-                    await asyncio.to_thread(f.write, chunk)
-                    written += len(chunk)
-                    if on_progress is not None:
-                        on_progress(written, total)
-            finally:
-                await asyncio.to_thread(f.close)
-            completed = True
-        except BaseException:
-            # Every failure, not just a cancel: a network drop mid-transfer
-            # or a full disk used to leave a truncated file behind while the
-            # UI reported the download failed. Nothing half-written is worth
-            # keeping.
-            if not completed:
+            async with primp.AsyncClient(
+                impersonate=profile,
+                follow_redirects=True,
+                timeout=timeout,
+                connect_timeout=10.0,
+                **primp_kwargs(),
+            ) as client:
+                r = await client.get(
+                    url,
+                    headers=headers or None,
+                    stream=True,
+                    follow_redirects=True,
+                )
+                r.raise_for_status()
+
+                ctype = (r.headers.get("content-type") or "").lower()
+                if expect_media and ctype.startswith("text/html"):
+                    raise NotMediaError(
+                        f"Response is not a media file (content-type: {ctype or 'unknown'})"
+                    )
+
+                total = _safe_int(r.headers.get("content-length"))
+                completed = False
                 try:
-                    os.remove(dest)
-                except OSError:
-                    pass
-            raise
+                    f = await asyncio.to_thread(open, dest, "wb")
+                    try:
+                        async for chunk in r.aiter_bytes(chunk_size):
+                            if not chunk:
+                                continue
+                            if cancel_event is not None and cancel_event.is_set():
+                                raise DownloadCancelled()
+                            await asyncio.to_thread(f.write, chunk)
+                            written += len(chunk)
+                            if on_progress is not None:
+                                on_progress(written, total)
+                    finally:
+                        await asyncio.to_thread(f.close)
+                    completed = True
+                except BaseException:
+                    # Every failure, not just a cancel: a network drop mid-transfer
+                    # or a full disk used to leave a truncated file behind while the
+                    # UI reported the download failed. Nothing half-written is worth
+                    # keeping.
+                    if not completed:
+                        try:
+                            os.remove(dest)
+                        except OSError:
+                            pass
+                    raise
+        except primp.StatusError as exc:
+            # primp errors are NOT builtins (PrimpError, not OSError), so
+            # they used to escape every caller's handler: map them to plain
+            # RuntimeError with honest text instead of a repr.
+            code = getattr(exc, "status_code", 0)
+            if code in (403, 429) and profile != profiles[-1]:
+                logger.info(
+                    "HTTP %d on a fresh download; retrying with profile %r",
+                    code,
+                    profile,
+                )
+                continue
+            raise RuntimeError(
+                f"the server refused the download (HTTP {code})"
+            ) from exc
+        except primp.TimeoutError as exc:
+            raise RuntimeError("the download timed out") from exc
+        except primp.PrimpError as exc:
+            raise RuntimeError(f"download failed: {exc}") from exc
+    raise RuntimeError("the download was refused")  # profiles exhausted
 
     logger.info("Downloaded %d bytes to %s", written, dest)
     return written

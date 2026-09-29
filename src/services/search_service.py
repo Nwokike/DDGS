@@ -14,6 +14,7 @@ from core.utils import (
     log_performance,
     logger,
 )
+from services.net_clients import primp_kwargs
 
 LOG_TAG = "SearchService"
 
@@ -34,7 +35,8 @@ except ImportError as e:
 
 
 def _primp_client_kwargs(timeout: float) -> dict[str, Any]:
-    """Shared primp 2.0 settings: current browser profile + user proxy/SSL prefs.
+    """Shared primp 2.0 settings: current browser profile (proxy/SSL prefs
+    come from services.net_clients so every primp path agrees).
 
     Matches how ddgs itself configures primp (see ddgs/http_client.py) so the
     app's direct fallback requests get the same anti-bot treatment.
@@ -44,10 +46,7 @@ def _primp_client_kwargs(timeout: float) -> dict[str, Any]:
         "impersonate_os": "random",
         "timeout": timeout,
     }
-    if state.proxy:
-        kwargs["proxy"] = state.proxy
-    if state.verify_ssl is False:
-        kwargs["verify"] = False
+    kwargs.update(primp_kwargs())
     return kwargs
 
 
