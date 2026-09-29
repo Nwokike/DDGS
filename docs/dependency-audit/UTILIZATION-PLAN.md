@@ -47,7 +47,7 @@ Parked items name the reason — nothing is dropped silently.
 | C6 | **Crawl interval editor** SHIPPED: per-row edit opens a SegmentedButton (15m/30m/1h/6h/12h/24h, the tool schema's legal range) and re-schedules through the Assistant's own `_schedule` path. Date/TimePicker waits for the rrule model (E2), when 'weekdays at 9am' becomes expressible | material SegmentedButton | schedules are no longer set-once |
 | C7 | **Skeleton loading** for result grids and chat | Shimmer/progress |
 | C8 | **Mobile save polish** SHIPPED (haptics + Share): a finished download/save buzzes via HapticFeedback, and the success dialog gains a Share button that hands the real file to the native share sheet (share_files). Large-title navbar + CupertinoActionSheet remain open | HapticFeedback, Share.share_files | save completes with a buzz and a share button |
-| C9 | **Desktop**: KeyboardListener shortcuts (Ctrl+K, Esc, arrows), taskbar progress + `prevent_close` confirm on active downloads, WindowDragArea titlebar | core/services window |
+| C9 | **Desktop** SHIPPED (shortcuts): Esc pops the top dialog, Ctrl+K focuses the Home search (SearchBar registered per render), and the Reader's keyboard handler now chains/restores instead of replacing, so global keys survive it. Window taskbar progress + prevent-close remain open | page.on_keyboard_event | shortcuts work; handler composition is safe |
 | C10 | **InteractiveViewer** pinch-zoom on image results; **Semantics** labels + reduce-motion respect | core controls |
 | C11 | **Splash** branding (Android pipeline exists, unused) + About shows flet runtime version | flet runtime/cli |
 
