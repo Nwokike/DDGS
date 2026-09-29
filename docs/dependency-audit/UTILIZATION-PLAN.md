@@ -25,11 +25,11 @@ Parked items name the reason — nothing is dropped silently.
 
 | # | Item | Capability spent | Done when |
 | :-- | :--- | :--- | :--- |
-| B1 | **Real token receipts**: read `msg.extra["openai_usage"]` (kani already requests `include_usage`), tiktoken exact count as fallback; receipt row shows in/out tokens beside credits | kani TokenCached, openai usage, tiktoken | every paid reply shows real numbers; heuristic only as last resort |
-| B2 | **Paragraph-aware tool caps**: `auto_truncate=TOOL_OUTPUT_CAP` on every AIFunction (replaces blind `[:2000]`) | kani auto_truncate | tool outputs never cut mid-sentence |
-| B3 | **Graceful finale**: `max_function_rounds` so an over-cap turn ends with a tool-free answer instead of an empty bubble | kani max_function_rounds | the empty-bubble edge case disappears (pin test) |
+| B1 | **Real token receipts** SHIPPED: the stream's `openai_usage` trailer rides `text_final` as `tokens{in,out}`; the meta line shows `N tok` beside steps/credits/model, local ~4-chars/token count as fallback | kani extra, openai usage, tiktoken | every paid reply shows a token count |
+| B2 | **Paragraph-aware tool caps** SHIPPED: `auto_truncate=TOOL_OUTPUT_CAP` on every AIFunction; the blind `[:2000]` slice is gone | kani auto_truncate | tool outputs end at a paragraph boundary |
+| B3 | **Graceful finale** SHIPPED: `max_function_rounds=max_iters-1` - after five tool rounds kani strips the tools and the model answers from what it has | kani max_function_rounds | no empty bubble; over-cap turns charge honestly (pin test) |
 | B4 | **Strict tool args**: pydantic models = single source of truth → `model_json_schema()` feeds ToolSpec; probe router for `response_format=json_schema` + `strict` before enabling | pydantic, openai types | tools validate typed args; schema drift impossible |
-| B5 | **Approval previews stream**: `assistant_message_thinking(show_args=True)` → "Thinking… [save_page(url)]" while deciding | kani prompts | the step label appears before the tool runs |
+| B5 | **Approval previews** CLOSES AS COVERED: every tool already emits `step_start` with a human label before the approval gate; kani's formatter would duplicate that row | kani prompts | no change needed |
 | B6 | **`.kani` export/import**: `save()`/`load()` archive (transcript + attachments) as share/export | kani utils.saveload | one tap exports a conversation; import restores it with tool history |
 | B7 | **Prompt cache + tool steering** (probe router first): `prompt_cache_key` per conversation, `tool_choice` variants where supported | openai create params | measured fewer tokens / fewer wasted tool rounds, or honestly parked |
 | B8 | **Vision answers**: attach the top image-search result as an `ImagePart` when the answer uses an image | kani parts/mm_tokens | "show me" queries see the picture (only on models the router marks vision-capable) |
