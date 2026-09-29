@@ -337,7 +337,6 @@ def build_about_section(
                     padding=ft.Padding(4, 8, 4, 8),
                     ink=True,
                     border_radius=10,
-                    tooltip="Tap to view changelog",
                     on_click=lambda e: _open_version_dialog(page),
                 ),
                 ft.Divider(

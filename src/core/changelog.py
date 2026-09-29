@@ -4,6 +4,12 @@ current app version (components.settings.version._APP_VERSION) in sync
 when bumping (guarded by tests)."""
 
 CHANGELOG: dict[str, str] = {
+    "2.0.2": (
+        "- Settings carries KTV's live version header: the status line "
+        "reads “Update available · tap to view” the moment "
+        "the feed has a newer build\n"
+        "- Update notes bullet every change, like KTV Player and LM Router"
+    ),
     "2.0.1": (
         "- Fix: the Assistant screen would not scroll and the composer "
         "slipped off the bottom on phones; the chat view fills the screen "
