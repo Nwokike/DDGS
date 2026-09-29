@@ -128,6 +128,11 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
             value=str(content),
             selectable=True,
             extension_set="gitHubWeb",
+            code_theme=(
+                ft.MarkdownCodeTheme.DRACULA
+                if theme.is_dark_mode(page)
+                else ft.MarkdownCodeTheme.DEFAULT
+            ),
             on_tap_link=lambda e: _on_link_tap(page, e.data, url),
         )
 

@@ -41,7 +41,7 @@ import time
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, override
 
 import httpx
 import openai
@@ -80,6 +80,7 @@ class DDGSKani(Kani):
     the only hook kani leaves for this; the loop itself stays kani's.
     """
 
+    @override
     async def do_function_call(self, call, tool_call_id: str | None = None):
         token = _call_id.set(str(tool_call_id or ""))
         try:

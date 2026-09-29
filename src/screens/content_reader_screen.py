@@ -366,6 +366,14 @@ def build_content_reader(
             value=str(_current_content) if _current_content else "",
             selectable=True,
             extension_set="gitHubWeb",
+            # Plan D7: code fences in scraped pages now carry a real
+            # pygments theme (Dart-side, zero cost) - dark reads DRACULA,
+            # light keeps the default.
+            code_theme=(
+                ft.MarkdownCodeTheme.DRACULA
+                if theme.is_dark_mode(page)
+                else ft.MarkdownCodeTheme.DEFAULT
+            ),
             on_tap_link=_on_link_tap,
             visible=bool(_current_content),
         ),
