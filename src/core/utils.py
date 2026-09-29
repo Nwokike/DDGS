@@ -278,6 +278,23 @@ def log_ddgs_call(
         logger.debug(f"DDGS_CALL: {log_data}")
 
 
+def is_web_url(url: str) -> bool:
+    """True for http(s) only - the schemes an in-app fetch may perform.
+
+    Link taps in Markdown views arrive from untrusted content (scraped
+    pages, model replies), so `javascript:`, `file:`, `data:` and friends
+    must never reach a fetch or a launcher.
+    """
+    return isinstance(url, str) and url.lower().startswith(("http://", "https://"))
+
+
+def is_launchable_url(url: str) -> bool:
+    """True for schemes the system browser/mail handler may be opened with."""
+    return is_web_url(url) or (
+        isinstance(url, str) and url.lower().startswith("mailto:")
+    )
+
+
 def sanitize_url(url: str) -> str | None:
     """Validate and sanitize URL. Prepend https:// if it looks like a domain name.
     Return None if completely invalid (e.g. contains spaces or no dots).

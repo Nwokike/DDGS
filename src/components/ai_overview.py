@@ -18,6 +18,7 @@ from components.wallet import show_wallet_dialog
 from core import theme, tokens, ui
 from core.state import state
 from core.theme import AppColors
+from core.utils import is_launchable_url
 
 
 def _domain(url: str) -> str:
@@ -28,7 +29,7 @@ def _domain(url: str) -> str:
 
 def _open_in_app(page: ft.Page, url: str) -> None:
     async def _go() -> None:
-        if not url:
+        if not is_launchable_url(url):
             return
         from components.results.content_fetcher import _fetch_and_show
 

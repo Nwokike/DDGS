@@ -9,6 +9,7 @@ import flet as ft
 from core import tokens
 from core.state import SearchResult, state
 from core.theme import AppColors
+from core.utils import is_launchable_url
 from services.media_downloader import (
     DownloadCancelled,
     NotMediaError,
@@ -34,6 +35,10 @@ def _human_bytes(n: int) -> str:
 async def launch_url(url: str, page: ft.Page | None = None):
     """Open a URL in the system browser. Works on mobile + desktop."""
     if not url:
+        return
+    if not is_launchable_url(url):
+        # Markdown link taps come from untrusted content (scraped pages,
+        # model replies): javascript:/file:/data: never reaches the OS.
         return
     launcher = getattr(page, "url_launcher", None) if page is not None else None
     if launcher is None and page is not None:

@@ -13,6 +13,7 @@ from core import theme, tokens
 from core.state import state
 from core.styles import build_banner_ad
 from core.theme import AppColors
+from core.utils import is_web_url
 
 
 def build_content_reader(
@@ -123,7 +124,7 @@ def build_content_reader(
         link = e.data
         if not link or link.startswith(("#", "mailto:")):
             return
-        if not link.startswith("http"):
+        if not is_web_url(link):
             parsed = urllib.parse.urlparse(_current_url)
             link = f"{parsed.scheme}://{parsed.netloc}/{link.lstrip('/')}"
         _url_stack.append(_current_url)

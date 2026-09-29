@@ -27,6 +27,7 @@ from components.wallet import show_wallet_dialog
 from core import tokens, ui
 from core.state import SearchResult, state
 from core.theme import AppColors
+from core.utils import is_launchable_url
 
 logger = logging.getLogger(__name__)
 
@@ -2063,7 +2064,9 @@ class ChatSession:
         """Open a link the DDGS way: in-app extracted preview (browser inside)."""
 
         async def _go() -> None:
-            if not url:
+            if not is_launchable_url(url):
+                # Untrusted scheme (scraped/model markdown): no fetch, no
+                # launch. mailto: still reaches launch_url below.
                 return
             from components.results.content_fetcher import _fetch_and_show
 

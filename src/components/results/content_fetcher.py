@@ -12,7 +12,7 @@ from core.constants import EXTRACT_FORMATS
 from core.state import state
 from core.styles import build_banner_ad
 from core.theme import AppColors
-from core.utils import classify_error
+from core.utils import classify_error, is_web_url
 from services.search_service import SearchService
 
 _search_service = SearchService()
@@ -39,6 +39,10 @@ def _on_link_tap(
     if not url or url.startswith(("#", "mailto:")):
         return
     resolved = _resolve_url(url, base_url)
+    if not is_web_url(resolved):
+        # urljoin keeps foreign schemes (javascript:alert(1) survives it),
+        # so the http(s) guard has to run AFTER resolution.
+        return
     page.run_task(_fetch_and_show_link, page, resolved, from_dialog)
 
 
