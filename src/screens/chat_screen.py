@@ -1144,6 +1144,7 @@ class ChatSession:
                 model=data.get("model", ""),
                 steps=data.get("steps", 0),
                 cost=data.get("cost", 0),
+                tokens=data.get("tokens"),
                 partial=False,
                 receipt="",
             )
@@ -1544,6 +1545,11 @@ class ChatSession:
             parts.append(f"{cost} credit{'' if cost == 1 else 's'}")
         if turn.get("model"):
             parts.append(str(turn["model"]))
+        # Exact token count from the stream's usage trailer (plan B1);
+        # falls back to the local count of the answer we showed.
+        tok = turn.get("tokens") or {}
+        if tok.get("out"):
+            parts.append(f"{int(tok['out']) + int(tok.get('in') or 0)} tok")
         if not parts:
             return None
         if turn.get("served_by") == "gateway":

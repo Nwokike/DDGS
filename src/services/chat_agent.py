@@ -35,7 +35,6 @@ from typing import Any
 from core.constants import (
     AGENT_MAX_TOOLS,
     COST_STEP,
-    TOOL_OUTPUT_CAP,
 )
 from core.state import state
 from services import agent_files, ai_service
@@ -646,7 +645,9 @@ async def run_turn(
             tools_used += 1
             if name in ("schedule_scrape", "cancel_scrape"):
                 await _persist_schedule()
-            return json.dumps(model_out, ensure_ascii=False)[:TOOL_OUTPUT_CAP]
+            # No slice here: kani's auto_truncate caps this paragraph-
+            # aware (plan B2); a blind cut used to break tool JSON.
+            return json.dumps(model_out, ensure_ascii=False)
 
         return kani_backend.ToolSpec(
             name=name,
@@ -710,6 +711,7 @@ async def run_turn(
                 "model": used_model,
                 "steps": charge,
                 "cost": charge * COST_STEP,
+                "tokens": result.get("usage"),
             },
         )
         await settle_turn(credits, tx, charge)

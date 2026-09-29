@@ -58,6 +58,18 @@ class FakeEngine(BaseEngine):
     async def stream(self, messages, functions=None, **kwargs):
         self.requests += 1
         item = self.script.pop(0)
+        if not functions and item["kind"] == "tool":
+            # kani stripped the tools for this round (max_function_rounds):
+            # the model must answer with what it already has.
+            yield "Fallback "
+            yield "answer. "
+            yield Completion(
+                ChatMessage(
+                    role=ChatRole.ASSISTANT,
+                    content="Fallback answer. ",
+                )
+            )
+            return
         if item["kind"] == "text":
             for chunk in item["chunks"]:
                 yield chunk
@@ -65,6 +77,13 @@ class FakeEngine(BaseEngine):
                 ChatMessage(
                     role=ChatRole.ASSISTANT,
                     content="".join(item["chunks"]),
+                    extra={
+                        "openai_usage": {
+                            "prompt_tokens": 11,
+                            "completion_tokens": 22,
+                            "total_tokens": 33,
+                        }
+                    },
                 )
             )
             return
@@ -192,7 +211,7 @@ def test_tool_rounds_reset_buffers_and_count_steps(monkeypatch):
     assert "".join(rec.tokens) == "Let me search. And again. Final answer. "
 
 
-def test_step_cap_stops_at_the_boundary_without_a_request(monkeypatch):
+def test_function_round_cap_yields_a_graceful_final_answer(monkeypatch):
     engine = _install(
         monkeypatch,
         [
@@ -202,18 +221,37 @@ def test_step_cap_stops_at_the_boundary_without_a_request(monkeypatch):
                 "name": "search_web",
                 "args": {"query": str(i)},
             }
-            for i in range(8)
+            for i in range(6)
         ],
     )
     rec = _Recorder()
-    out = asyncio.run(_turn(engine, rec, max_iters=6))
+    out = asyncio.run(_turn(engine, rec))
 
-    # Six model rounds happened; the seventh was declined before its
-    # request could even start, and with no answer text the turn is empty.
+    # Plan B3: five tool rounds, then kani strips the tools and the model
+    # answers from what it has - the old empty bubble (settle-0) is gone.
+    assert out["text"] == "Fallback answer. "
     assert out["steps"] == 6
-    assert out["text"] == ""
+    assert len(rec.tool_calls) == 5, "tools stop after max_function_rounds"
     assert engine.requests == 6
-    assert len(rec.tool_calls) == 6
+
+
+def test_receipt_carries_exact_stream_usage(monkeypatch):
+    engine = _install(monkeypatch, [{"kind": "text", "chunks": ["hi "]}])
+    rec = _Recorder()
+    out = asyncio.run(_turn(engine, rec))
+    assert out["usage"] == {"in": 11, "out": 22}
+
+
+def test_usage_falls_back_to_the_local_answer_count():
+    # No trailer (older router): count what the user actually saw.
+    usage = kani_backend._usage_of(None, "hello world", "auto")
+    assert usage == {"out": 3}  # ~4 chars/token heuristic
+
+
+def test_tools_are_capped_paragraph_aware_by_kani():
+    spec = _spec(_Recorder())
+    fn = kani_backend.build_functions([spec])[0]
+    assert fn.auto_truncate == 2000  # TOOL_OUTPUT_CAP, kani truncates
 
 
 def test_cancel_at_the_boundary_makes_no_request(monkeypatch):

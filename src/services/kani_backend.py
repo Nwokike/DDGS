@@ -47,7 +47,12 @@ import httpx
 import openai
 from kani import AIFunction, ChatMessage, Kani
 
-from core.constants import AGENT_HISTORY_MESSAGES, AGENT_MAX_ITERS, AGENT_TIMEOUT_S
+from core.constants import (
+    AGENT_HISTORY_MESSAGES,
+    AGENT_MAX_ITERS,
+    AGENT_TIMEOUT_S,
+    TOOL_OUTPUT_CAP,
+)
 from services import ai_service
 from services.ai_service import AIMidStream, AIUnavailable
 from services.reasoning import ReasoningEngine, ThoughtTap, build_thought_client
@@ -125,6 +130,10 @@ def build_functions(specs: list[ToolSpec]) -> list[AIFunction]:
                 name=spec.name,
                 desc=spec.desc,
                 json_schema=spec.parameters,
+                # Paragraph-aware cap (plan B2): kani truncates at a
+                # paragraph boundary and appends "..." - a blind slice
+                # used to cut tool JSON mid-token.
+                auto_truncate=TOOL_OUTPUT_CAP,
             )
         )
     return out
@@ -182,6 +191,30 @@ async def _build_engine(
         tap=tap,
     )
     return engine, tap
+
+
+def _usage_of(message: Any, text: str, model: str) -> dict | None:
+    """Exact in/out token usage for the receipt (plan B1).
+
+    Primary source: the router echoes stream usage (kani always asks
+    with stream_options.include_usage). Fallback: the local tokenizer
+    counts the answer we actually showed - prompt side then stays
+    unknown rather than guessed.
+    """
+    extra = getattr(message, "extra", None) or {}
+    raw = extra.get("openai_usage")
+    if isinstance(raw, dict) and (raw.get("total_tokens") or raw.get("completion_tokens")):
+        return {
+            "in": int(raw.get("prompt_tokens") or 0),
+            "out": int(raw.get("completion_tokens") or 0),
+        }
+    if text.strip():
+        try:
+            encoder = tokenizer_or_heuristic(model)
+            return {"out": len(encoder.encode(text))}
+        except Exception:
+            return None
+    return None
 
 
 def _finish_of(completion: Any) -> str:
@@ -276,13 +309,21 @@ async def run_turn(
 
     t0 = time.monotonic()
     steps = 0
+    message: Any = None
     empty_retried = False
     budget = max_tokens or ai_service.ANSWER_MAX_TOKENS
     round_parts: list[str] = []
     final_text = ""
 
     try:
-        async for manager in kani.full_round_stream(query, max_tokens=budget):
+        async for manager in kani.full_round_stream(
+            query,
+            # Plan B3: after N tool rounds kani strips the tools for one
+            # final round, so an over-cap turn ends with an answer built
+            # from what it has instead of the old empty bubble.
+            max_function_rounds=max(0, max_iters - 1),
+            max_tokens=budget,
+        ):
             if cancel.is_set():
                 raise ChatCancelled()
             if time.monotonic() - t0 > timeout_s or steps >= max_iters:
@@ -329,6 +370,7 @@ async def run_turn(
                 continue
             final_text = "".join(round_parts)
             if not final_text.strip():
+                # message already bound; usage rides below
                 finish = _finish_of(await manager.completion())
                 if (
                     finish == "length"
@@ -365,6 +407,7 @@ async def run_turn(
         "steps": steps,
         "model": tap.last_model or chosen,
         "served_by": "router",
+        "usage": _usage_of(message, final_text, chosen),
     }
 
 
