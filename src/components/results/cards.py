@@ -70,6 +70,17 @@ def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.GestureDetector:
     )
 
 
+# Compact segment labels for the extract formats; the full names live in
+# EXTRACT_FORMATS and stay on each segment's tooltip.
+_FMT_SHORT = {
+    "text_markdown": "MD",
+    "text_plain": "Text",
+    "text_rich": "Rich",
+    "text": "HTML",
+    "content": "Raw",
+}
+
+
 def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
     if not result:
         return ft.Container(
@@ -147,18 +158,26 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                 font_family="Outfit",
                 weight=ft.FontWeight.W_500,
             ),
-            ft.Dropdown(
-                value=state.extract_format,
-                options=[
-                    ft.dropdown.Option(f["key"], f["label"]) for f in EXTRACT_FORMATS
+            # Plan C4: all five formats visible at once beats a dropdown
+            # that hid four of them behind a tap.
+            ft.SegmentedButton(
+                segments=[
+                    ft.Segment(
+                        value=f["key"],
+                        label=ft.Text(
+                            _FMT_SHORT.get(f["key"], f["label"]),
+                            size=tokens.FONT_XS,
+                            font_family="Outfit",
+                            tooltip=f["label"],
+                        ),
+                    )
+                    for f in EXTRACT_FORMATS
                 ],
-                on_select=lambda e: page.run_task(_change_format, e.control.value),
-                filled=True,
-                text_size=tokens.FONT_XS,
-                content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
-                border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_MD),
-                width=150,
-                height=36,
+                selected=[state.extract_format],
+                allow_multiple_selection=False,
+                on_change=lambda e: page.run_task(
+                    _change_format, (e.control.selected or [state.extract_format])[0]
+                ),
             ),
         ],
         spacing=6,
