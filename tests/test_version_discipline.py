@@ -57,7 +57,9 @@ def test_user_agent_carries_the_app_version():
 
     version, _ = _pyproject()
     sys.path.insert(0, str(ROOT / "src"))
-    from services.ai_service import USER_AGENT
+    # The gateway client that used to carry it is gone (owner: router
+    # only); the app's HTTP client to the router is reasoning's tap.
+    from services.reasoning import USER_AGENT
 
     assert USER_AGENT == f"DDGSApp/{version}", USER_AGENT
 

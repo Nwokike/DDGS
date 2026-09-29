@@ -485,7 +485,9 @@ def test_a_gateway_outage_is_not_a_rate_limit():
     assert not hasattr(ai_service, "rate_limit_advice")
     source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
     assert "rate_limited" not in source
-    assert '"model": chosen' in source, "the request model must pass through"
+    # the request model passes through in kani_backend (the wire moved)
+    backend = (SRC / "services" / "kani_backend.py").read_text(encoding="utf-8")
+    assert 'chosen = str(model or "auto")' in backend, "model must pass through"
 
 
 # ── log retention must include rotated backups ──────────────────────────
@@ -663,10 +665,10 @@ def test_out_of_credits_still_records_the_question(monkeypatch):
     assert "error" in events
 
 
-# ── the 90s gap is spent by impressions, not by attempts ────────────────
+# ── the 60s gap is spent by impressions, not by attempts ────────────────
 def test_a_noop_interstitial_does_not_burn_the_gap(monkeypatch):
     """A trigger that cannot even create an ad must leave the central gap
-    unspent, or one failure locks out the next real impression for 90s."""
+    unspent, or one failure locks out the next real impression for 60s."""
     import asyncio
 
     from core.state import state

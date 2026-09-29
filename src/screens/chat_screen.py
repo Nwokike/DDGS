@@ -43,7 +43,7 @@ _KIND_ICONS = {
 # 900 characters used to hide the reasoning the user asked to see.
 _THROUGHT_CAP = 8000
 
-# Owner rule (LM Router's chat): one ad after every AI reply, and the
+# Owner rule: one ad after every AI reply, and the
 # thread never ends on an ad (the newest reply earns its banner once the
 # next message exists). Tunable here, positionally derived in _render.
 BANNER_AD_EVERY_N_REPLIES = 1
@@ -322,8 +322,8 @@ class ChatSession:
                 # SafeArea replaces the AppBar's status-bar inset: the
                 # header is a plain Sherlock-style row now, not a material
                 # AppBar, so the top inset has to come from here.
-                # expand=True is load-bearing (LM Router's shell does the
-                # same): as the View's top-level child it must fill the
+                # expand=True is load-bearing: as the View's top-level
+                # child it must fill the
                 # screen, or the Column gets loose height, the ListView
                 # never receives a bounded extent (no scrolling) and the
                 # composer stops being pinned to the bottom.
@@ -795,7 +795,7 @@ class ChatSession:
     def _history_button_control(self) -> ft.IconButton:
         """Past conversations get a history icon, not a hamburger: the
         hamburger implies navigation or settings, and this sheet is only
-        the chat log (LM Router's header pair, history + plus).
+        the chat log (a history + plus header pair).
 
         It stays a modal rebuilt from disk every time: a popup menu froze
         its items when the session was created, so a deleted chat kept
@@ -1259,8 +1259,8 @@ class ChatSession:
         emit() re-renders up to 5x per second while streaming; building a
         fresh BannerAd every time would churn the native ad view per token.
         The pool is keyed by reply position so a slot keeps the same
-        control identity across renders (the same reason LM Router derives
-        its banners positionally instead of pushing them on stream events).
+        control identity across renders (banners derive positionally
+        instead of pushing on stream events).
         Premium and desktop return None: no placeholder rows, so a paid or
         wide conversation has no stray gaps.
         """
@@ -1305,7 +1305,7 @@ class ChatSession:
             if turn.get("role") != "user":
                 assistant_replies += 1
                 # Ad after every AI reply, never as the last row (owner
-                # rule, LM Router): the thread must end on a message, so
+                # rule): the thread must end on a message, so
                 # the newest reply gets its banner with the next turn.
                 # Positional, so streaming re-reenders regenerate the
                 # identical layout instead of stacking duplicates.
@@ -1611,8 +1611,8 @@ class ChatSession:
 
         if (turn.get("thought") or "").strip():
             still_thinking = bool(turn.get("partial")) and not turn.get("text")
-            # Open while the model is thinking (LM Router's rule: you watch
-            # the reasoning live), closed from the first answer word on.
+            # Open while the model is thinking (you watch the reasoning
+            # live), closed from the first answer word on.
             # An explicit user toggle always wins over the default.
             thinking_open = bool(turn.get("thought_open", still_thinking))
             elapsed = _thought_seconds(turn)
@@ -1668,8 +1668,8 @@ class ChatSession:
                     tooltip="Tap to expand or collapse",
                     # on_click, not on_tap_down: with ink=True the InkWell
                     # claims the gesture, so on_tap_down never fires and the
-                    # toggle dead-ends. LM Router's ThinkingBlock uses the
-                    # same Container + on_click contract.
+                    # toggle dead-ends. The ThinkingBlock must keep a plain
+                    # Container + on_click contract.
                     on_click=lambda e, t=turn: self._toggle_thought(t),
                 )
             )

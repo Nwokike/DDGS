@@ -138,7 +138,7 @@ class AppState:
         self.search_history: list[dict] = []
 
         # ── Ad tracking ──
-        self.last_interstitial_ts: float = 0.0  # central 90s gap guard
+        self.last_interstitial_ts: float = 0.0  # central 60s gap guard
 
         # ── AI mode (DDGS 2.0) - chat via the Ask Assistant FAB ──
         self.ai_mode_enabled: bool = True
@@ -166,8 +166,8 @@ class AppState:
         self.ai_overview: AiOverview | None = None
         self.ai_overview_expanded: bool = False
         self.scheduled_scrapes: list = []  # [{url, interval_min, next_run, last_run, pages_saved}]
-        # Router lifecycle, mirroring LM Router's gateway states so the
-        # model picker can say what is actually happening.
+        # Router lifecycle states so the model picker can say what is
+        # actually happening.
         self.ai_router_status: str = "starting"  # starting|ready|stopped|unavailable
         self.ai_router_port: int | None = None
         # True while the results on screen came from the cache and a live

@@ -1,14 +1,14 @@
 """Gateway engine: run.py fetched live from router.kiri.ng, never vendored.
 
-Owner directive (LM Router pattern): upstream changes constantly, so a
+Owner directive: upstream changes constantly, so a
 bundled snapshot would silently shadow it. Every cold start fetches
 ENGINE_URL fresh, validates it, imports it, and only then replaces the
 last-known-good cache; a broken download can never brick offline starts.
-When both tiers fail the caller reports "unavailable" honestly and
-stream_llm degrades to the gateway fallback on its own.
+When both tiers fail the caller reports "unavailable" honestly -
+there is no fallback source anymore (owner: router only).
 
-The only constant is where to fetch from (same as LM Router's
-ENGINE_URL); what must never be hardcoded is the engine itself.
+The only constant is where to fetch from (ENGINE_URL); what must
+never be hardcoded is the engine itself.
 """
 
 from __future__ import annotations
@@ -49,8 +49,8 @@ def engine_cache_path() -> Path:
 
 
 async def _download(url: str) -> bytes:
-    # router.kiri.ng answers 403 to default library user-agents (the rule
-    # LM Router documents for the same host), so the app could never fetch
+    # router.kiri.ng answers 403 to default library user-agents, so the
+    # app could never fetch
     # its own engine without this header. One bounded retry: a transient
     # blip must not fall through to the cache tier.
     last: Exception | None = None

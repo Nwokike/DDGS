@@ -33,10 +33,7 @@ from collections.abc import Callable
 from typing import Any
 
 from core.constants import (
-    AGENT_HISTORY_MESSAGES,
-    AGENT_MAX_ITERS,
     AGENT_MAX_TOOLS,
-    AGENT_TIMEOUT_S,
     COST_STEP,
     TOOL_OUTPUT_CAP,
 )
@@ -521,7 +518,13 @@ async def run_turn(
 
     Soft metering: a low balance is never a mid-run kill switch; the turn
     always finishes (balance may clamp to 0). A 0 balance starts blocked.
+
+    The model loop itself lives in services.kani_backend (kani's
+    full_round, wrapped); everything the user sees - emits, the approval
+    gate, step rows - and everything that gets charged stays here.
     """
+    from services import kani_backend
+
     credits = getattr(state, "credit_service", None)
     # The question is recorded before any gate: an out-of-credits turn
     # still shows the user what they asked, and Retry can re-send it.
@@ -544,188 +547,137 @@ async def run_turn(
             {"text": "Low credit balance. This message finishes regardless."},
         )
 
-    messages: list[dict] = (
-        # The clock line matters here more than anywhere: the model's
-        # training data ends before today, so "this week" without a date
-        # was answered from its knowledge cutoff.
-        [{"role": "system", "content": ai_service.with_clock(SYSTEM_PROMPT)}]
-        + history[-AGENT_HISTORY_MESSAGES:]
-        + [{"role": "user", "content": user_text[:2000]}]
-    )
-    tools = build_tools()
     seen_urls: list[str] = []
     served_by = ""
     used_model = ""
     content_parts: list[str] = []
-    parts: list[str] = []
     final_text = ""
     steps = 0
     tools_used = 0
-    t0 = time.monotonic()
-    empty_retried = False
-    max_tokens: int | None = None
 
     def on_token(token: str) -> None:
         if cancel.is_set():
             raise ChatCancelled()
-        parts.append(token)
         content_parts.append(token)
         emit("text_partial", {"text": "".join(content_parts)})
 
-    try:
-        while steps < AGENT_MAX_ITERS and time.monotonic() - t0 < AGENT_TIMEOUT_S:
+    def on_round_reset() -> None:
+        # A tool round's text never belongs to the final answer: the old
+        # loop cleared it before dispatching, so the next text_partial
+        # shows the post-tool reply afresh.
+        content_parts.clear()
+
+    def on_steps(n: int) -> None:
+        # kani_backend bills what it counted, including a step cut off
+        # mid-stream - the exception branches below settle from here.
+        nonlocal steps
+        steps = n
+
+    async def on_model_step() -> None:
+        # Fires before every model call after the first (kani_backend's
+        # rule): best-effort, never blocks, low balance never kills work.
+        if tx:
+            await credits.reserve_more(tx, COST_STEP)
+
+    def _spec_from(schema: dict) -> kani_backend.ToolSpec:
+        """One tool: the same dispatch, emits and approval as the old loop.
+
+        kani calls this body from inside its tool batch (serialized by
+        the backend's lock, so rows stay ordered). It never raises -
+        failures become the error payload the model always saw.
+        """
+        fn = schema["function"]
+        name = fn["name"]
+
+        async def run(args: dict) -> str:
+            nonlocal tools_used
             if cancel.is_set():
-                raise ChatCancelled()
-            if steps > 0 and tx:
-                await credits.reserve_more(tx, COST_STEP)  # best-effort, never blocks
-            try:
-                result = await ai_service.stream_llm(
-                    messages,
-                    on_token,
-                    tools=tools,
-                    on_thought=on_thought,
-                    model=getattr(state, "ai_model", "auto"),
-                    max_tokens=max_tokens,
-                )
-                steps += 1
-            except ai_service.AIMidStream:
-                steps += 1
-                raise
-            served_by = result.get("served_by") or served_by
-            used_model = result.get("model") or used_model
-            finish = result.get("finish_reason") or ""
-            tool_calls = result.get("tool_calls") or []
-            if finish == "tool_calls" and tool_calls:
-                assistant_msg: dict = {"role": "assistant", "tool_calls": tool_calls}
-                if parts:
-                    assistant_msg["content"] = "".join(parts)
-                messages.append(assistant_msg)
-                parts.clear()
-                content_parts.clear()
-                for tc in tool_calls:
-                    if cancel.is_set():
-                        raise ChatCancelled()
-                    if tools_used >= AGENT_MAX_TOOLS:
-                        # The assistant already asked for these calls in the
-                        # message we appended above, so every one of them
-                        # needs a matching role:tool reply. Breaking here
-                        # left the transcript with tool_calls and no tool
-                        # responses, which the API rejects as invalid.
-                        for remaining in tool_calls[
-                            tool_calls.index(tc) :
-                        ]:
-                            messages.append(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": remaining.get("id", ""),
-                                    "content": json.dumps(
-                                        {
-                                            "error": "tool limit reached; "
-                                            "nothing else was run"
-                                        }
-                                    ),
-                                }
-                            )
-                        break
-                    fn = tc.get("function") or {}
-                    name = fn.get("name") or ""
-                    try:
-                        args = json.loads(fn.get("arguments") or "{}")
-                    except ValueError:
-                        args = {}
-                    label = pretty_label(name, args)
-                    emit("step_start", {"label": label, "id": tc.get("id", "")})
-                    if name in _WRITE_TOOLS and ask_confirm is not None:
-                        allowed = await ask_confirm(label, approval_detail(name, args))
-                        if not allowed:
-                            emit(
-                                "step_error",
-                                {
-                                    "label": label,
-                                    "id": tc.get("id", ""),
-                                    "error": "declined",
-                                },
-                            )
-                            tools_used += 1
-                            messages.append(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tc.get("id", ""),
-                                    "content": '{"error": "user declined this action"}',
-                                }
-                            )
-                            continue
-                    try:
-                        model_out, results = await _dispatch(name, args)
-                    except Exception as exc:
-                        logger.info("tool %s failed: %r", name, exc)
-                        emit(
-                            "step_error",
-                            {
-                                "label": label,
-                                "id": tc.get("id", ""),
-                                "error": _error_text(exc),
-                            },
-                        )
-                        model_out = {"error": _error_text(exc)}
-                        results = []
-                    else:
-                        emit(
-                            "step_done",
-                            {
-                                "label": label,
-                                "id": tc.get("id", ""),
-                                "count": len(results),
-                                "outcome": tool_outcome(name, model_out),
-                            },
-                        )
-                        if results:
-                            kind = {
-                                "text": "web",
-                                "images": "images",
-                                "videos": "videos",
-                                "news": "news",
-                                "books": "books",
-                            }.get(TOOL_KINDS.get(name, "text"), "web")
-                            emit("results", {"kind": kind, "results": results})
-                            for r in results:
-                                if r.url and r.url not in seen_urls:
-                                    seen_urls.append(r.url)
-                    tools_used += 1
-                    messages.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc.get("id", ""),
-                            "content": json.dumps(model_out, ensure_ascii=False)[
-                                :TOOL_OUTPUT_CAP
-                            ],
-                        }
+                # The boundary check right after the batch raises
+                # ChatCancelled; this payload never reaches a model.
+                return '{"error": "turn stopped"}'
+            if tools_used >= AGENT_MAX_TOOLS:
+                # Past the cap the old loop answered the call without
+                # running it and without a step row - same words here.
+                return '{"error": "tool limit reached; nothing else was run"}'
+            label = pretty_label(name, args)
+            step_id = kani_backend.call_id()
+            emit("step_start", {"label": label, "id": step_id})
+            if name in _WRITE_TOOLS and ask_confirm is not None:
+                allowed = await ask_confirm(label, approval_detail(name, args))
+                if not allowed:
+                    emit(
+                        "step_error",
+                        {"label": label, "id": step_id, "error": "declined"},
                     )
-                    if name in ("schedule_scrape", "cancel_scrape"):
-                        await _persist_schedule()
-                continue  # next model call sees the tool outputs
-
-            final_text = "".join(parts)
-            if (
-                not final_text.strip()
-                and finish == "length"
-                and not empty_retried
-                and steps < AGENT_MAX_ITERS
-            ):
-                # Reasoning models can burn the entire budget before any text
-                # appears - retry once with a bigger budget, same step count.
-                empty_retried = True
-                max_tokens = (max_tokens or ai_service.ANSWER_MAX_TOKENS) * 2
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": "Your previous reply hit the token limit "
-                        "before any text appeared. Answer again, briefly.",
-                    }
+                    tools_used += 1
+                    return '{"error": "user declined this action"}'
+            try:
+                model_out, results = await _dispatch(name, args)
+            except Exception as exc:
+                logger.info("tool %s failed: %r", name, exc)
+                emit(
+                    "step_error",
+                    {"label": label, "id": step_id, "error": _error_text(exc)},
                 )
-                continue
-            break
+                model_out = {"error": _error_text(exc)}
+                results = []
+            else:
+                emit(
+                    "step_done",
+                    {
+                        "label": label,
+                        "id": step_id,
+                        "count": len(results),
+                        "outcome": tool_outcome(name, model_out),
+                    },
+                )
+                if results:
+                    kind = {
+                        "text": "web",
+                        "images": "images",
+                        "videos": "videos",
+                        "news": "news",
+                        "books": "books",
+                    }.get(TOOL_KINDS.get(name, "text"), "web")
+                    emit("results", {"kind": kind, "results": results})
+                    for r in results:
+                        if r.url and r.url not in seen_urls:
+                            seen_urls.append(r.url)
+            tools_used += 1
+            if name in ("schedule_scrape", "cancel_scrape"):
+                await _persist_schedule()
+            return json.dumps(model_out, ensure_ascii=False)[:TOOL_OUTPUT_CAP]
 
+        return kani_backend.ToolSpec(
+            name=name,
+            desc=fn.get("description") or "",
+            parameters=fn.get("parameters") or {},
+            run=run,
+        )
+
+    specs = [_spec_from(schema) for schema in build_tools()]
+
+    try:
+        result = await kani_backend.run_turn(
+            user_text,
+            history,
+            # The clock line matters here more than anywhere: the model's
+            # training data ends before today, so "this week" without a date
+            # was answered from its knowledge cutoff.
+            system_prompt=ai_service.with_clock(SYSTEM_PROMPT),
+            specs=specs,
+            cancel=cancel,
+            on_token=on_token,
+            on_thought=on_thought,
+            on_round_reset=on_round_reset,
+            on_model_step=on_model_step,
+            on_steps=on_steps,
+            model=getattr(state, "ai_model", "auto"),
+        )
+        steps = result["steps"]
+        final_text = result["text"]
+        served_by = result.get("served_by") or served_by
+        used_model = result.get("model") or used_model
         if cancel.is_set():
             raise ChatCancelled()
         if not final_text.strip():
@@ -762,10 +714,10 @@ async def run_turn(
         )
         await settle_turn(credits, tx, charge)
     except ChatCancelled:
-        # on_token raises the cancel before stream_llm returns, so `steps`
-        # is still 0 even though tokens reached the screen. Refunding that
-        # would give away delivered work: a model call happened, it just
-        # did not finish. _charged_steps applies the floor.
+        # on_token raises the cancel before the backend counts the step,
+        # so `steps` can still be 0 even though tokens reached the screen.
+        # Refunding that would give away delivered work: a model call
+        # happened, it just did not finish. _charged_steps applies the floor.
         charge = _charged_steps(steps, content_parts)
         await settle_turn(credits, tx, charge)
         emit(

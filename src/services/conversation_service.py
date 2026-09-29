@@ -1,8 +1,7 @@
 """Assistant conversation history: one file per chat under data/conversations/.
 
-Follows the layout LM Router proved (`lm-router/src/services/history.py`):
-a directory of `<id>.json` files, newest first, titled from the first user
-message. Two deliberate differences:
+A directory of `<id>.json` files, newest first, titled from the first
+user message. Two deliberate differences:
 
   - no Python 2 `except OSError, ValueError:` anywhere; that file raises
     SyntaxError on import, and a history feature that cannot be imported is
@@ -72,9 +71,8 @@ def flat_from_turns(turns: list[dict]) -> list[dict]:
 
     This exists because the second list used to live in memory beside the
     first: a delete updated one and persisted the other, and the message
-    came straight back from disk. LM Router keeps one transcript too
-    (`lm-router/src/services/history.py`), projecting kani's history into
-    display messages rather than mirroring both directions.
+    came straight back from disk. One transcript only: project kani's
+    history into display messages rather than mirroring both directions.
     """
     flat: list[dict] = []
     for turn in turns or []:

@@ -1,9 +1,8 @@
 """Assistant model picker - a live pill and menu over the router's models.
 
-Follows the pattern LM Router proved in
-`lm-router/src/components/chat_controls.py:60-205`: every startup
-circumstance gets its own honest label, so an empty list during discovery
-reads as "still starting" rather than as a broken app.
+Every startup circumstance gets its own honest label, so an empty
+list during discovery reads as "still starting" rather than as a
+broken app.
 
 The label logic lives in `model_picker_state()` and is shared by the chat
 header pill and the Settings row, so the two can never disagree about what

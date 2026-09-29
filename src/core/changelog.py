@@ -8,7 +8,7 @@ CHANGELOG: dict[str, str] = {
         "- Settings carries KTV's live version header: the status line "
         "reads “Update available · tap to view” the moment "
         "the feed has a newer build\n"
-        "- Update notes bullet every change, like KTV Player and LM Router"
+        "- Update notes bullet every change, like KTV Player"
     ),
     "2.0.1": (
         "- Fix: the Assistant screen would not scroll and the composer "

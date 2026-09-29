@@ -263,7 +263,10 @@ def test_rate_limit_copy_lives_in_the_router_path_only():
     assert not hasattr(ai_service, "AIRateLimited")
     source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
     assert "suggestion" not in source, "no model-suggestion UI can be fed"
-    assert "Kiri's free tier is busy right now" in source
+    # The 429 words moved with the wire to kani_backend; still one copy.
+    backend = (SRC / "services" / "kani_backend.py").read_text(encoding="utf-8")
+    assert "Kiri's free tier is busy right now" in backend
+    assert "Kiri's free tier is busy right now" not in source
     # chat no longer has a rate_limited state to render
     chat = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
     assert '"rate_limited"' not in chat

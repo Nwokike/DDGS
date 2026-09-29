@@ -149,7 +149,7 @@ Turn on **Assistant mode** in Settings and an **Ask Assistant** button appears o
 - **Searches and cites**: web, images, videos, news, books, with tappable citations and related searches.
 - **Acts with approval**: save pages as Markdown/HTML/text, download video (YouTube included) or images, crawl a site, schedule recurring crawls. Each asks once before writing.
 - **1 credit per model step** with a receipt on every answer. Overviews and summaries are free; manual search and downloads never use credits; a low balance never stops a turn mid-way.
-- **Runs on your router**: in-app Kiri router first (free models, your IP), Kiri gateway only if it is down. The model picker shows the live catalog with rate hints; `auto` rotates across healthy models.
+- **Runs on your router**: every request goes to the in-app Kiri router (free models, your IP). The model picker shows the live catalog with rate hints; `auto` rotates across healthy models for you.
 
 **DDGS Premium:** **$3.99/mo · $24.99/yr · $49.99 lifetime** (direct APK and desktop). Premium raises credits to **500/day** and removes ads on mobile.
 
@@ -160,7 +160,7 @@ Turn on **Assistant mode** in Settings and an **Ask Assistant** button appears o
 1. **No account, ever.** No sign-up, no login, no personal data collection.
 2. **Searches go direct**: your device to the sources you chose. No server in the middle, no profiling by us.
 3. **Everything stays on-device**: history, settings and logs, clearable from Settings.
-4. **Transparent network calls**: update check once per launch, ads on the free build, and Assistant queries to your in-app router first (Kiri gateway fallback), with no training on your data.
+4. **Transparent network calls**: update check once per launch, ads on the free build, and Assistant queries to your in-app router, with no training on your data.
 5. **Configurable**: proxy support, SSL toggle, your choice of engines, region and safe search.
 
 ---
@@ -195,7 +195,7 @@ ever runs ahead of the app.
 | Frontend | Flet 1.0.1 (Flutter engine) |
 | Search core | `ddgs` 9.16.0 across 10 providers |
 | HTTP | `primp` (Rust, HTTP/2 with browser emulation) |
-| Assistant | in-app Kiri router first, Kiri gateway fallback |
+| Assistant | kani agent loop over the in-app Kiri router |
 | Storage | on-device JSON (settings, history, conversations) |
 
 ---

@@ -56,9 +56,9 @@ KIRI_LICENSE_TIMEOUT = 15.0
 
 # The engine (kiri-router run.py) is fetched LIVE from here on every cold
 # start and cached to user storage. The engine itself is never vendored:
-# owner directive, LM Router pattern (upstream changes constantly and a
-# bundled snapshot would silently shadow it). This URL is the one allowed
-# constant, exactly like LM Router's ENGINE_URL.
+# owner directive (upstream changes constantly and a bundled snapshot
+# would silently shadow it). This URL is the one allowed constant;
+# what must never be hardcoded is the engine itself.
 ENGINE_URL = "https://router.kiri.ng/run.py"
 
 BACKEND_OPTIONS_TEXT = [

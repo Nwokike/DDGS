@@ -2,7 +2,7 @@
 
 kani's OpenAIEngine counts prompt tokens with tiktoken, and tiktoken
 downloads its BPE file on first use with NO timeout - on a cold cache
-that froze LM Router's UI mid-launch. The rule, ported from there:
+that can stall a launch for tens of seconds. The rule:
 
 - ``core`` pins TIKTOKEN_CACHE_DIR before any kani import (so the BPE
   file lands in one stable place, downloaded once),
