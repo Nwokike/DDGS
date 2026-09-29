@@ -24,6 +24,12 @@ dependencies = [
     # Imported by src/services/media_downloader.py and youtube/innertube_client.py.
     # Floor matches ddgs' own requirement so the two cannot diverge.
     "primp>=1.3.1",
+    # The chat engine (Phase 6): kani is the agent loop, wrapped not
+    # rebuilt. The [openai] extra is the adapter that speaks the OpenAI
+    # wire our router uses (and any user-added provider later); skipping
+    # it would mean hand-rolling the SSE layer that has bitten us before.
+    # pydantic/openai/tiktoken come with it. NO [mcp]: never in scope.
+    "kani[openai]>=1.10.0",
 ]
 
 [tool.flet]
