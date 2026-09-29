@@ -9,6 +9,45 @@ from core.theme import AppColors
 from core.utils import classify_error
 
 
+def _skeleton_card() -> ft.Shimmer:
+    """One shimmering placeholder shaped like a result row (plan C7)."""
+
+    def _bar(width, height=10):
+        return ft.Container(
+            width=width,
+            height=height,
+            border_radius=height / 2,
+            bgcolor=ft.Colors.with_opacity(0.07, ft.Colors.ON_SURFACE),
+        )
+
+    return ft.Shimmer(
+        content=ft.Container(
+            content=ft.Row(
+                [
+                    _bar(44, 44),
+                    ft.Column(
+                        [
+                            _bar(220, 12),
+                            _bar(150, 9),
+                            _bar(260, 9),
+                        ],
+                        spacing=8,
+                        tight=True,
+                    ),
+                ],
+                spacing=12,
+            ),
+            padding=16,
+            border_radius=tokens.RADIUS_LG,
+            border=ft.Border.all(
+                1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)
+            ),
+        ),
+        base_color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+        highlight_color=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),
+    )
+
+
 def build_loading_box(is_running: bool) -> ft.Container:
     return ft.Container(
         content=ft.Column(
@@ -24,6 +63,10 @@ def build_loading_box(is_running: bool) -> ft.Container:
                     font_family="Outfit",
                     text_align=ft.TextAlign.CENTER,
                 ),
+                # Plan C7: the list's shape appears before its data.
+                _skeleton_card(),
+                _skeleton_card(),
+                _skeleton_card(),
             ],
             spacing=tokens.SPACE_SM,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
