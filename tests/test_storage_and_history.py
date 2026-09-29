@@ -393,7 +393,7 @@ def test_storage_json_still_roundtrips_unchanged(tmp_path, monkeypatch):
         **dict(os.environ),
         "FLET_APP_STORAGE_DATA": str(data_dir),
     }
-    proc = subprocess.run(
+    proc = subprocess.run(  # noqa: S603 - fixed argv, trusted inline script
         [_sys.executable, "-c", script],
         capture_output=True,
         text=True,

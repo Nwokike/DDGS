@@ -34,7 +34,7 @@ STORAGE_ACTIVE_CONVERSATION = "active_conversation"
 # STORAGE_IS_PREMIUM, which is the *resolved* entitlement written by
 # whichever channel granted it, so either can be revoked independently.
 STORAGE_LICENSE_RECOVERY_ID = "license_recovery_id"
-STORAGE_LICENSE_TOKEN = "license_token"
+STORAGE_LICENSE_TOKEN = "license_token"  # noqa: S105 - storage key name, not a secret
 STORAGE_LICENSE_STATUS = "license_status"
 STORAGE_LICENSE_PRODUCT = "license_product"
 STORAGE_LICENSE_PAID_THROUGH = "license_paid_through"

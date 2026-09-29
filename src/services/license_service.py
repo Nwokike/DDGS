@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 # Shared with the other Kiri apps so the recovery story reads the same.
 SETTING_RECOVERY_ID = "kiri_recovery_id"
-SETTING_TOKEN = "kiri_token"
+SETTING_TOKEN = "kiri_token"  # noqa: S105 - storage key name, not a secret
 SETTING_PRODUCT = "kiri_product"
 
 

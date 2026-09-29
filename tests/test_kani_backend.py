@@ -15,14 +15,13 @@ import sys
 from pathlib import Path
 from typing import ClassVar
 
-import httpx
-import openai
-import pytest
-
 SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import httpx
+import openai
+import pytest
 from kani.engines.base import BaseEngine, Completion
 from kani.models import ChatMessage, ChatRole, FunctionCall, ToolCall
 

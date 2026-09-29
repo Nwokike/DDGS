@@ -226,8 +226,8 @@ async def resolve_youtube(
                 RuntimeError,
                 ConnectionError,
                 ImportError,
-            ) as e:
-                logger.error("Failed to compile decipher algorithm from base.js: %s", e)
+            ):
+                logger.exception("Failed to compile decipher algorithm from base.js")
 
         if not algo:
             logger.error("Decipher algorithm is None, cannot resolve")

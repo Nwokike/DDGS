@@ -58,11 +58,11 @@ def search_key(query: str, search_type: str, **filters: object) -> str:
     """
     parts = [str(search_type), str(query).strip().lower()]
     parts.extend(f"{name}={filters[name]}" for name in sorted(filters, key=str))
-    return "s_" + hashlib.sha1(chr(31).join(parts).encode("utf-8")).hexdigest()
+    return "s_" + hashlib.sha1(chr(31).join(parts).encode("utf-8")).hexdigest()  # noqa: S324 - cache key, never security
 
 def page_key(url: str, fmt: str = "") -> str:
     raw = f"{str(url).strip()}\x1f{fmt!s}"
-    return "p_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()
+    return "p_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()  # noqa: S324 - cache key, never security
 
 
 # Fields worth caching. `raw_data` is dropped: it is the unfiltered engine
@@ -324,7 +324,7 @@ class CacheService:
 
         total = sum(size for _, size, _ in live)
         if total > max_bytes:
-            for mtime, size, path in sorted(live):
+            for _mtime, size, path in sorted(live):  # oldest first by mtime
                 if total <= max_bytes:
                     break
                 try:

@@ -81,7 +81,33 @@ dev = [
 ]
 
 [tool.ruff]
-lint.extend-ignore = ["BLE001", "S110"]
+# The gate grew from the dependency audit (plan A8): defaults plus the
+# families that catch real footguns in an async/Flet/network codebase.
+lint.select = [
+    "E4", "E7", "E9", "F",  # ruff's defaults
+    "B",      # bugbear: mutable defaults, lost exception context, ...
+    "ASYNC",  # async pitfalls: blocking calls in coroutines, timeouts
+    "UP",     # pyupgrade: modern syntax only
+    "S",      # bandit: security basics
+    "TRY",    # exception hygiene around our error mapping
+    "PERF",   # performance footguns
+]
+lint.extend-ignore = [
+    "BLE001",   # deliberate broad catches at UI/task boundaries
+    "S110",     # try/except/pass is annotated policy in places
+    "ASYNC109", # timeout-as-parameter is how our fetch wrappers are shaped
+    "TRY003",   # raise messages ARE consumer-facing copy, not style debt
+    "TRY300",   # else-after-try: no bug class, pure churn
+    "TRY301",   # raise-in-try is exactly how the error mapping reads
+    "PERF401",  # append-loops in render paths are intentional; blind
+                # extend/comprehension rewrites change nesting semantics
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Asserts and fixture token names are the point of tests; E402 because
+# the sys.path bootstrap (SRC insert) must run before third-party
+# imports - that is this repo's established test pattern.
+"tests/**" = ["S101", "S105", "E402"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
