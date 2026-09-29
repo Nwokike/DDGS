@@ -4,6 +4,28 @@ current app version (components.settings.version._APP_VERSION) in sync
 when bumping (guarded by tests)."""
 
 CHANGELOG: dict[str, str] = {
+    "2.1.0": (
+        "- The Assistant now runs on the kani agent engine: same tools, "
+        "same approval gate, a real agent loop, and the Thinking block "
+        "shows reasoning again\n"
+        "- The Kiri router is the only AI source - the gateway fallback "
+        "and the hand-rolled stream parsing are gone\n"
+        "- Every paid reply reports its exact token count beside steps "
+        "and credits\n"
+        "- Chats export and import as .kani archives from the chat list\n"
+        "- Undo on every delete: chats, messages and search history\n"
+        "- Long-press or right-click any result for open, copy link and "
+        "share; image previews pinch-zoom and carry a QR for your phone\n"
+        "- Load more: results no longer stop at twenty\n"
+        "- Your proxy now covers downloads, updates and license checks, "
+        "not just search\n"
+        "- Crawl schedules gain an interval editor; finished saves buzz "
+        "and share on mobile\n"
+        "- Desktop: Esc closes dialogs, Ctrl+K jumps to search; the "
+        "Android splash matches the app's surfaces\n"
+        "- Fixes: foreign URL schemes blocked, punycode hosts read as "
+        "real names, YouTube parsing can no longer hang on backtracking"
+    ),
     "2.0.2": (
         "- Settings carries KTV's live version header: the status line "
         "reads “Update available · tap to view” the moment "

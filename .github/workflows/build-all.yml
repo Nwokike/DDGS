@@ -9,11 +9,11 @@ on:
       build_version:
         description: "Build version"
         required: true
-        default: "2.0.2"
+        default: "2.1.0"
       build_number:
         description: "Build number"
         required: true
-        default: "8"
+        default: "9"
 
 permissions:
   contents: write
@@ -22,8 +22,8 @@ env:
   PYTHONUTF8: "1"
   FLET_CLI_NO_RICH_OUTPUT: "1"
   UV_PYTHON: "3.12"
-  BUILD_VERSION: ${{ inputs.build_version || '2.0.2' }}
-  BUILD_NUMBER: ${{ inputs.build_number || '8' }}
+  BUILD_VERSION: ${{ inputs.build_version || '2.1.0' }}
+  BUILD_NUMBER: ${{ inputs.build_number || '9' }}
 
 jobs:
   # ─── 0. Quality gate: nothing builds or publishes until this passes ────
@@ -51,7 +51,7 @@ jobs:
           sys.path.insert(0, "src")
           from components.settings.version import _APP_VERSION
           from services import update_service as us
-          from services.ai_service import USER_AGENT
+          from services.reasoning import USER_AGENT
 
           env_v, env_b = os.environ["BUILD_VERSION"], os.environ["BUILD_NUMBER"]
           errs = []
@@ -169,14 +169,22 @@ jobs:
 
             Private search across 10 engines: download videos and images, scrape any page as Markdown, HTML or text, no account, no tracking.
 
-            ## Highlights
+            ## 2.1.0 - the Assistant runs on kani
 
-            - **The Assistant**: an agent that acts, not just explains. Give it a mission and it searches the web, fetches pages, saves files, downloads videos and images, and schedules recurring crawls, asking once for approval before anything is written.
-            - **Credits with receipts**: 50 free credits a day, 1 credit per model step, a receipt on every reply. Search overviews and page summaries are free, and a low balance never stops a turn mid-way.
-            - **DDGS Premium**: $3.99/month, $24.99/year or $49.99 lifetime removes ads and raises credits to 500 a day. In-app checkout with card, bank transfer or USDC.
-            - **Expandable reasoning**: watch the model think while it works; it collapses to a "Thought for Ns" line once answered and stays re-expandable.
-            - **Live model catalog**: latency and rate hints per model, `auto` rotates across healthy models, and the gateway engine is fetched fresh on every launch.
-            - **Android, hardened**: stable TLS trust store, storage tiers per the Flet contract, and a header that scrolls instead of clipping on narrow screens.
+            - **A real agent engine**: the chat loop is now [kani](https://github.com/zhudotexe/kani)'s `full_round` - our own wrapper builds the engine, the tools and the error mapping. Reasoning capture rides kani's own SSE surface, so the Thinking block shows real reasoning again.
+            - **The router is the only source**: the api.kiri.ng gateway fallback and all hand-rolled SSE parsing are gone. Requests go to the embedded Kiri router, the model string is passed through untouched, and a 429/5xx/connection break keeps its exact honest words.
+            - **Exact token receipts**: every paid reply reports the real token count the stream returned, beside its steps and credits.
+            - **Exports and imports**: any chat writes a `.kani` archive from the chat list, and `.kani`/JSON archives import back as a new conversation.
+
+            ## The rest of the grind
+
+            - **Undo everywhere**: deleting a chat, clearing a chat, deleting a message exchange or clearing search history all offer an Undo.
+            - **Quick actions**: long-press (mobile) or right-click (desktop) any result row for open / copy link / share; the detail sheet's image preview pinch-zooms, and a QR button hands the link to your phone.
+            - **Load more**: results no longer stop at twenty - fetch the next page, deduped and appended.
+            - **Every network path honors your proxy**: downloads, YouTube, updates, license checks and the engine fetch, not just search.
+            - **Crawl schedules you can edit**: a six-preset interval picker in Settings, and finished saves buzz and share on mobile.
+            - **Desktop polish**: Esc closes dialogs, Ctrl+K jumps to search, and the Android splash matches the app's own surfaces.
+            - **Correctness**: foreign URL schemes never reach a fetch or the OS, punycode hosts read as real names, YouTube's JS parser has backtracking circuit-breakers, and the Android CI job can no longer run out of memory.
 
             ## The core, still the point
 

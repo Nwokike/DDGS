@@ -21,8 +21,8 @@ try:
     _APP_BUILD = int(_pdata["tool"]["flet"]["build_number"])
     _APP_REPO = "DDGS"
 except Exception:
-    _APP_VERSION = "2.0.2"
-    _APP_BUILD = 8
+    _APP_VERSION = "2.1.0"
+    _APP_BUILD = 9
     _APP_REPO = "DDGS"
 UPDATE_CONFIG_URL = (
     f"https://raw.githubusercontent.com/Nwokike/{_APP_REPO}/main/version.json"
