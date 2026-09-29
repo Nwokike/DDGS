@@ -385,6 +385,37 @@ def test_function_schema_is_the_parameters_document_verbatim():
     assert fn.json_schema == spec.parameters
 
 
+def test_kani_archive_roundtrip_preserves_the_transcript(tmp_path):
+    """Plan B6: export writes kani's own .kani zip; import reads it back.
+
+    Only user/assistant text is projected - empty rows and anything
+    tool-shaped stay out of the display transcript, same rule as
+    flat_from_turns.
+    """
+    messages = [
+        {"role": "user", "content": "find me trains"},
+        {"role": "assistant", "content": "Found three. [1]"},
+        {"role": "user", "content": "  "},
+        {"role": "function", "content": "internal tool bytes"},
+    ]
+    path = tmp_path / "chat.kani"
+    kani_backend.export_archive(messages, str(path))
+    assert path.exists()
+
+    back = kani_backend.import_archive(str(path))
+    assert back == [
+        {"role": "user", "content": "find me trains"},
+        {"role": "assistant", "content": "Found three. [1]"},
+    ]
+
+
+def test_json_archive_roundtrip_too(tmp_path):
+    messages = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+    path = tmp_path / "chat.json"
+    kani_backend.export_archive(messages, str(path))
+    assert kani_backend.import_archive(str(path)) == messages
+
+
 def test_complete_streams_a_toolless_shot(monkeypatch):
     engine = _install(monkeypatch, [{"kind": "text", "chunks": ["Overview ", "here."]}])
     tokens: list[str] = []

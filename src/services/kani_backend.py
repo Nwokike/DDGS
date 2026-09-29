@@ -139,10 +139,13 @@ def build_functions(specs: list[ToolSpec]) -> list[AIFunction]:
     return out
 
 
-def _to_history(history: list[dict]) -> list[ChatMessage]:
-    """OpenAI-dict transcript -> kani messages, trimmed like before."""
+def _chat_messages(
+    items: list[dict], *, limit: int | None = AGENT_HISTORY_MESSAGES
+) -> list[ChatMessage]:
+    """OpenAI-dict transcript -> kani messages (trim unless limit=None)."""
     out: list[ChatMessage] = []
-    for item in (history or [])[-AGENT_HISTORY_MESSAGES:]:
+    window = items if limit is None else (items or [])[-limit:]
+    for item in window:
         if not isinstance(item, dict):
             continue
         content = item.get("content")
@@ -154,6 +157,11 @@ def _to_history(history: list[dict]) -> list[ChatMessage]:
         elif role == "assistant":
             out.append(ChatMessage.assistant(content))
     return out
+
+
+def _to_history(history: list[dict]) -> list[ChatMessage]:
+    """The per-turn window the model sees (trimmed like before)."""
+    return _chat_messages(history)
 
 
 async def _build_engine(
@@ -462,3 +470,47 @@ async def complete(
         "model": tap.last_model or chosen,
         "served_by": "router",
     }
+
+
+class _Archive:
+    """Duck-typed holder for saveload.save: it reads exactly these two
+    attributes, so export needs no engine, no network and no Kani."""
+
+    def __init__(self, messages: list[ChatMessage]) -> None:
+        self.always_included_messages: list[ChatMessage] = []
+        self.chat_history = messages
+
+
+def export_archive(messages: list[dict], path) -> None:
+    """Write a transcript (OpenAI dicts) as a .kani archive (plan B6).
+
+    The archive is kani's own format - manifest plus content-addressed
+    attachment blobs - so any kani tool can read what we wrote, and the
+    in-app importer below can read it back.
+    """
+    from kani.utils import saveload
+
+    saveload.save(
+        path,
+        inst=_Archive(_chat_messages(messages, limit=None)),
+        save_format="kani",
+    )
+
+
+def import_archive(path) -> list[dict]:
+    """Read a .kani (or legacy JSON) archive back into our transcript dicts.
+
+    Only user/assistant text is projected - tool-result rows have no
+    place in the display transcript (the same rule flat_from_turns
+    applies), and attachments inside blobs stay in the archive.
+    """
+    from kani.utils import saveload
+
+    state = saveload.load(path)
+    out: list[dict] = []
+    for message in state.chat_history:
+        text = message.text
+        role = message.role.value
+        if role in ("user", "assistant") and text and text.strip():
+            out.append({"role": role, "content": text})
+    return out

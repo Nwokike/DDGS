@@ -28,12 +28,12 @@ Parked items name the reason — nothing is dropped silently.
 | B1 | **Real token receipts** SHIPPED: the stream's `openai_usage` trailer rides `text_final` as `tokens{in,out}`; the meta line shows `N tok` beside steps/credits/model, local ~4-chars/token count as fallback | kani extra, openai usage, tiktoken | every paid reply shows a token count |
 | B2 | **Paragraph-aware tool caps** SHIPPED: `auto_truncate=TOOL_OUTPUT_CAP` on every AIFunction; the blind `[:2000]` slice is gone | kani auto_truncate | tool outputs end at a paragraph boundary |
 | B3 | **Graceful finale** SHIPPED: `max_function_rounds=max_iters-1` - after five tool rounds kani strips the tools and the model answers from what it has | kani max_function_rounds | no empty bubble; over-cap turns charge honestly (pin test) |
-| B4 | **Strict tool args**: pydantic models = single source of truth → `model_json_schema()` feeds ToolSpec; probe router for `response_format=json_schema` + `strict` before enabling | pydantic, openai types | tools validate typed args; schema drift impossible |
+| B4 | **Strict tool args - PENDING ROUTER PROBE**: pydantic-sourced schemas are buildable anytime; `response_format=json_schema`/`strict` needs one live probe against the router before UI work | pydantic, openai types | probe first, then ship |
 | B5 | **Approval previews** CLOSES AS COVERED: every tool already emits `step_start` with a human label before the approval gate; kani's formatter would duplicate that row | kani prompts | no change needed |
-| B6 | **`.kani` export/import**: `save()`/`load()` archive (transcript + attachments) as share/export | kani utils.saveload | one tap exports a conversation; import restores it with tool history |
-| B7 | **Prompt cache + tool steering** (probe router first): `prompt_cache_key` per conversation, `tool_choice` variants where supported | openai create params | measured fewer tokens / fewer wasted tool rounds, or honestly parked |
-| B8 | **Vision answers**: attach the top image-search result as an `ImagePart` when the answer uses an image | kani parts/mm_tokens | "show me" queries see the picture (only on models the router marks vision-capable) |
-| B9 | **Thinking depth setting**: `reasoning_effort` exposed as auto/fast/deep in Settings (omit `auto` — owner rule) | openai reasoning params | user can trade speed vs depth; default unchanged |
+| B6 | **`.kani` export/import** SHIPPED: per-row Export in the chat list writes kani's own zip archive (save dialog, no engine, no network); Import reads `.kani`/`.json` back as a new conversation. Round-trip pinned | kani utils.saveload | one tap exports; import restores with the transcript intact |
+| B7 | **Prompt cache + tool steering - PENDING ROUTER PROBE**: `prompt_cache_key`/`tool_choice` variants must be accepted by the router first (unknown params can 400 a free turn) | openai create params | probe first |
+| B8 | **Vision answers - PENDING ROUTER CAPABILITY**: needs a router model marked vision-capable before ImageParts are sent | kani parts | router capability first |
+| B9 | **Thinking depth setting - PENDING ROUTER PROBE**: `reasoning_effort` may 400 on free models; probe, then a Settings toggle (omit `auto` - owner rule) | openai reasoning params | probe first |
 
 ## Phase C — Flet UX shelf (the "best possible app" feel)
 

@@ -839,6 +839,81 @@ class ChatSession:
             subtitle_lines=1,
         )
 
+    def _export_conversation(self, conversation_id: str, title: str) -> None:
+        """One chat -> a .kani archive via the save dialog (plan B6)."""
+
+        async def _go() -> None:
+            from components.results.downloader import _resolve_save_path
+            from services import conversation_service as conversations
+            from services import kani_backend
+
+            payload = conversations.load_conversation(conversation_id) or {}
+            messages = payload.get("messages") or []
+            if not messages:
+                self._snack("That chat has nothing to export")
+                return
+            safe = "".join(
+                c for c in (title or conversation_id) if c.isalnum() or c in "-_"
+            )[:32] or "chat"
+            path = await _resolve_save_path(self.page, f"ddgs-{safe}.kani")
+            if not path:
+                return  # the user cancelled the dialog
+            try:
+                await asyncio.to_thread(kani_backend.export_archive, messages, path)
+            except Exception:
+                logger.exception("chat export failed")
+                self._snack("Export failed")
+                return
+            self._snack(f"Exported to {path}")
+
+        self.page.run_task(_go)
+
+    def _import_conversation(self) -> None:
+        """Read a .kani/.json archive back as a new conversation (plan B6)."""
+
+        async def _go() -> None:
+            from services import conversation_service as conversations
+            from services import kani_backend
+
+            picker = getattr(self.page, "file_picker", None)
+            if not picker:
+                picker = ft.FilePicker()
+                self.page.services.append(picker)
+                self.page.update()
+            try:
+                files = await picker.pick_files(
+                    dialog_title="Import a DDGS chat",
+                    allowed_extensions=["kani", "json"],
+                    allow_multiple=False,
+                )
+            except (ValueError, TypeError, OSError, RuntimeError, AttributeError):
+                self._snack("The file dialog is unavailable here")
+                return
+            if not files:
+                return
+            src = getattr(files[0], "path", None) or str(files[0])
+            try:
+                messages = await asyncio.to_thread(kani_backend.import_archive, src)
+            except Exception:
+                logger.exception("chat import failed")
+                self._snack("That file is not a valid chat archive")
+                return
+            if not messages:
+                self._snack("That archive has no messages")
+                return
+            cid = conversations.new_conversation_id()
+            if not conversations.save_conversation(cid, messages):
+                self._snack("Could not save the imported chat")
+                return
+            try:
+                self.page.pop_dialog()
+            except Exception:
+                pass
+            self._snack(f"Imported {len(messages)} messages")
+            self.switch_conversation(cid)
+
+        self.page.run_task(_go)
+
     def _open_history_dialog(self) -> None:
         """Build and show the chat list as a modal, newest first, all of them.
 
@@ -891,6 +966,22 @@ class ChatSession:
                 thickness=1,
                 color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
             ),
+            self._history_row(
+                ft.Icons.FOLDER_OPEN_ROUNDED,
+                "Import chat",
+                "Restore a .kani or .json archive",
+                ft.Icon(
+                    ft.Icons.CHEVRON_RIGHT_ROUNDED,
+                    size=tokens.ICON_SM,
+                    color=ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE_VARIANT),
+                ),
+                on_click=lambda e: self._import_conversation(),
+            ),
+            ft.Divider(
+                height=1,
+                thickness=1,
+                color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
+            ),
         ]
 
         if not rows:
@@ -916,6 +1007,14 @@ class ChatSession:
                     conversations.summarize(row),
                     ft.Row(
                         [
+                            ft.IconButton(
+                                icon=ft.Icons.SAVE_ALT_ROUNDED,
+                                icon_size=tokens.ICON_SM,
+                                tooltip="Export this chat",
+                                on_click=lambda e, cid=conversation_id, t=title: (
+                                    self._export_conversation(cid, t)
+                                ),
+                            ),
                             ft.Icon(
                                 ft.Icons.CHECK_CIRCLE_ROUNDED,
                                 size=tokens.ICON_SM,
@@ -928,7 +1027,7 @@ class ChatSession:
                                 icon_color=AppColors.ERROR,
                                 tooltip="Delete this chat",
                                 on_click=_delete_chat(conversation_id),
-                            )
+                            ),
                         ],
                         spacing=0,
                         tight=True,
