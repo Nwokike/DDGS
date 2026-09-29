@@ -675,7 +675,7 @@ def HomeScreen() -> Control:
             # Search field - modern SearchBar
             ft.Container(
                 alignment=ft.Alignment.CENTER,
-                content=ft.SearchBar(
+                content=(search_bar := ft.SearchBar(
                     value=search_query,
                     bar_hint_text=_HINT_MAP.get(active_tab, "Search the web..."),
                     bar_leading=ft.Icon(
@@ -718,7 +718,7 @@ def HomeScreen() -> Control:
                     on_submit=lambda e: _on_search(),
                     on_change=lambda e: set_search_query(e.control.value),
                     autofocus=False,
-                ),
+                )),
                 padding=ft.Padding(
                     tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
                 ),
@@ -1032,6 +1032,10 @@ def HomeScreen() -> Control:
         scroll=ft.ScrollMode.AUTO,
         expand=True,
     )
+
+    # Ctrl+K lands here (plan C9): the global keyboard handler focuses
+    # whatever SearchBar instance the latest render produced.
+    _get_page()._ddgs_search_bar = search_bar
 
     return ft.Container(
         content=content,

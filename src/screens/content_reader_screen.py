@@ -110,12 +110,20 @@ def build_content_reader(
         except Exception:
             pass
 
+    # Register keyboard handler - chained, not replacing (plan C9): the
+    # global Esc/Ctrl+K handler must survive a Reader round-trip.
+    _prev_key_handler = page.on_keyboard_event
+
     def _handle_keyboard(e):
-        """Handle hardware back button on Android."""
+        """Handle hardware back button on Android; delegate the rest."""
+        if _prev_key_handler is not None:
+            try:
+                _prev_key_handler(e)
+            except Exception:
+                pass
         if e.key in ("Back", "Escape", "BrowserBack"):
             _go_back()
 
-    # Register keyboard handler
     page.on_keyboard_event = _handle_keyboard
 
     def _on_link_tap(e):
@@ -140,7 +148,7 @@ def build_content_reader(
     def _exit_reader():
         """Always exit the reader - pop back to whatever was underneath."""
         try:
-            page.on_keyboard_event = None
+            page.on_keyboard_event = _prev_key_handler
             if len(page.views) > 1:
                 page.views.pop()
                 page.update()

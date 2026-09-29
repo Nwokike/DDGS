@@ -87,6 +87,7 @@ class AppController:
         self.page.services.append(connectivity)
         connectivity.on_change = self._on_connectivity_change
         self.page.on_app_lifecycle_state_change = self._on_lifecycle_change
+        self._install_global_keyboard()
         self.page.run_task(self._init_connectivity)
 
         # ── Services ──
@@ -639,6 +640,32 @@ class AppController:
         finally:
             self._skip_cache_once = False
 
+    def _install_global_keyboard(self) -> None:
+        """Desktop shortcuts (plan C9): Esc closes the top dialog, Ctrl+K
+        jumps to the Home search field. Screens that need their own keys
+        (the Reader) chain on top of this one instead of replacing it."""
+
+        def _on_key(e) -> None:
+            if e.key == "Escape":
+                try:
+                    self.page.pop_dialog()
+                except Exception:
+                    pass
+            elif e.ctrl and str(e.key).lower() == "k":
+                self.page.run_task(self._focus_home_search)
+
+        self.page.on_keyboard_event = _on_key
+
+    async def _focus_home_search(self) -> None:
+        try:
+            if state.selected_tab != 0 or state.search_active:
+                self.navigate_tab(0)
+            bar = getattr(self.page, "_ddgs_search_bar", None)
+            if bar is not None:
+                await bar.focus()
+        except Exception:
+            logger.debug("Ctrl+K focus unavailable", exc_info=True)
+
     async def start_search(self, query: str, search_type: str = "text"):
         """Execute a search and update state with progress/results."""
         if not query or not query.strip():
@@ -781,7 +808,7 @@ class AppController:
             await self._refresh(progress)
 
             # Interstitial on every search (Sherlock-parity frequency);
-            # the 90s minimum gap is enforced centrally in AdService.
+            # the 60s minimum gap is enforced centrally in AdService.
             if not state.is_premium and state.ad_service:
                 await state.ad_service.show_interstitial()
 
@@ -894,7 +921,7 @@ class AppController:
         ]
         overview = AiOverview(
             query=query,
-            sources=[{"title": s["title"], "url": s["url"], "thumb": getattr(r, "thumbnail", "") or ""} for r, s in zip(results[:8], sources)],
+            sources=[{"title": s["title"], "url": s["url"], "thumb": getattr(r, "thumbnail", "") or ""} for r, s in zip(results[:8], sources, strict=False)],
             is_running=True,
         )
         state.ai_overview = overview
@@ -1169,6 +1196,14 @@ class AppController:
             except Exception:
                 logger.exception("scrape scheduler tick failed")
             await asyncio.sleep(60)
+
+    async def reschedule_scrape(self, url: str, interval_minutes: int) -> None:
+        """Change a scheduled crawl's interval (settings edit dialog)."""
+        from services import chat_agent
+        from services.chat_agent import _persist_schedule
+
+        chat_agent._schedule(url, interval_minutes)
+        await _persist_schedule()
 
     async def cancel_scheduled_scrape(self, url: str) -> None:
         """Remove a scheduled crawl (settings UI)."""
