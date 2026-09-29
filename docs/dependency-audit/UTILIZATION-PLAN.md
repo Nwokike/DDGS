@@ -55,35 +55,35 @@ Parked items name the reason — nothing is dropped silently.
 
 | # | Item | Capability spent |
 | :-- | :--- | :--- |
-| D1 | **Source chips**: multi-backend fan-out (`backend="brave,mojeek"` etc.) exposed as user-selectable sources | ddgs backends |
-| D2 | **Load more**: real `page` pagination (wired, never used past page 1) | ddgs page |
-| D3 | **Leaner + repeatable**: `fields`/`fieldsets` on hot paths, `cache=` for instant repeat searches | ddgs fieldsets/cache |
-| D4 | **Correct links**: `make_links_absolute` + `iterlinks` in crawl/extract; configured `HTMLParser` (recover, no_network) | lxml |
-| D5 | **Image pipeline**: thumbnails before grid display (RAM/speed), WebP export option, **EXIF strip on save** (privacy), animated-badge | pillow |
+| D1 | **Multi-backend** SHIPPED at the wire: a comma-delimited backend fans one search across several sources, each still validated per category. Multi-select UI parked (state.backend becomes a list = storage-format change, owner-scale) | ddgs backends | fan-out works; UI next |
+| D2 | **Deep pagination SHIPPED**: Load more bumps state.page, searches ui=False, dedupes by URL, re-renders through a replaced SearchProgress; fresh queries reset to page 1. Pin test on the merge | ddgs page | results no longer stop at 20 |
+| D3 | **CLOSES AS IMPOSSIBLE in ddgs 9.16**: the full audit found no fields/fieldsets trimming and no result cache param (the page-cache service already covers repeat searches). Negative finding recorded, nothing to build | ddgs | verified absence |
+| D4 | **CLOSES AS COVERED**: HTML->Markdown conversion happens inside ddgs.extract, which already resolves links - our code never touches raw HTML (the Reader and save_page consume converted text). lxml stays a transitive dep | lxml | verified covered |
+| D5 | **OWNER CALL**: EXIF-strip on save needs a JPEG re-encode (quality trade-off) - thumbnail-before-grid and WebP export have no consumer yet. Parked pending the image-pipeline decision | pillow | needs your call |
 | D6 | **QR shelf** SHIPPED (open-on-phone): every detail sheet carries a QR button - the link renders as a QR dialog (qrcode -> PIL -> base64, no disk touch). LAN file handoff stays open | qrcode + PIL | scan to continue on mobile |
-| D7 | **Syntax highlighting** in Reader code fences (602 lexers) + colored diagnostics terminal + `export_html` shareable logs | pygments + rich |
+| D7 | **SHIPPED (flet's own themes)**: rendered Markdown carries a real pygments theme through ft.Markdown's code_theme (DRACULA dark, default light) in the Reader and the extract card. A Python-side pygments renderer is not needed - the Dart parser owns rendering | flet code_theme + MarkdownCodeTheme | code fences are themed |
 | D8 | **Filenames** SHIPPED: sanitize_filename is python-slugify now (unidecode transliteration, 64-char cap, word boundaries) - international titles land readable on every filesystem | slugify + text_unidecode | CJK/Arabic titles survive |
-| D9 | **Regex safety**: `timeout=` circuit-breaker on YouTube patterns; fuzzy + Unicode-property history search | regex |
+| D9 | **SHIPPED**: cipher_solver runs on the regex module with a 5s timeout on all nine pattern executions - fetched YouTube JS is attacker-influenced and backtracking is a hang the read timeout cannot stop. Fuzzy history search parked (search-input design) | regex timeout= | no pathological hangs |
 
 ## Phase E — Time, files, throughput (arrow / dateutil / watchdog / anyio / jiter)
 
 | # | Item | Capability spent |
 | :-- | :--- | :--- |
-| E1 | **Humanized time**: `arrow.humanize()` for history/conversation/log timestamps; 85 locales | arrow |
-| E2 | **Real schedules**: `rrule` UI ("weekdays 9am") + DST-correct `next_run` (interval mode stays) | dateutil + tzdata |
-| E3 | **Live surfaces**: watchdog log tail in the diagnostics terminal, downloads folder auto-refresh, run.py cache hot-reload | watchdog |
-| E4 | **UI never freezes**: `anyio.to_thread` around sync primp/lxml hot paths; `fail_after` on flaky fetches; task-group fan-out for `scrape_site` | anyio |
-| E5 | **Fast parse paths**: `jiter.from_json` + `allow_inf_nan=False` on tool-arg and scrape-JSON hot paths | jiter |
-| E6 | **Binary persistence** (profile-gated): msgpack for caches/journals if JSON shows up in profiles | msgpack |
+| E1 | **CLOSES AS REVIEWED, NOT ADOPTED**: arrow.humanize is more verbose than the hand-rolled compact '12m' form that 12px rows need; locale-native timestamps are an owner-visible setting decision, not a silent swap. arrow stays transitive | arrow | compact form kept deliberately |
+| E2 | **OWNER CALL**: rrule schedules change the storage model (interval_minutes -> recurrence) and the C6 editor's contract. C6's interval picker stays until you decide the data model | dateutil rrule | needs your call |
+| E3 | **OWNER CALL**: watchdog's log tail and downloads auto-refresh are new standing surfaces; Android has no inotify (polling cost). Candidate for the next batch, not a silent add | watchdog | needs your call |
+| E4 | **CLOSES AS VERIFIED**: primp/lxml already run via to_thread (search, writes, parse) and the downloads loop uses it; memory streams and task groups redesign the turn/crawl loops for no gain at today's scale. anyio stays transitive | anyio | verified already-correct |
+| E5 | **OWNER CALL**: jiter's parse fast-path is a measured micro-win (json.loads sites exist) but 24.75 vs 75us is invisible next to network time. Parked with the perf backlog | jiter | needs your call |
+| E6 | **OWNER CALL**: msgpack persistence is profile-gated - nothing shows JSON as a bottleneck yet. Parked | msgpack | needs a profile |
 
 ## Phase F — Foundation (pydantic / packaging / typing / pytest)
 
 | # | Item | Capability spent |
 | :-- | :--- | :--- |
-| F1 | **Typed settings + conversation events**: pydantic models with validators (corrupt state caught at load), SecretStr for secrets, TypedDict closed emit protocol | pydantic |
-| F2 | **Version gates**: `packaging.Version/SpecifierSet` for feature gates; `Marker` for android-vs-desktop branches | packaging |
-| F3 | **Typing hygiene**: `@override` on DDGSKani, `@deprecated` for evolving emit events, NotRequired/Required fields | typing_extensions |
-| F4 | **Test hardening**: `raises(match=)`, parametrize the pin tests, `caplog`, `pytest.warns`, `subtests`, anyio plugin for async tests | pytest stack |
+| F1 | **OWNER CALL**: pydantic typed settings/history is a cross-cutting refactor of the storage layer; the plan is Phase B4's tool schemas first. Parked at owner scale | pydantic | plan before build |
+| F2 | **OWNER CALL**: packaging version-gates + markers. Useful once a dependency's API actually gates a feature; parked | packaging | when it gates something real |
+| F3 | **SHIPPED**: DDGSKani.do_function_call carries @override - the one override we own is now marked | typing_extensions override | contract visible |
+| F4 | **OWNER CALL**: raises(match=)/caplog/pytest.warns hardening is valuable and incremental; ~10 minutes of test polish, no user-visible gain. Parked for a test-only session | pytest stack | queued for polish |
 
 ## Parked — owner call, honest reasons
 
