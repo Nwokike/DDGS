@@ -12,6 +12,105 @@ from core.theme import AppColors
 from core.utils import display_url
 
 
+def _result_actions_sheet(page: ft.Page, r: SearchResult) -> None:
+    """Quick actions for a result row - long-press (mobile) or right-click
+    (desktop) - the same three verbs the detail sheet offers, one gesture
+    away (plan C3)."""
+    display = display_url(r.url)
+
+    def _close(e=None):
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
+
+    async def _open_browser(e=None):
+        _close()
+        from components.results.downloader import launch_url
+
+        await launch_url(r.url, page)
+
+    def _copied(e=None):
+        _close()
+        snack = ft.SnackBar(ft.Text("Link copied"))
+        snack.open = True
+        page.show_dialog(snack)
+
+    def _shared(e=None):
+        _close()
+
+    def _button(icon, label, handler, action=None):
+        return ft.OutlinedButton(
+            content=ft.Row(
+                [
+                    ft.Icon(icon, size=tokens.ICON_SM),
+                    ft.Text(label, size=tokens.FONT_MD, font_family="Outfit"),
+                ],
+                spacing=8,
+                tight=True,
+            ),
+            action=action,
+            on_click=handler,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                padding=ft.Padding(12, 10, 12, 10),
+            ),
+            expand=True,
+        )
+
+    page.show_dialog(
+        ft.BottomSheet(
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(
+                                    ft.Icons.LINK_ROUNDED,
+                                    size=tokens.ICON_SM,
+                                    color=AppColors.PRIMARY,
+                                ),
+                                ft.Text(
+                                    display,
+                                    size=tokens.FONT_SM,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                    expand=True,
+                                    font_family="Outfit",
+                                ),
+                            ],
+                            spacing=6,
+                        ),
+                        _button(
+                            ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                            "Open in browser",
+                            _open_browser,
+                        ),
+                        _button(
+                            ft.Icons.CONTENT_COPY_ROUNDED,
+                            "Copy link",
+                            _copied,
+                            action=ft.CopyToClipboard(r.url),
+                        ),
+                        _button(
+                            ft.Icons.SHARE_ROUNDED,
+                            "Share",
+                            _shared,
+                            action=ft.ShareText(f"{r.title}{chr(10)}{r.url}", title=r.title),
+                        ),
+                    ],
+                    spacing=tokens.SPACE_SM,
+                    tight=True,
+                ),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, tokens.SPACE_MD, tokens.SPACE_LG, tokens.SPACE_LG
+                ),
+            ),
+        )
+    )
+
+
 def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     """Show an enriched bottom sheet with result info, preview, and actions."""
     is_dark = theme.is_dark_mode(page)

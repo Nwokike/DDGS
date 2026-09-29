@@ -9,7 +9,10 @@ from components.results.cards_media import (
     _video_card,
 )
 from components.results.content_fetcher import _fetch_and_show, _on_link_tap
-from components.results.detail_sheet import _show_result_sheet
+from components.results.detail_sheet import (
+    _result_actions_sheet,
+    _show_result_sheet,
+)
 from components.results.downloader import (
     _save_bytes_content,
     _save_text_content,
@@ -22,8 +25,13 @@ from core.theme import AppColors
 from core.utils import display_url
 
 
-def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
-    return ft.Container(
+def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.GestureDetector:
+    # Long-press (mobile) / right-click (desktop) opens the quick actions
+    # sheet (plan C3); primary taps keep opening the detail sheet.
+    return ft.GestureDetector(
+        on_secondary_tap=lambda e: _result_actions_sheet(page, r),
+        content=ft.Container(
+            on_long_press=lambda e: _result_actions_sheet(page, r),
         content=ft.Column(
             [
                 ft.Text(
@@ -56,8 +64,9 @@ def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
         border_radius=tokens.RADIUS_LG,
         bgcolor=theme.adaptive_glass_bg(page),
         border=ft.Border.all(1, theme.adaptive_glass_border(page)),
-        ink=True,
-        on_click=lambda _: _show_result_sheet(page, r, "text"),
+            ink=True,
+            on_click=lambda _: _show_result_sheet(page, r, "text"),
+        ),
     )
 
 
