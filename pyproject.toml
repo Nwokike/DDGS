@@ -51,8 +51,12 @@ org.gradle.jvmargs = "-Xmx4g -XX:MaxMetaspaceSize=1G -XX:ReservedCodeCacheSize=5
 [tool.flet.app]
 path = "src"
 
-[tool.flet.app.boot_screen]
-startup_message = "Initializing DDGS..."
+[tool.flet.splash]
+# Plan C11: the Android launch screen matches the app's own surfaces
+# (light: white cards bg; dark: #1A1D22) instead of flet's defaults -
+# and the deprecated [tool.flet.app.boot_screen] mapping is gone.
+color = "#FFFFFF"
+dark_color = "#1A1D22"
 
 [tool.flet.android]
 bundle_id = "ng.kiri.ddgs"
