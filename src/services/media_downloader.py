@@ -11,12 +11,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import urllib.parse
 
 import primp
 
 from services.net_clients import primp_kwargs
+from slugify import slugify
 
 logger = logging.getLogger(__name__)
 
@@ -33,21 +33,23 @@ class DownloadCancelled(Exception):
 
 
 def sanitize_filename(name: str, ext: str) -> str:
-    """Build a safe file name from a title + extension."""
-    if not name:
-        name = "download"
-    name = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", name).strip().strip(".")
-    if not name:
-        name = "download"
-    # Drop an existing trailing extension (e.g. "My Clip.mp4") so we don't
-    # end up with "My Clip.mp4.mp4".
-    if "." in name:
-        head, _, tail = name.rpartition(".")
-        if 1 <= len(tail) <= 5 and tail.isalnum():
-            name = head
+    """Build a safe file name from a title + extension (plan D8).
+
+    python-slugify transliterates unicode through text-unidecode, so an
+    international title becomes readable ASCII on every filesystem
+    instead of whatever the old character-class regex left behind.
+    """
+    slug = slugify(
+        name or "download",
+        max_length=64,
+        word_boundary=True,
+        save_order=True,
+    )
+    if not slug:
+        slug = "download"
     if not ext.startswith("."):
         ext = "." + ext
-    return f"{name}{ext}"
+    return f"{slug}{ext}"
 
 
 def ext_from_url(url: str, default: str = "bin") -> str:

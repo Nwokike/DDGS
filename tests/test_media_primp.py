@@ -116,6 +116,17 @@ def test_html_answer_still_raises_not_media_before_any_retry(monkeypatch, tmp_pa
         )
 
 
+def test_sanitize_filename_slugs_unicode_and_caps_length():
+    from services.media_downloader import sanitize_filename
+
+    # International titles transliterate to ASCII (plan D8).
+    assert sanitize_filename("Résumé ünter", "pdf") == "resume-unter.pdf"
+    assert sanitize_filename("", "mp4") == "download.mp4"
+    # Separators collapse to hyphens, existing extensions don't double.
+    assert sanitize_filename("My Clip: best/of?", ".mp4") == "my-clip-best-of.mp4"
+    assert len(sanitize_filename("A" * 200, "mp4")) == 64 + 4
+
+
 def test_real_client_accepts_connect_timeout():
     import primp
 
