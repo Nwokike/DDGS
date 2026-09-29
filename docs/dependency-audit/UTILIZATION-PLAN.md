@@ -41,12 +41,12 @@ Parked items name the reason — nothing is dropped silently.
 | :-- | :--- | :--- |
 | C1 | **Undo SnackBars** (action/Undo) for history delete, conversation delete, schedule cancel — replace "cannot be undone" | material SnackBar |
 | C2 | **Badge** CLOSES AS BLOCKED BY DESIGN: `test_no_badge_used_anywhere_in_assistant_ui` records that ft.Badge rendered as a red block over the FAB on this build - the app deliberately carries counts in its own colored chips (the credits chip already does this). Revisit only with an explicitly styled Badge | material Badge | standing pin respected |
-| C3 | **Context menus** on results/history/chat rows (right-click desktop, long-press mobile): copy, share, save, open external | ContextMenu/PopupMenu |
+| C3 | **Context menus** SHIPPED: long-press (mobile) / right-click (desktop) on every result row - web, image, video, news, books - opens a bottom sheet with open/copy/share and the decoded host as header; primary taps still open the detail sheet | GestureDetector + BottomSheet | one gesture to the three verbs |
 | C4 | **SegmentedButton** result-type switcher (web/images/videos/news/books) | material SegmentedButton |
 | C5 | **Dismissible** swipe-to-delete on history + conversation rows (with confirm veto) | core Dismissible |
-| C6 | **DatePicker/TimePicker** for crawl schedules + "next run at 14:03" display | material pickers |
+| C6 | **Crawl interval editor** SHIPPED: per-row edit opens a SegmentedButton (15m/30m/1h/6h/12h/24h, the tool schema's legal range) and re-schedules through the Assistant's own `_schedule` path. Date/TimePicker waits for the rrule model (E2), when 'weekdays at 9am' becomes expressible | material SegmentedButton | schedules are no longer set-once |
 | C7 | **Skeleton loading** for result grids and chat | Shimmer/progress |
-| C8 | **Mobile polish**: Share.share_files for saved downloads, HapticFeedback on download-complete, CupertinoActionSheet long-press, large-title navbar | services + cupertino |
+| C8 | **Mobile save polish** SHIPPED (haptics + Share): a finished download/save buzzes via HapticFeedback, and the success dialog gains a Share button that hands the real file to the native share sheet (share_files). Large-title navbar + CupertinoActionSheet remain open | HapticFeedback, Share.share_files | save completes with a buzz and a share button |
 | C9 | **Desktop**: KeyboardListener shortcuts (Ctrl+K, Esc, arrows), taskbar progress + `prevent_close` confirm on active downloads, WindowDragArea titlebar | core/services window |
 | C10 | **InteractiveViewer** pinch-zoom on image results; **Semantics** labels + reduce-motion respect | core controls |
 | C11 | **Splash** branding (Android pipeline exists, unused) + About shows flet runtime version | flet runtime/cli |

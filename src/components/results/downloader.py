@@ -135,7 +135,13 @@ def _default_save_path(is_mobile: bool, default_name: str) -> str | None:
     return os.path.join(dl_dir, unique_name)
 
 
-def _show_feedback(page: ft.Page, title: str, message: str, is_error: bool = False):
+def _show_feedback(
+    page: ft.Page,
+    title: str,
+    message: str,
+    is_error: bool = False,
+    path: str | None = None,
+):
     """Display a clear, prominent completion/error dialog on both mobile and desktop screens."""
     icon = ft.Icons.CHECK_CIRCLE_ROUNDED if not is_error else ft.Icons.ERROR_OUTLINED
     icon_color = AppColors.SUCCESS if not is_error else AppColors.ERROR
@@ -159,17 +165,52 @@ def _show_feedback(page: ft.Page, title: str, message: str, is_error: bool = Fal
             selectable=True,
             style=ft.TextStyle(height=1.4),
         ),
-        actions=[
-            ft.FilledButton(
-                "OK",
-                on_click=lambda e: page.pop_dialog(),
-                style=ft.ButtonStyle(bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE),
-            )
-        ],
+        actions=(_feedback_actions(page, title, path, is_error)),
         actions_alignment=ft.MainAxisAlignment.END,
     )
     page.show_dialog(dlg)
     page.update()
+    if not is_error:
+        # Plan C8: a finished save buzzes on mobile (no-op on desktop).
+        try:
+            haptic = getattr(page, "haptic_feedback", None)
+            if not haptic:
+                haptic = ft.HapticFeedback()
+                page.services.append(haptic)
+            page.run_task(haptic.medium_impact)
+        except Exception:
+            pass
+
+
+def _feedback_actions(page: ft.Page, title: str, path: str | None, is_error: bool):
+    """OK always; Share sits beside it when a real file was just written."""
+    actions = []
+    if path and not is_error:
+
+        async def _share(e=None):
+            share = getattr(page, "share", None)
+            if not share:
+                share = ft.Share()
+                page.services.append(share)
+            await share.share_files([ft.ShareFile(path=path)], title=title)
+
+        actions.append(
+            ft.OutlinedButton(
+                "Share",
+                on_click=lambda e: page.run_task(_share),
+                style=ft.ButtonStyle(
+                    side=ft.BorderSide(1, AppColors.PRIMARY),
+                ),
+            )
+        )
+    actions.append(
+        ft.FilledButton(
+            "OK",
+            on_click=lambda e: page.pop_dialog(),
+            style=ft.ButtonStyle(bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE),
+        )
+    )
+    return actions
 
 
 async def _download_media(page: ft.Page, result: SearchResult, search_type: str):
@@ -333,6 +374,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
             "Download Complete",
             f"File successfully saved to:\n\n{path}",
             is_error=False,
+            path=path,
         )
     except NotMediaError:
         page.pop_dialog()
@@ -378,6 +420,7 @@ async def _save_text_content(page: ft.Page, text: str, default_name: str):
                 "File Saved",
                 f"File successfully saved to:\n\n{path}",
                 is_error=False,
+                path=path,
             )
         except (
             ValueError,
