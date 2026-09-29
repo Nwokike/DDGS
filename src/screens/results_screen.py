@@ -23,6 +23,19 @@ from core.styles import build_banner_ad
 
 
 @ft.component
+def _load_more_button(page, controller) -> ft.TextButton:
+    """Plan D2: one more page of results, deduped and appended."""
+
+    return ft.TextButton(
+        "Load more",
+        icon=ft.Icons.EXPAND_MORE_ROUNDED,
+        icon_size=18,
+        size=13,
+        font_family="Outfit",
+        on_click=lambda _: page.run_task(controller.load_more_results),
+    )
+
+
 def ResultsScreen() -> Control:
     """Search results with loading, error, and result card rendering.
 
@@ -143,6 +156,7 @@ def ResultsScreen() -> Control:
                         run_spacing=10,
                         alignment=ft.MainAxisAlignment.START,
                     ),
+                    _load_more_button(page, controller),
                 ],
                 spacing=tokens.SPACE_SM,
                 scroll=ft.ScrollMode.AUTO,
@@ -177,6 +191,7 @@ def ResultsScreen() -> Control:
                         spacing=6,
                     ),
                     *cards,
+                    _load_more_button(page, controller),
                 ],
                 spacing=tokens.SPACE_SM,
                 scroll=ft.ScrollMode.AUTO,

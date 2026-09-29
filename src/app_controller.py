@@ -8,6 +8,7 @@ and mounts the declarative UI with ``page.render()``.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 import flet as ft
 
@@ -666,6 +667,49 @@ class AppController:
         except Exception:
             logger.debug("Ctrl+K focus unavailable", exc_info=True)
 
+    async def load_more_results(self) -> None:
+        """Append the next page to the on-screen results (plan D2).
+
+        Fresh page per tap, no cursor: the service reads state.page, so
+        bump-then-search is the whole protocol. Merged results dedupe by
+        URL, because engines overlap across pages.
+        """
+        progress = state.search_progress
+        if progress is None or progress.is_running:
+            return
+        search_type = progress.search_type
+        query = state.current_query
+        if not query or search_type == "extract":
+            return
+        previous = list(state.last_results.get(search_type) or [])
+        if not previous:
+            return
+        seen = {r.url for r in previous}
+        state.page += 1
+        try:
+            progress = await self.search_service.search(search_type, query, ui=False)
+        except Exception as exc:
+            state.page -= 1
+            logger.warning("load-more failed for %s: %r", query, exc)
+            return
+        fresh = [r for r in progress.results or [] if r.url not in seen]
+        if not fresh:
+            # That page held nothing new - put the counter back so the
+            # next tap retries the same page.
+            state.page -= 1
+            return
+        merged = previous + fresh
+        state.last_results[search_type] = merged
+        state.search_progress = replace(
+            progress, results=merged, total_results=len(merged)
+        )
+        log_search_event(
+            "search_load_more",
+            query=query,
+            search_type=search_type,
+            results=len(merged),
+        )
+
     async def start_search(self, query: str, search_type: str = "text"):
         """Execute a search and update state with progress/results."""
         if not query or not query.strip():
@@ -737,6 +781,7 @@ class AppController:
         state.search_active = True
         state.ai_overview = None
         state.ai_overview_expanded = False
+        state.page = 1  # a new query starts at page 1 (plan D2)
         log_search_event("search_start", query=query, search_type=search_type)
 
         async def _run_search():

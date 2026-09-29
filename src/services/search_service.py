@@ -280,15 +280,23 @@ class SearchService:
                 # Only send engines this category actually ships: ddgs
                 # substitutes an invalid backend silently, so the user's
                 # chosen source would be a lie. Registry churn between
-                # releases is caught here, at the send site.
+                # releases is caught here, at the send site. A
+                # comma-delimited value fans the search out over several
+                # sources (plan D1) - each name is still validated.
                 try:
                     from ddgs.engines import ENGINES
 
-                    backend_ok = state.backend in ENGINES.get(search_type, {})
+                    available = ENGINES.get(search_type, {})
+                    wanted = [b.strip() for b in state.backend.split(",") if b.strip()]
+                    valid = [b for b in wanted if b in available]
                 except Exception:
-                    backend_ok = True  # cannot verify: send what was chosen
-                if backend_ok:
-                    params["backend"] = state.backend
+                    valid = []  # cannot verify: send what was chosen
+                if not valid:
+                    valid = [
+                        b.strip() for b in state.backend.split(",") if b.strip()
+                    ]
+                if valid:
+                    params["backend"] = ",".join(valid)
 
             if state.page and state.page > 1:
                 params["page"] = state.page
