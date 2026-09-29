@@ -48,7 +48,7 @@ Parked items name the reason — nothing is dropped silently.
 | C7 | **Skeleton loading** SHIPPED: three shimmering result-row placeholders (avatar bar, title, snippet lines) render under the progress line while searching - the list's shape appears before its data | core Shimmer | the wait reads as progress, not freeze |
 | C8 | **Mobile save polish** SHIPPED (haptics + Share): a finished download/save buzzes via HapticFeedback, and the success dialog gains a Share button that hands the real file to the native share sheet (share_files). Large-title navbar + CupertinoActionSheet remain open | HapticFeedback, Share.share_files | save completes with a buzz and a share button |
 | C9 | **Desktop** SHIPPED (shortcuts): Esc pops the top dialog, Ctrl+K focuses the Home search (SearchBar registered per render), and the Reader's keyboard handler now chains/restores instead of replacing, so global keys survive it. Window taskbar progress + prevent-close remain open | page.on_keyboard_event | shortcuts work; handler composition is safe |
-| C10 | **InteractiveViewer** pinch-zoom on image results; **Semantics** labels + reduce-motion respect | core controls |
+| C10 | **Zoom SHIPPED, Semantics open**: the detail sheet's image preview pinch-zooms to 5x (wheel on desktop) and pans; Semantics labels + reduce-motion respect on icon buttons remain | InteractiveViewer | photos are inspectable in place |
 | C11 | **Splash** branding (Android pipeline exists, unused) + About shows flet runtime version | flet runtime/cli |
 
 ## Phase D — Search & media depth (ddgs / lxml / pillow / qrcode / pygments / rich / slugify / regex)
