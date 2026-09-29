@@ -168,22 +168,29 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     # ── Build preview based on type ──
     preview = None
     if search_type == "images" and (r.thumbnail or r.image_url):
+        # Plan C10: the preview pinch-zooms (mouse-wheel zooms on desktop),
+        # so a photo is inspectable without leaving the sheet.
         preview = ft.Container(
-            content=ft.Image(
-                src=r.thumbnail or r.image_url or "",
-                fit=ft.BoxFit.CONTAIN,
-                border_radius=tokens.RADIUS_MD,
-                error_content=ft.Container(
-                    ft.Icon(
-                        ft.Icons.BROKEN_IMAGE_ROUNDED,
-                        size=32,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
+            content=ft.InteractiveViewer(
+                content=ft.Image(
+                    src=r.thumbnail or r.image_url or "",
+                    fit=ft.BoxFit.CONTAIN,
+                    border_radius=tokens.RADIUS_MD,
+                    error_content=ft.Container(
+                        ft.Icon(
+                            ft.Icons.BROKEN_IMAGE_ROUNDED,
+                            size=32,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        height=120,
+                        alignment=ft.Alignment.CENTER,
                     ),
-                    height=120,
-                    alignment=ft.Alignment.CENTER,
                 ),
+                min_scale=1.0,
+                max_scale=5.0,
+                trackpad_scroll_causes_scale=True,
             ),
-            height=180,
+            height=220,
             border_radius=tokens.RADIUS_MD,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             alignment=ft.Alignment.CENTER,
