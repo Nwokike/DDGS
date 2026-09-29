@@ -52,10 +52,23 @@ def HistoryScreen() -> Control:
     def _on_clear():
         page = _get_page()
 
+        saved = [
+            dict(entry) for entry in state.search_history
+        ]
+
         async def _do_clear():
             page.pop_dialog()
             state.search_history.clear()
             await controller.save_async("history", [])
+
+            def _undo(e=None):
+                state.search_history.clear()
+                state.search_history.extend(saved)
+                page.run_task(controller.save_async, "history", list(saved))
+
+            page.show_dialog(
+                ft.SnackBar(ft.Text("History cleared"), action="Undo", on_action=_undo)
+            )
 
         dlg = ft.AlertDialog(
             modal=True,
@@ -66,7 +79,7 @@ def HistoryScreen() -> Control:
                 weight=ft.FontWeight.BOLD,
             ),
             content=ft.Text(
-                "This will remove all saved searches. This cannot be undone.",
+                "This will remove all saved searches. You can undo right after.",
                 style=ft.TextStyle(height=1.4),
             ),
             actions=[

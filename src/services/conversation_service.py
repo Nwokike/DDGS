@@ -226,6 +226,19 @@ def save_conversation(
     return True
 
 
+def restore_conversation(
+    conversation_id: str, messages: list[dict], *, title: str | None = None
+) -> bool:
+    """Undo support: resave a deleted conversation (tombstone notwithstanding).
+
+    A delete tombstones the id for 60s, and a queued save would
+    otherwise refuse to recreate it - the Undo action is the one caller
+    that WANTS it back, so it clears the tombstone first.
+    """
+    _tombstones.pop(conversation_id, None)
+    return save_conversation(conversation_id, messages, title=title)
+
+
 def prune_conversations(
     limit: int = MAX_CONVERSATIONS, *, protect: str = ""
 ) -> int:

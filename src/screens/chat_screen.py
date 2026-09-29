@@ -49,6 +49,27 @@ _THROUGHT_CAP = 8000
 # next message exists). Tunable here, positionally derived in _render.
 BANNER_AD_EVERY_N_REPLIES = 1
 
+
+def _exchange_bounds(turns: list[dict], index: int) -> tuple[int, int]:
+    """Bounds of the whole exchange a turn belongs to.
+
+    Drop the exchange, not one side of it: a question with no answer (or
+    the reverse) reads as a glitch. Shared by the delete flow and its
+    Undo, so both always agree on what "one exchange" is.
+    """
+    role = turns[index].get("role")
+    if role not in ("user", "assistant"):
+        return index, index + 1
+    start, end = index, index + 1
+    if role == "user":
+        if end < len(turns) and turns[end].get("role") == "assistant":
+            end += 1
+    elif start > 0 and turns[start - 1].get("role") == "user":
+        # Include the question that asked for this answer, otherwise
+        # regenerate leaves the old question in the transcript.
+        start -= 1
+    return start, end
+
 # One row per ability, covering every tool the Assistant has (owner:
 # "a sample cover every single ability") plus plain chat. The welcome
 # slice shows the WHOLE list (see _welcome), so a row can never be
@@ -526,10 +547,19 @@ class ChatSession:
     def _clear_chat(self) -> None:
         if not self.turns:
             return
+        cleared = self.turns
         self.turns = []
         self._persist_history()
         self._render(force=True)
-        self._snack("Chat cleared")
+
+        def _undo(e=None):
+            if self._turn_task is not None:
+                return  # a reply is streaming; restoring now would fight it
+            self.turns = cleared
+            self._persist_history()
+            self._render(force=True)
+
+        self._snack("Chat cleared", action="Undo", on_action=_undo)
 
     def _model_history(self) -> list[dict]:
         """The flat transcript the agent consumes, projected on demand.
@@ -559,18 +589,7 @@ class ChatSession:
             self._render(force=True)
             return
 
-        # Drop the whole exchange, not one side of it: a question with no
-        # answer, or an answer with no question, reads as a glitch.
-        start, end = index, index + 1
-        if role == "user":
-            if end < len(self.turns) and self.turns[end].get("role") == "assistant":
-                end += 1
-        elif start > 0 and self.turns[start - 1].get("role") == "user":
-            # Include the question that asked for this answer, otherwise
-            # regenerate leaves the old question in the transcript and the
-            # resent one is appended alongside it.
-            start -= 1
-
+        start, end = _exchange_bounds(self.turns, index)
         del self.turns[start:end]
         self._persist_history()
         self._render(force=True)
@@ -631,8 +650,11 @@ class ChatSession:
         except Exception:
             logger.exception("conversation save failed")
 
-    def _snack(self, message: str) -> None:
+    def _snack(self, message: str, *, action: str | None = None, on_action=None) -> None:
         snack = ft.SnackBar(ft.Text(message))
+        if action:
+            snack.action = action
+            snack.on_action = on_action
         snack.open = True
         self.page.show_dialog(snack)
         try:
@@ -761,9 +783,18 @@ class ChatSession:
         was_active = conversation_id == self.conversation_id
         if was_active and self._busy_refuse("deleting this chat"):
             return
+        payload = conversations.load_conversation(conversation_id)
         if not conversations.delete_conversation(conversation_id):
             self._snack("That chat could not be deleted")
             return
+
+        def _undo(e=None):
+            conversations.restore_conversation(
+                conversation_id,
+                (payload or {}).get("messages") or [],
+                title=(payload or {}).get("title"),
+            )
+            conversations.refresh_state()
         conversations.refresh_state()
         if was_active:
             rows = conversations.list_conversations()
@@ -778,20 +809,38 @@ class ChatSession:
                     self._adopt(loaded)
             else:
                 self.new_conversation(keep_current=False)
-        self._snack("Chat deleted")
+        self._snack("Chat deleted", action="Undo", on_action=_undo)
 
     def delete_all_conversations(self) -> None:
         from services import conversation_service as conversations
 
         if self._busy_refuse("deleting your chats"):
             return
+        payloads = [
+            conversations.load_conversation(r["id"])
+            for r in conversations.list_conversations()
+        ]
         deleted, failed = conversations.delete_all()
         conversations.refresh_state()
         self.new_conversation(keep_current=False)
+
+        def _undo(e=None):
+            for payload in payloads:
+                if not payload:
+                    continue
+                conversations.restore_conversation(
+                    str(payload.get("id") or ""),
+                    payload.get("messages") or [],
+                    title=payload.get("title"),
+                )
+            conversations.refresh_state()
+
         if failed:
-            self._snack(f"Deleted {deleted} chats, {failed} could not be removed")
+            self._snack(
+                f"Deleted {deleted} chats, {failed} could not be removed"
+            )
         else:
-            self._snack("All chats deleted")
+            self._snack("All chats deleted", action="Undo", on_action=_undo)
 
     def _history_button_control(self) -> ft.IconButton:
         """Past conversations get a history icon, not a hamburger: the
@@ -1102,7 +1151,7 @@ class ChatSession:
                 title=ft.Text("Delete chat?", font_family="Outfit"),
                 content=ft.Text(
                     f'"{title}" will be removed from this device. '
-                    "This cannot be undone."
+                    "You can undo right after."
                 ),
                 actions=[
                     ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
@@ -1131,7 +1180,7 @@ class ChatSession:
                 title=ft.Text("Delete all chats?", font_family="Outfit"),
                 content=ft.Text(
                     f"All {count} saved chats will be removed from this device. "
-                    "This cannot be undone."
+                    "You can undo right after."
                 ),
                 actions=[
                     ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
@@ -1557,14 +1606,27 @@ class ChatSession:
 
         def _do_delete(e=None):
             self.page.pop_dialog()
-            self._delete_turn(index)
+            start, end = _exchange_bounds(self.turns, index)
+            removed = self.turns[start:end]
+            del self.turns[start:end]
+            self._persist_history()
+            self._render(force=True)
+
+            def _undo(e2=None):
+                if self._turn_task is not None:
+                    return
+                self.turns[start:start] = removed
+                self._persist_history()
+                self._render(force=True)
+
+            self._snack("Message deleted", action="Undo", on_action=_undo)
 
         self.page.show_dialog(
             ft.AlertDialog(
                 title=ft.Text("Delete message?", font_family="Outfit"),
                 content=ft.Text(
                     "This message and its exchange leave this chat. "
-                    "This cannot be undone."
+                    "You can undo right after."
                 ),
                 actions=[
                     ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
