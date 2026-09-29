@@ -295,6 +295,43 @@ def is_launchable_url(url: str) -> bool:
     )
 
 
+def display_host(host: str) -> str:
+    """Decode a punycode host for humans: xn--mnchen-3ya -> münchen.
+
+    Clicks, copies and requests keep the raw host - only display text
+    changes. Invalid punycode passes through untouched.
+    """
+    import idna
+
+    try:
+        return idna.decode(host, uts46=True, display=True)
+    except Exception:
+        return host
+
+
+def display_url(url: str) -> str:
+    """Pretty-print a result URL with its host decoded for display."""
+    import urllib.parse
+
+    if not is_web_url(url):
+        return url
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname
+    if not host:
+        return url
+    pretty = display_host(host)
+    if pretty == host:
+        return url
+    netloc = pretty
+    if parsed.username:
+        netloc = f"{parsed.username}:{parsed.password or ''}@{netloc}"
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
+    )
+
+
 def sanitize_url(url: str) -> str | None:
     """Validate and sanitize URL. Prepend https:// if it looks like a domain name.
     Return None if completely invalid (e.g. contains spaces or no dots).

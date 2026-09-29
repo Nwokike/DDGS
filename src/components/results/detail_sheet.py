@@ -9,6 +9,7 @@ from components.results.downloader import _download_media
 from core import theme, tokens
 from core.state import SearchResult
 from core.theme import AppColors
+from core.utils import display_url
 
 
 def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
@@ -194,7 +195,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         ),
         # URL
         ft.Text(
-            r.url,
+            display_url(r.url),
             size=tokens.FONT_XS,
             color=AppColors.PRIMARY,
             selectable=True,

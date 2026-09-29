@@ -27,7 +27,7 @@ from components.wallet import show_wallet_dialog
 from core import tokens, ui
 from core.state import SearchResult, state
 from core.theme import AppColors
-from core.utils import is_launchable_url
+from core.utils import display_host, is_launchable_url
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ def _thought_seconds(turn: dict) -> int:
 
 def _domain(url: str) -> str:
     if "//" in url:
-        return url.split("/")[2].removeprefix("www.")
+        return display_host(url.split("/")[2].removeprefix("www."))
     return url[:40]
 
 

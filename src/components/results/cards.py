@@ -19,6 +19,7 @@ from core.constants import EXTRACT_FORMATS
 from core.state import SearchResult, state
 from core.styles import build_banner_ad
 from core.theme import AppColors
+from core.utils import display_url
 
 
 def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
@@ -34,7 +35,7 @@ def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
                     font_family="Outfit",
                 ),
                 ft.Text(
-                    r.url,
+                    display_url(r.url),
                     size=tokens.FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     max_lines=1,
