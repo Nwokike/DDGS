@@ -1,9 +1,9 @@
 {
-  "build_number": 7,
-  "version": "2.0.1",
+  "build_number": 8,
+  "version": "2.0.2",
   "type": "update",
-  "title": "DDGS 2.0.1",
-  "release_notes": "- The Assistant: an agent that searches, fetches, saves, downloads and schedules for you, asking once before it writes\n- 50 credits a day with a receipt on every reply; Premium raises it to 500 a day and removes ads\n- Expandable reasoning and a live model catalog with rate hints\n- Fix: the Assistant screen scrolls and keeps its composer at the bottom on phones",
+  "title": "DDGS 2.0.2",
+  "release_notes": "- Settings: live version header, “Update available · tap to view” when a new build exists\n- Update notes bullet every change, like KTV Player and LM Router",
   "mandatory": false,
   "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
   "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"

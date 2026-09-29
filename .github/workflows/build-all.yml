@@ -9,11 +9,11 @@ on:
       build_version:
         description: "Build version"
         required: true
-        default: "2.0.1"
+        default: "2.0.2"
       build_number:
         description: "Build number"
         required: true
-        default: "7"
+        default: "8"
 
 permissions:
   contents: write
@@ -22,8 +22,8 @@ env:
   PYTHONUTF8: "1"
   FLET_CLI_NO_RICH_OUTPUT: "1"
   UV_PYTHON: "3.12"
-  BUILD_VERSION: ${{ inputs.build_version || '2.0.1' }}
-  BUILD_NUMBER: ${{ inputs.build_number || '7' }}
+  BUILD_VERSION: ${{ inputs.build_version || '2.0.2' }}
+  BUILD_NUMBER: ${{ inputs.build_number || '8' }}
 
 jobs:
   # ─── 0. Quality gate: nothing builds or publishes until this passes ────

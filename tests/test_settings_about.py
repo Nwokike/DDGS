@@ -122,3 +122,12 @@ def test_version_header_is_ktvs_live_header(monkeypatch):
     monkeypatch.setattr(state, "update_available", True, raising=False)
     values = _values()
     assert "Update available · tap to view" in values, "the live update line"
+
+
+def test_version_header_carries_no_extras_ktv_does_not_have():
+    """Exactness pin: KTV's header block has no tooltip and no static
+    'Version' label row - the status line says everything."""
+    source = (SRC / "components" / "settings" / "sections_about.py").read_text(
+        encoding="utf-8"
+    )
+    assert "Tap to view changelog" not in source, "KTV's header has no tooltip"
