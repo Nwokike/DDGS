@@ -13,3 +13,5 @@ upload-key.jks
 kiri_keystore.jks
 release_notes.md
 .zcode/
+# Internal engineering notes (dependency audits, plans). Never public.
+docs/
