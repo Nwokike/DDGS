@@ -10,6 +10,7 @@ from core import theme, tokens
 from core.state import SearchResult
 from core.theme import AppColors
 from core.utils import display_url
+from core.snack import show_snack
 
 
 def _result_actions_sheet(page: ft.Page, r: SearchResult) -> None:
@@ -33,8 +34,7 @@ def _result_actions_sheet(page: ft.Page, r: SearchResult) -> None:
     def _copied(e=None):
         _close()
         snack = ft.SnackBar(ft.Text("Link copied"))
-        snack.open = True
-        page.show_dialog(snack)
+        show_snack(page, snack)
 
     def _shared(e=None):
         _close()
@@ -190,8 +190,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     def _copy_url(_):
         # Copying happens client-side via action=ft.CopyToClipboard.
         snack = ft.SnackBar(ft.Text("URL copied"))
-        snack.open = True
-        page.show_dialog(snack)
+        show_snack(page, snack)
         page.update()
 
     def _ask_assistant(_):

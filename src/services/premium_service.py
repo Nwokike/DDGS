@@ -40,6 +40,7 @@ from collections.abc import Callable
 from core.build_channel import CHANNEL
 from core.constants import PREMIUM_DAILY_CREDITS
 from core.state import state
+from core.snack import show_snack
 from services import license_service
 from services.license_service import KiriLicenseService, LicenseUnavailable
 
@@ -371,7 +372,7 @@ class PremiumService:
         try:
             import flet as ft
 
-            page.show_dialog(ft.SnackBar(ft.Text(message, font_family="Outfit")))
+            show_snack(page, ft.SnackBar(ft.Text(message, font_family="Outfit")))
         except Exception:
             logger.debug("premium notify failed", exc_info=True)
 

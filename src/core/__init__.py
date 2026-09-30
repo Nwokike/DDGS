@@ -10,7 +10,9 @@ Path policy comes from the single resolver (core.storage_paths); this
 module must never hand-roll storage locations.
 """
 
+import logging
 import os
+import warnings
 
 
 def _pin_tiktoken_cache() -> None:
@@ -27,4 +29,25 @@ def _pin_tiktoken_cache() -> None:
     os.environ["TIKTOKEN_CACHE_DIR"] = str(path)
 
 
+def _quiet_expected_logging() -> None:
+    """Silence two things that are normal operation, not trouble.
+
+    - kani logs a WARNING every time its auto_truncate shortens a tool
+      result - with TOOL_OUTPUT_CAP armed that is most tool calls. It
+      stays visible at INFO.
+    - flet schedules coroutines through page.run_task; when a session is
+      garbage-collected mid-flight, Python's "coroutine ... was never
+      awaited" RuntimeWarning fires at GC for work that was a best-effort
+      teardown save. Inside a live session real coroutine bugs still
+      surface - this only covers the teardown race.
+    """
+    logging.getLogger("kani").setLevel(logging.INFO)
+    warnings.filterwarnings(
+        "ignore",
+        message=r"coroutine '.*' was never awaited",
+        category=RuntimeWarning,
+    )
+
+
 _pin_tiktoken_cache()
+_quiet_expected_logging()

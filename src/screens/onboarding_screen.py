@@ -13,6 +13,7 @@ from flet import Control
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
 from core.theme import AppColors
+from core.snack import show_snack
 
 ICON_SIZE = 64
 ICON_CONTAINER_SIZE = 120
@@ -146,8 +147,7 @@ def OnboardingScreen() -> Control:
                     ),
                     bgcolor=AppColors.ERROR,
                 )
-                snack.open = True
-                page.show_dialog(snack)
+                show_snack(page, snack)
                 page.update()
                 return
             page.run_task(_finish)

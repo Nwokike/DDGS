@@ -14,6 +14,7 @@ from core.styles import build_banner_ad
 from core.theme import AppColors
 from core.utils import classify_error, is_web_url
 from services.search_service import SearchService
+from core.snack import show_snack
 
 _search_service = SearchService()
 _url_history: list[str] = []
@@ -66,8 +67,7 @@ async def _fetch_and_show_link(page: ft.Page, url: str, from_dialog: bool = Fals
             ft.Text(f"Could not fetch: {url}"),
             bgcolor=AppColors.ERROR,
         )
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
+        show_snack(page, snack_tmp)
         page.update()
 
 
@@ -80,8 +80,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
             ft.Text("Invalid URL. Paste a full web link."),
             bgcolor=AppColors.ERROR,
         )
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
+        show_snack(page, snack_tmp)
         page.update()
         return
     url = sanitized
@@ -158,8 +157,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 ),
                 bgcolor=AppColors.ERROR,
             )
-        snack_tmp.open = True
-        page.show_dialog(snack_tmp)
+        show_snack(page, snack_tmp)
         page.update()
         return
 

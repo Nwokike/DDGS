@@ -14,6 +14,7 @@ from core.state import state
 from core.styles import build_banner_ad
 from core.theme import AppColors
 from core.utils import is_web_url
+from core.snack import show_snack
 
 
 def build_content_reader(
@@ -173,8 +174,7 @@ def build_content_reader(
                 )
         except Exception as ex:
             snack = ft.SnackBar(ft.Text(f"Save failed: {ex}"))
-            snack.open = True
-            page.show_dialog(snack)
+            show_snack(page, snack)
             page.update()
 
     def _on_format_change(e):
@@ -184,8 +184,7 @@ def build_content_reader(
 
     def _copy_feedback(_=None):
         snack = ft.SnackBar(ft.Text("URL copied"))
-        snack.open = True
-        page.show_dialog(snack)
+        show_snack(page, snack)
         page.update()
 
     def _on_summarize(e=None):
@@ -193,8 +192,7 @@ def build_content_reader(
 
         if _is_loading or not _current_content:
             snack = ft.SnackBar(ft.Text("Page not loaded yet."))
-            snack.open = True
-            page.show_dialog(snack)
+            show_snack(page, snack)
             page.update()
             return
         show_ai_summary(

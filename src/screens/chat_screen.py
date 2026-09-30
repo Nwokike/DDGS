@@ -28,6 +28,7 @@ from core import tokens, ui
 from core.state import SearchResult, state
 from core.theme import AppColors
 from core.utils import display_host, is_launchable_url
+from core.snack import show_snack
 
 logger = logging.getLogger(__name__)
 
@@ -655,8 +656,7 @@ class ChatSession:
         if action:
             snack.action = action
             snack.on_action = on_action
-        snack.open = True
-        self.page.show_dialog(snack)
+        show_snack(self.page, snack)
         try:
             self.page.update()
         except Exception:

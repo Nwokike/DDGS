@@ -29,6 +29,7 @@ from services.credit_service import init_credit_service
 from services.search_service import SearchService
 from services.storage_service import StorageService
 from services.update_service import UpdateService
+from core.snack import show_snack
 
 LOG_TAG = "AppController"
 
@@ -1295,6 +1296,5 @@ class AppController:
         }.get(level, AppColors.PRIMARY)
 
         snack = ft.SnackBar(ft.Text(message), bgcolor=bg)
-        snack.open = True
-        self.page.show_dialog(snack)
+        show_snack(self.page, snack)
         self.page.update()

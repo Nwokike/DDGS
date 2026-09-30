@@ -13,6 +13,7 @@ from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
 from core.styles import build_banner_ad
 from core.theme import AppColors
+from core.snack import show_snack
 
 _TAB_ICONS = {
     "text": ft.Icons.SEARCH_ROUNDED,
@@ -77,8 +78,9 @@ def HistoryScreen() -> Control:
                 state.search_history.extend(saved)
                 page.run_task(controller.save_async, "history", list(saved))
 
-            page.show_dialog(
-                ft.SnackBar(ft.Text("History cleared"), action="Undo", on_action=_undo)
+            show_snack(
+                page,
+                ft.SnackBar(ft.Text("History cleared"), action="Undo", on_action=_undo),
             )
 
         dlg = ft.AlertDialog(
