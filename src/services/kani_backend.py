@@ -192,7 +192,10 @@ async def _build_engine(
         api_key="any",
         base_url=base,
         http_client=raw,
-        max_retries=2,
+        # No SDK-level retries: the candidate walk below IS the retry for
+        # HTTP misses (429/5xx). The SDK's own backoff delayed every walk
+        # by ~1-3s of retrying the same dead model first.
+        max_retries=0,
         timeout=timeout,
     )
     engine = ReasoningEngine(
@@ -386,17 +389,26 @@ async def run_turn(
             if prev_kani is not None:
                 history = list(prev_kani.chat_history)
         engine, tap = await _build_engine(attempt_model, on_thought)
+        # Past the model-call budget only answer-only rounds may run. A
+        # rescue attempt carries the tool history, so stripping the tools
+        # lets the next model answer from what was already gathered -
+        # without this the boundary below instant-fails every remaining
+        # candidate (the whole pool walked in 3s and the turn died).
+        at_cap = steps >= max_iters
+        rescue = bool(at_cap and attempt and functions)
         kani = DDGSKani(
             engine,
             system_prompt=system_prompt or None,
             chat_history=history,
-            functions=functions,
+            functions=None if rescue else functions,
             # kani consults this only when a tool body itself raises; ours
             # never do (they return error payloads), but an unknown-tool
             # correction should keep the tools available for the retry.
             retry_attempts=1,
         )
         prev_kani = kani
+        # One waived boundary: the rescue's single answer round.
+        cap_waiver = rescue
         round_query = (
             None if attempt and _history_has_query(history) else query
         )
@@ -419,7 +431,10 @@ async def run_turn(
             ):
                 if cancel.is_set():
                     raise ChatCancelled()
-                if time.monotonic() - t0 > timeout_s or steps >= max_iters:
+                if (
+                    time.monotonic() - t0 > timeout_s
+                    or (steps >= max_iters and not cap_waiver)
+                ):
                     # Today's loop conditions, checked where a boundary
                     # exists. The yielded-but-uniterated next manager has
                     # made no request yet, so stopping here is free.
@@ -451,6 +466,7 @@ async def run_turn(
                     _raise_mapped(exc, delivered=delivered)
                     raise  # _raise_mapped always raises; keeps flow honest
                 steps += 1
+                cap_waiver = False
                 if on_steps is not None:
                     on_steps(steps)
                 if message.tool_calls:
@@ -581,8 +597,19 @@ async def complete(
                     delivered = True
                     on_token(chunk)
             message = await manager.message()
+            text = message.text or ""
+            if not text.strip() and not delivered:
+                # An empty stream is a failed candidate here just like in
+                # run_turn: the router answers 200 with an embedded error
+                # for a dead upstream, so walking is the only recovery.
+                last_err = AIUnavailable("candidate produced no answer")
+                logger.info(
+                    "passive candidate %s produced no answer; trying the next",
+                    attempt_model,
+                )
+                continue
             return {
-                "text": message.text or "",
+                "text": text,
                 "model": tap.last_model or attempt_model,
                 "served_by": "router",
             }

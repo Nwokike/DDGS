@@ -392,9 +392,13 @@ def build_content_reader(
 
     # Pre-loaded content (extract card / preview sheet path) never goes
     # through _fetch, so kick the auto-summary here; the streamed tokens
-    # land after the view mounts.
+    # land after the view mounts. Opened with NO content (a tapped link
+    # from the extract card), the fetch never starts by itself - kick it
+    # or the spinner runs forever.
     if _current_content and not _is_loading:
         start_summary()
+    elif _is_loading:
+        page.run_task(_fetch, _current_url)
 
     return ft.View(
         route="/reader",

@@ -326,3 +326,173 @@ def test_hung_model_walks_without_blackout(monkeypatch):
         kani_backend._raise_mapped(timeout, delivered=True)
     assert "Trying another model" in str(excinfo.value)
     assert not marked, "a hung upstream must not black out the router"
+
+
+def test_over_cap_walk_rescues_instead_of_failing_the_whole_pool(monkeypatch):
+    """A turn that spends its step budget mid-tool-loop still answers.
+
+    The boundary check kept the exhausted `steps` count on every rescue
+    attempt, so the next candidate's first round was broken out of before
+    it streamed anything: the whole pool logged "said nothing" in ~3s
+    and the turn ended with no answer at all (2.1.0 field log). Past the
+    cap a rescue attempt gets ONE answer-only round instead - tools are
+    stripped so it answers from the tool results already carried.
+    """
+    from kani import FunctionCall, ToolCall
+    from kani.engines.base import BaseEngine, Completion
+    from kani.models import ChatMessage, ChatRole
+
+    from services import ai_service, kani_backend
+    from services.kani_backend import ToolSpec
+    from services.reasoning import ThoughtTap
+
+    _catalog(monkeypatch)
+    monkeypatch.setattr(ai_service, "_mark_router_failed", lambda: None)
+
+    async def _ping(args):
+        return '{"ok": true}'
+
+    specs = [
+        ToolSpec(
+            name="ping",
+            desc="ping",
+            parameters={"type": "object", "properties": {}},
+            run=_ping,
+        )
+    ]
+
+    built: list[str] = []
+
+    class _Script(BaseEngine):
+        disable_function_calling_kwargs = {}
+
+        def __init__(self, rounds):
+            self.rounds = rounds
+            self.calls = 0
+            self.max_context_size = 131072
+
+        async def prompt_len(self, messages, functions=None, **kwargs):
+            return 10
+
+        async def predict(self, messages, functions=None, **kwargs):
+            raise AssertionError("streaming only")
+
+        async def stream(self, messages, functions=None, **kwargs):
+            script = self.rounds[min(self.calls, len(self.rounds) - 1)]
+            self.calls += 1
+            for item in script:
+                yield item
+
+    tool_round = Completion(
+        ChatMessage(
+            role=ChatRole.ASSISTANT,
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="call-1",
+                    type="function",
+                    function=FunctionCall(name="ping", arguments="{}"),
+                )
+            ],
+        )
+    )
+    scripts = {
+        # attempt one: one tool round, then an empty final round at the cap
+        "fast-one": [
+            [tool_round],
+            [Completion(ChatMessage(role=ChatRole.ASSISTANT, content=""))],
+        ],
+        # attempt two: the answer-only rescue round
+        "steady-two": [
+            [
+                "rescued ",
+                "answer",
+                Completion(
+                    ChatMessage(role=ChatRole.ASSISTANT, content="rescued answer")
+                ),
+            ]
+        ],
+    }
+
+    async def fake_build(model, on_thought):
+        built.append(model)
+        return _Script(scripts[model]), ThoughtTap(on_thought)
+
+    monkeypatch.setattr(kani_backend, "_build_engine", fake_build)
+
+    out = asyncio.run(
+        kani_backend.run_turn(
+            "hello",
+            [],
+            system_prompt="SYS",
+            specs=specs,
+            cancel=asyncio.Event(),
+            on_token=lambda _t: None,
+            model="fast-one",
+            max_iters=2,
+        )
+    )
+    assert built == ["fast-one", "steady-two"], "one walk, no pool-wide failure"
+    assert out["text"].strip() == "rescued answer", "the over-cap rescue answers"
+
+
+def test_passive_summary_walks_when_a_candidate_answers_with_nothing(monkeypatch):
+    """complete() walked only on exceptions; an empty 200 stream returned
+    '' to the summary card as '(empty summary)'. The router answers 200
+    with an embedded error for a dead upstream, so empty IS a failure."""
+    from kani.engines.base import BaseEngine, Completion
+    from kani.models import ChatMessage, ChatRole
+
+    from services import kani_backend
+    from services.reasoning import ThoughtTap
+
+    _catalog(monkeypatch)
+
+    built: list[str] = []
+
+    class _Script(BaseEngine):
+        disable_function_calling_kwargs = {}
+
+        def __init__(self, script):
+            self.script = script
+            self.max_context_size = 131072
+
+        async def prompt_len(self, messages, functions=None, **kwargs):
+            return 10
+
+        async def predict(self, messages, functions=None, **kwargs):
+            raise AssertionError("streaming only")
+
+        async def stream(self, messages, functions=None, **kwargs):
+            for item in self.script:
+                yield item
+
+    scripts = {
+        "fast-one": [Completion(ChatMessage(role=ChatRole.ASSISTANT, content=""))],
+        "steady-two": [
+            "sum",
+            "mary",
+            Completion(ChatMessage(role=ChatRole.ASSISTANT, content="summary")),
+        ],
+    }
+
+    async def fake_build(model, on_thought):
+        built.append(model)
+        return _Script(scripts[model]), ThoughtTap(on_thought)
+
+    monkeypatch.setattr(kani_backend, "_build_engine", fake_build)
+
+    tokens: list[str] = []
+    out = asyncio.run(
+        kani_backend.complete(
+            [
+                {"role": "system", "content": "SYS"},
+                {"role": "user", "content": "hi"},
+            ],
+            lambda t: tokens.append(t),
+            model="fast-one",
+        )
+    )
+    assert built == ["fast-one", "steady-two"], "empty is a miss, not an answer"
+    assert out["text"].strip() == "summary", "the next candidate answers"
+    assert "".join(tokens).strip() == "summary"

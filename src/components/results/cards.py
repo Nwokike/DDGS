@@ -8,7 +8,7 @@ from components.results.cards_media import (
     _news_card,
     _video_card,
 )
-from components.results.content_fetcher import _fetch_and_show, _on_link_tap
+from components.results.content_fetcher import _resolve_url
 from components.results.detail_sheet import (
     _result_actions_sheet,
     _show_result_sheet,
@@ -19,10 +19,28 @@ from components.results.downloader import (
 )
 from core import theme, tokens
 from core.constants import EXTRACT_FORMATS
+from core.snack import show_snack
 from core.state import SearchResult, state
 from core.styles import build_banner_ad
 from core.theme import AppColors
-from core.utils import display_url
+from core.utils import display_url, is_web_url
+
+
+def _open_link_in_reader(page: ft.Page, base_url: str, link: str) -> None:
+    """Open a tapped content link in the full-screen Reader.
+
+    Direct fetches already show their content full-width on the results
+    screen; a subsequent page must continue in the same full-screen
+    surface (the Reader), not drop a preview modal over the results.
+    """
+    if not link or link.startswith(("#", "mailto:")):
+        return
+    resolved = _resolve_url(link, base_url)
+    if not is_web_url(resolved):
+        return
+    ctrl = getattr(page, "_ddgs_controller", None)
+    if ctrl:
+        ctrl.open_content_reader(resolved)
 
 
 def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.GestureDetector:
@@ -133,13 +151,16 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                 if theme.is_dark_mode(page)
                 else ft.MarkdownCodeTheme.DEFAULT
             ),
-            on_tap_link=lambda e: _on_link_tap(page, e.data, url),
+            # Links continue in the full-screen Reader - direct fetches
+            # are already a full-screen surface, so a second page must
+            # not open a modal over the results (owner's call).
+            on_tap_link=lambda e: _open_link_in_reader(page, url, e.data),
         )
 
     async def _change_format(new_fmt: str):
         state.extract_format = new_fmt
         # Persist through the controller; never let a persistence failure
-        # block the re-fetch below (page._ddgs_controller exposes
+        # block the re-extract below (page._ddgs_controller exposes
         # save_setting, not save_async).
         ctrl = getattr(page, "_ddgs_controller", None)
         try:
@@ -147,7 +168,22 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                 await ctrl.save_setting("extract_format", new_fmt)
         except Exception:
             pass
-        await _fetch_and_show(page, url)
+        # Re-extract in place: the same card re-renders with the new
+        # format. This used to pop the preview modal over the results,
+        # which read as "the switch opens something else" instead of
+        # "the content changed".
+        from services.search_service import SearchService
+
+        result, err = await SearchService().extract_url(url, fmt=new_fmt)
+        if result:
+            state.extract_result = result
+        else:
+            show_snack(
+                page,
+                ft.SnackBar(
+                    ft.Text(f"Could not re-extract ({err or 'Unavailable'})")
+                ),
+            )
 
     format_row = ft.Row(
         [
