@@ -96,6 +96,26 @@ def _result_to_dict(result: Any) -> dict:
     }
 
 
+def _jsonable(value: Any) -> Any:
+    """Convert a value to something ``json.dumps`` accepts.
+
+    ``ddgs.extract(url, fmt="content")`` returns raw bytes, and binary
+    payloads can appear anywhere in an extract dict. Bytes decode as
+    UTF-8 with replacement so the entry stays readable and searchable;
+    anything else exotic falls back to ``str()`` rather than failing
+    the write and losing the whole entry.
+    """
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
 class CacheService:
     """Async-safe cache with TTL, atomic writes and a size cap."""
 
@@ -156,7 +176,7 @@ class CacheService:
             "stored_at": time.time(),
             "expires_at": time.time() + ttl,
             "ttl": ttl,
-            "value": value,
+            "value": _jsonable(value),
         }
         path = self._path(key)
 
