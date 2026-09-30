@@ -505,6 +505,12 @@ def tool_outcome(name: str, out: object) -> str:
     return ""
 
 
+def _thinking_depth() -> str | None:
+    """The user's Thinking depth, or None to stay on the router's own."""
+    depth = str(getattr(state, "reasoning_effort", "auto") or "auto")
+    return None if depth == "auto" else depth
+
+
 async def run_turn(
     user_text: str,
     history: list[dict],
@@ -674,6 +680,7 @@ async def run_turn(
             on_model_step=on_model_step,
             on_steps=on_steps,
             model=getattr(state, "ai_model", "auto"),
+            reasoning_effort=_thinking_depth(),
         )
         steps = result["steps"]
         final_text = result["text"]

@@ -331,6 +331,9 @@ class AppController:
             state.timelimit = await storage.get_timelimit()
             state.backend = await storage.get_backend()
             state.page = await storage.get_page()
+            state.reasoning_effort = (
+                await storage.get_setting("reasoning_effort") or "auto"
+            )
             state.image_size = await storage.get_image_size()
             state.image_color = await storage.get_image_color()
             state.image_type = await storage.get_image_type()

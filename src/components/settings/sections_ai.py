@@ -17,6 +17,7 @@ from core.constants import (
 )
 from core.state import state
 from core.theme import AppColors, AppStyles
+from core import tokens
 from core.tokens import (
     FONT_SM,
     ICON_SM,
@@ -150,6 +151,35 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                 active_color=AppColors.PRIMARY,
             ),
             stacked=narrow,
+        )
+    )
+    rows.append(_divider())
+
+    # ── Thinking depth (plan B9; probed live: the router accepts it) ──
+    rows.append(
+        _setting_row(
+            ft.Icons.PSYCHOLOGY_ROUNDED,
+            "Thinking depth",
+            "Auto leaves it to the model; Fast and Deep trade speed for care",
+            ft.SegmentedButton(
+                segments=[
+                    ft.Segment(
+                        value=value,
+                        label=ft.Text(label, font_family="Outfit", size=tokens.FONT_XS),
+                    )
+                    for value, label in (
+                        ("auto", "Auto"),
+                        ("low", "Fast"),
+                        ("high", "Deep"),
+                    )
+                ],
+                selected=[str(state.reasoning_effort or "auto")],
+                allow_multiple_selection=False,
+                on_change=lambda e: _save(
+                    "reasoning_effort", (e.control.selected or ["auto"])[0]
+                ),
+            ),
+            stacked=True,
         )
     )
     rows.append(_divider())

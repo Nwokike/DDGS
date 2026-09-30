@@ -65,6 +65,11 @@ logger = logging.getLogger(__name__)
 # a 6-message transcript can reach, so kani never evicts history.
 DEFAULT_CONTEXT = 131072
 
+# The system prompt and the eleven tool schemas are byte-identical on
+# every turn - exactly the prefix a prompt cache is for. Probed against
+# the live router: accepted (plan B7).
+_CACHE_WIRE = {"prompt_cache_key": "ddgs-agent-system-v1"}
+
 # The tool_call_id of the call currently executing, carried into the
 # AIFunction body (kani does not pass it down). ContextVar, not a plain
 # attribute: kani runs a tool batch with asyncio.gather, and each child
@@ -287,6 +292,7 @@ async def run_turn(
     max_tokens: int | None = None,
     max_iters: int = AGENT_MAX_ITERS,
     timeout_s: float = AGENT_TIMEOUT_S,
+    reasoning_effort: str | None = None,
 ) -> dict:
     """Run one full agent turn through kani's full_round_stream.
 
@@ -332,6 +338,10 @@ async def run_turn(
             # from what it has instead of the old empty bubble.
             max_function_rounds=max(0, max_iters - 1),
             max_tokens=budget,
+            **_CACHE_WIRE,
+            # Plan B9: only sent when the user picked a depth; "auto"
+            # omits the parameter entirely (owner rule).
+            **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
         ):
             if cancel.is_set():
                 raise ChatCancelled()
@@ -452,7 +462,7 @@ async def complete(
         chat_history=_to_history(body),
     )
     manager = kani.chat_round_stream(
-        None, max_tokens=max_tokens or ai_service.ANSWER_MAX_TOKENS
+        None, max_tokens=max_tokens or ai_service.ANSWER_MAX_TOKENS, **_CACHE_WIRE
     )
     delivered = False
     try:

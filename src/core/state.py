@@ -100,6 +100,9 @@ class AppState:
         self.max_results: int = 20
         self.timelimit: str = ""
         self.backend: str = "auto"
+        # Assistant Thinking depth: auto (omit) | low (fast) | high (deep).
+        # "auto" is deliberately NOT sent: the router/model decides.
+        self.reasoning_effort: str = "auto"
         self.page: int = 1
         # Per-category filters ("" = no filter; ddgs 9.16 pass-through params)
         self.image_size: str = ""
