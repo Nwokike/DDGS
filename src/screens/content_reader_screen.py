@@ -40,7 +40,7 @@ def build_content_reader(
     copy_btn = ft.Ref[ft.IconButton]()
     open_btn = ft.Ref[ft.IconButton]()
 
-    async def _fetch(target_url: str, force: bool = False):
+    async def _fetch(target_url: str, force: bool = False, *, same_page: bool = False):
         nonlocal _current_url, _current_content, _is_loading, _error
         _is_loading = True
         _error = None
@@ -70,7 +70,8 @@ def build_content_reader(
         finally:
             _is_loading = False
             _update_ui()
-            if not _error and _current_content:
+            # A format switch re-renders the same page: the summary stands.
+            if not _error and _current_content and not same_page:
                 start_summary(force=True)
 
     def _update_ui():
@@ -182,7 +183,7 @@ def build_content_reader(
 
         async def _apply():
             await set_extract_format(page, e.control.value)
-            await _fetch(_current_url)
+            await _fetch(_current_url, same_page=True)
 
         page.run_task(_apply)
 

@@ -445,12 +445,12 @@ async def _router_base() -> str | None:
             return None
         _router_failed_until = 0.0
         logger.info("AI router recovered; blackout lifted early")
+    # The hot path trusts the remembered port with no probe: the 3s
+    # watchdog owns liveness, and a dead port surfaces as a request
+    # failure, which invalidates it through _mark_router_failed. Probing
+    # here stacked a burst of health checks onto every turn.
     _hot_calls += 1
-    # Every 10th hot call pays a 2s health check. The hot path trusts a
-    # remembered port for speed; this is the amortized way to notice the
-    # port died without taxing the other nine turns.
-    verify = _hot_calls % 10 == 0
-    port = await ensure_router(verify=verify)
+    port = await ensure_router()
     if port is None:
         return None
     return f"http://{ROUTER_HOST}:{port}/v1"

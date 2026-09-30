@@ -228,7 +228,8 @@ def test_turn_task_exception_is_retrieved():
     session = ChatSession(Page())
     assert hasattr(session, "_on_turn_done")
     source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
-    assert "add_done_callback(self._on_turn_done)" in source
+    assert "add_done_callback" in source, "turn tasks must retrieve exceptions"
+    assert "self._on_turn_done" in source
     assert "def shutdown(self)" in source
 
 

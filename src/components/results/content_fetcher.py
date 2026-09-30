@@ -191,8 +191,15 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         except Exception:
             pass
 
-    def _apply(fresh: dict, new_url: str | None = None) -> None:
-        """Fill the sheet from an extract result (entry and navigation)."""
+    def _apply(
+        fresh: dict, new_url: str | None = None, *, same_page: bool = False
+    ) -> None:
+        """Fill the sheet from an extract result (entry and navigation).
+
+        A format switch re-renders the same page in place: the summary
+        stays as it was instead of spending credits on a fresh stream
+        for content the Assistant already described.
+        """
         raw = fresh.get("content", "")
         if new_url:
             view["url"] = new_url
@@ -211,6 +218,8 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         body_col.controls = [_body_control()]
         if view["is_bytes"]:
             summary_card.visible = False
+        elif same_page:
+            summary_card.visible = True
         else:
             summary_card.visible = True
             start_summary(force=True)
@@ -311,8 +320,15 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         await set_extract_format(page, new_fmt)
         # In place: the sheet stays up and its content re-renders in the
         # newly chosen format. The old pop-and-reopen read as "the switch
-        # opens something else" instead of "the content changed".
-        await _load(view["url"], push_history=False)
+        # opens something else" instead of "the content changed". Same
+        # page, so the summary stands - no fresh stream, no fresh charge.
+        fresh, err = await _search_service.extract_url(
+            view["url"], fmt=new_fmt
+        )
+        if not fresh:
+            _paint_error(err)
+            return
+        _apply(fresh, None, same_page=True)
 
     preview_format_row = ft.Row(
         [

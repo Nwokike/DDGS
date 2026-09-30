@@ -191,15 +191,24 @@ class ChatSession:
         self.ctx = ctx or {}
         self.conversation_id: str = conversations.ensure_active()
         saved = conversations.load_conversation(self.conversation_id) or {}
-        self.turns: list[dict] = _turns_from_messages(saved.get("messages") or [])
-        self.busy = False
-        self.cancel = asyncio.Event()
+        # One thread per conversation: transcript, streaming row, task and
+        # cancel event. A reply streaming in chat A never blocks starting
+        # chat B - kani runs each turn on its own engine instance, so turns
+        # are independent. The visible thread drives the composer UI;
+        # background turns keep streaming into their own history.
+        self._threads: dict[str, dict] = {}
+        self._threads[self.conversation_id] = {
+            "turns": _turns_from_messages(saved.get("messages") or []),
+            "current": None,
+            "busy": False,
+            "task": None,
+            "cancel": asyncio.Event(),
+        }
         # Two independent clocks. Sharing one meant a text flush reset the
         # thought throttle and vice versa, so thinking could silently starve
         # for 500ms every time a text token landed.
         self._last_text_flush = 0.0
         self._last_thought_flush = 0.0
-        self._current: dict | None = None
         # Set once teardown starts; every UI touch afterwards is a no-op.
         self._closing = False
         self._confirm: tuple[asyncio.Event, dict] | None = None
@@ -378,6 +387,74 @@ class ChatSession:
 
     # ── Controller-ish API ────────────────────────────────────────────────
 
+    def _thread(self, conversation_id: str | None = None) -> dict:
+        """The state slot for one conversation, created on demand."""
+        threads = self.__dict__.setdefault("_threads", {})
+        cid = conversation_id or self.conversation_id
+        thread = threads.get(cid)
+        if thread is None:
+            thread = {
+                "turns": [],
+                "current": None,
+                "busy": False,
+                "task": None,
+                "cancel": None,
+            }
+            threads[cid] = thread
+        if thread.get("cancel") is None:
+            try:
+                thread["cancel"] = asyncio.Event()
+            except RuntimeError:
+                thread["cancel"] = None
+        return thread
+
+    @property
+    def turns(self) -> list[dict]:
+        """The VISIBLE conversation's transcript. Every existing read and
+        write site keeps working; switching conversations swaps the list
+        the UI paints from."""
+        return self._thread()["turns"]
+
+    @turns.setter
+    def turns(self, value: list[dict]) -> None:
+        self._thread()["turns"] = value
+
+    @property
+    def busy(self) -> bool:
+        """Whether the VISIBLE conversation has a turn streaming."""
+        return bool(self._thread()["busy"])
+
+    @busy.setter
+    def busy(self, value: bool) -> None:
+        self._thread()["busy"] = bool(value)
+
+    @property
+    def cancel(self) -> asyncio.Event:
+        """The VISIBLE conversation's cooperative stop flag."""
+        return self._thread()["cancel"]
+
+    @cancel.setter
+    def cancel(self, value: asyncio.Event) -> None:
+        self._thread()["cancel"] = value
+
+    @property
+    def _current(self) -> dict | None:
+        """The VISIBLE conversation's streaming row."""
+        return self._thread()["current"]
+
+    @_current.setter
+    def _current(self, value: dict | None) -> None:
+        self._thread()["current"] = value
+
+    @property
+    def _turn_task(self) -> asyncio.Task | None:
+        """The VISIBLE conversation's running task, if any."""
+        return self._thread()["task"]
+
+    @_turn_task.setter
+    def _turn_task(self, value: asyncio.Task | None) -> None:
+        self._thread()["task"] = value
+
     def _send_from_field(self) -> None:
         text = (self.field.value or "").strip()
         if not text or self.busy:
@@ -392,14 +469,15 @@ class ChatSession:
     def send(self, text: str) -> None:
         if self.busy:
             return
-        self.cancel = asyncio.Event()
-        self.busy = True
+        thread = self._thread()
+        thread["cancel"] = asyncio.Event()
+        thread["busy"] = True
         self._set_busy_ui(True)
         # Paint FIRST, stream after: the user's message and a Working row
         # go on screen this frame, so a starter tap answers instantly and
         # only the model reply travels the network behind it.
         self.turns.append({"role": "user", "text": text})
-        self._current = {
+        thread["current"] = {
             "role": "assistant",
             "text": "",
             "thought": "",
@@ -415,17 +493,21 @@ class ChatSession:
             "stopped": False,
             "receipt": "",
         }
-        self.turns.append(self._current)
+        self.turns.append(thread["current"])
         self._render(force=True)
+        # The turn owns its conversation id: switching chats mid-reply must
+        # not reroute this stream into the newly visible thread.
+        cid = self.conversation_id
+        history = self._model_history()
         # Keep the handle so Stop can cancel the task. Setting the flag
         # alone is cooperative: a stalled socket or a long tool can leave
         # the UI spinning long after the user pressed Stop.
-        task = asyncio.ensure_future(self._run_turn(text))
+        task = asyncio.ensure_future(self._run_turn(cid, text, history))
         # Retrieve the terminal exception ourselves. Without this, a turn
         # that fails logs "Task exception was never retrieved" and the
         # error disappears, which is what produced the cascade in the log.
-        task.add_done_callback(self._on_turn_done)
-        self._turn_task = task
+        task.add_done_callback(lambda t, c=cid: self._on_turn_done(c, t))
+        thread["task"] = task
 
     def shutdown(self) -> None:
         """Tear the session down before Flet releases the page.
@@ -439,19 +521,25 @@ class ChatSession:
         if self._closing:
             return
         self._closing = True
-        self.cancel.set()
-        task = getattr(self, "_turn_task", None)
-        if task is not None and not task.done():
-            task.cancel()
+        for thread in self.__dict__.get("_threads", {}).values():
+            try:
+                if thread.get("cancel") is not None:
+                    thread["cancel"].set()
+            except Exception:
+                pass
+            task = thread.get("task")
+            if task is not None and not task.done():
+                task.cancel()
         try:
             self._persist_history()
         except Exception:
             logger.debug("persist on shutdown failed")
 
-    def _on_turn_done(self, task: asyncio.Task) -> None:
+    def _on_turn_done(self, conversation_id: str, task: asyncio.Task) -> None:
         """Own the turn's terminal exception instead of letting asyncio log it."""
-        if self._turn_task is task:
-            self._turn_task = None
+        thread = self.__dict__.get("_threads", {}).get(conversation_id)
+        if thread is not None and thread.get("task") is task:
+            thread["task"] = None
         if task.cancelled():
             return
         exc = task.exception()
@@ -464,16 +552,20 @@ class ChatSession:
         else:
             logger.exception("assistant turn failed", exc_info=exc)
 
-    async def _run_turn(self, text: str) -> None:
+    async def _run_turn(self, conversation_id: str, text: str, history: list) -> None:
         from services import chat_agent
 
+        thread = self._thread(conversation_id)
+        emit = lambda event, data: self._emit_for(conversation_id, event, data)  # noqa: E731 - one routing closure per turn
         try:
             await chat_agent.run_turn(
                 text,
-                self._model_history(),
-                self.emit,
-                self.cancel,
-                on_thought=lambda t: self.emit("thought", {"text": t}),
+                history,
+                emit,
+                thread["cancel"],
+                on_thought=lambda t: self._emit_for(
+                    conversation_id, "thought", {"text": t}
+                ),
                 ask_confirm=self.ask_confirm,
             )
         except asyncio.CancelledError:
@@ -483,19 +575,22 @@ class ChatSession:
             logger.info("assistant turn cancelled by the user")
             raise
         finally:
-            self.busy = False
-            self._turn_task = None
-            self._set_busy_ui(False)
+            thread["busy"] = False
+            thread["task"] = None
             # Persist and refresh the balance even on stop or failure: the
             # credits moved whether or not the turn succeeded.
-            self._persist_history()
+            self._persist_conversation(conversation_id)
             self._refresh_credits_chip()
-            self._render(force=True)
+            if conversation_id == self.conversation_id:
+                self._set_busy_ui(False)
+                self._render(force=True)
 
     def stop(self) -> None:
-        """Stop the turn now: raise the flag, then cancel the task itself."""
-        self.cancel.set()
-        task = getattr(self, "_turn_task", None)
+        """Stop the VISIBLE turn now: raise the flag, then cancel the task."""
+        thread = self._thread()
+        if thread.get("cancel") is not None:
+            thread["cancel"].set()
+        task = thread.get("task")
         if task is not None and not task.done():
             task.cancel()
 
@@ -575,8 +670,8 @@ class ChatSession:
         self._render(force=True)
 
         def _undo(e=None):
-            if self._turn_task is not None:
-                return  # a reply is streaming; restoring now would fight it
+            if self.busy:
+                return  # this chat's reply is streaming; restoring now would fight it
             self.turns = cleared
             self._persist_history()
             self._render(force=True)
@@ -686,37 +781,60 @@ class ChatSession:
             pass
 
     # ── Conversation switching ──────────────────────────────────────────
-    def _busy_refuse(self, what: str) -> bool:
-        """Refuse a history change while a reply is still streaming.
+    def _busy_refuse(self, what: str, conversation_id: str | None = None) -> bool:
+        """Refuse only when THAT conversation has a turn streaming.
 
-        The running turn writes into `self.conversation_id` when it
-        finishes, so switching, replacing or deleting the active chat
-        mid-reply would file the answer under the wrong conversation, or
-        recreate the one just deleted.
+        Every turn carries its own conversation id, so a reply in chat A
+        never blocks starting, opening or asking in chat B. Deleting the
+        chat whose own reply is running is still refused: its task would
+        otherwise persist history for a file just removed.
         """
-        if not self.busy:
+        thread = self._thread(conversation_id)
+        if not thread["busy"]:
             return False
         self._snack(f"Wait for the current reply before {what}")
         return True
+
+    def _persist_conversation(self, conversation_id: str) -> None:
+        """Write one conversation's thread transcript to disk."""
+        from services import conversation_service as conversations
+
+        thread = self._thread(conversation_id)
+        messages = conversations.flat_from_turns(thread["turns"])[
+            -conversations.CONVERSATION_MESSAGE_CAP :
+        ]
+        try:
+            self.page.run_task(self._save_history, conversation_id, messages)
+        except Exception:
+            logger.debug("could not schedule the conversation save")
 
     def new_conversation(self, *, keep_current: bool = True) -> None:
         """Start an empty chat.
 
         `keep_current=False` is for the delete path: the chat we are in has
         just been removed, so persisting it again would write the deleted
-        file straight back to disk.
+        file straight back to disk. A reply streaming elsewhere keeps
+        running in its own thread; only the visible chat's composer locks.
         """
         from services import conversation_service as conversations
 
-        if self._busy_refuse("starting a new chat"):
-            return
         if keep_current:
             self._persist_history()
         self.conversation_id = conversations.new_conversation_id()
         state.active_conversation = self.conversation_id
-        self.turns = []
+        self._thread()  # create this chat's slot so busy starts False
+        self._set_busy_ui(False)
         self._remember_active()
         self._render(force=True)
+
+    def ask_about_page(self, url: str, title: str = "Page") -> None:
+        """Start a fresh conversation about one page, then describe it.
+
+        Ask AI is a new task, not a follow-up: the open chat keeps its
+        history untouched while the page gets its own thread.
+        """
+        self.new_conversation()
+        self.send(_describe_prompt(url))
 
     def _toggle_thought(self, turn: dict) -> None:
         # Flip against what is VISIBLE: while the model is still thinking
@@ -749,7 +867,14 @@ class ChatSession:
         """
         self.conversation_id = str(loaded.get("id") or self.conversation_id)
         state.active_conversation = self.conversation_id
-        self.turns = _turns_from_messages(loaded.get("messages") or [])
+        thread = self._thread()
+        thread["turns"] = _turns_from_messages(loaded.get("messages") or [])
+        # Switching back to a chat whose reply is still streaming must
+        # show it busy: the transcript reloads from disk but the turn
+        # state lives in this slot, not in the file.
+        if not thread.get("busy"):
+            thread["current"] = None
+        self._set_busy_ui(bool(thread["busy"]))
         self._remember_active()
         self._render(force=True)
 
@@ -787,11 +912,12 @@ class ChatSession:
             pass
 
     def switch_conversation(self, conversation_id: str) -> None:
-        """Open a saved chat in this session."""
+        """Open a saved chat in this session.
+
+        A reply streaming in the chat being left keeps running in its own
+        thread; the composer locks only while the VISIBLE chat streams.
+        """
         if conversation_id == self.conversation_id:
-            return
-        if self.busy:
-            self._snack("Wait for the current reply to finish")
             return
         self._persist_history()
         loaded = conversations_load(conversation_id)
@@ -804,12 +930,25 @@ class ChatSession:
         from services import conversation_service as conversations
 
         was_active = conversation_id == self.conversation_id
-        if was_active and self._busy_refuse("deleting this chat"):
-            return
+        # Only the deleted chat's own turn is stopped; other threads keep
+        # streaming into their own histories untouched.
+        doomed = self.__dict__.get("_threads", {}).get(conversation_id)
+        if doomed is not None and doomed.get("busy"):
+            try:
+                if doomed.get("cancel") is not None:
+                    doomed["cancel"].set()
+            except Exception:
+                pass
+            task = doomed.get("task")
+            if task is not None and not task.done():
+                task.cancel()
+            doomed["busy"] = False
+            doomed["task"] = None
         payload = conversations.load_conversation(conversation_id)
         if not conversations.delete_conversation(conversation_id):
             self._snack("That chat could not be deleted")
             return
+        self.__dict__.get("_threads", {}).pop(conversation_id, None)
 
         def _undo(e=None):
             conversations.restore_conversation(
@@ -838,8 +977,19 @@ class ChatSession:
     def delete_all_conversations(self) -> None:
         from services import conversation_service as conversations
 
-        if self._busy_refuse("deleting your chats"):
-            return
+        # Every running turn is stopped first: its settlement would
+        # otherwise persist history for files just removed.
+        for thread in self.__dict__.get("_threads", {}).values():
+            try:
+                if thread.get("cancel") is not None:
+                    thread["cancel"].set()
+            except Exception:
+                pass
+            task = thread.get("task")
+            if task is not None and not task.done():
+                task.cancel()
+            thread["busy"] = False
+            thread["task"] = None
         payloads = [
             conversations.load_conversation(r["id"])
             for r in conversations.list_conversations()
@@ -1241,7 +1391,23 @@ class ChatSession:
 
     # ── Emit protocol ──────────────────────────────────────────────────────
 
-    def emit(self, event: str, data: dict) -> None:
+    def _emit_for(self, conversation_id: str, event: str, data: dict) -> None:
+        """Route one turn's events into its own thread's transcript.
+
+        The owning turn always writes home, even when the user has moved
+        to another chat. The screen repaints only when the event belongs
+        to the visible conversation; background threads persist silently.
+        """
+        previous_id = self.conversation_id
+        try:
+            state.active_conversation = conversation_id
+            self.emit(event, data, _visible=conversation_id == previous_id)
+        finally:
+            state.active_conversation = previous_id
+            # Thread dicts were mutated in place through the active id;
+            # nothing else to restore.
+
+    def emit(self, event: str, data: dict, *, _visible: bool = True) -> None:
         now = time.monotonic()
         force = True
         if event == "user":
@@ -1411,7 +1577,11 @@ class ChatSession:
         # chip is refreshed on every terminal event, not only on success.
         if event in ("text_final", "error", "stopped"):
             self._refresh_credits_chip()
-        self._render(force=force)
+        # Background threads mutate their own transcript and persist it,
+        # but only the visible conversation repaints: re-rendering another
+        # chat's tokens would flash its content over the chat being read.
+        if _visible:
+            self._render(force=force)
 
     def _refresh_credits_chip(self) -> None:
         try:
@@ -2303,7 +2473,10 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
     """Open or re-expand the Assistant, reusing the retained session.
 
     A minimized session is restored rather than rebuilt, so the user lands
-    back on the exact conversation they left, not a fresh one.
+    back on the exact conversation they left, not a fresh one. A page
+    question ("Ask Assistant about this page") always starts its own
+    conversation: it is a different task from the open chat, and appending
+    it there buried both threads.
     """
     if state.chat_open:
         return
@@ -2312,7 +2485,7 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         existing.restore()
         if ctx and ctx.get("auto"):
             if ctx.get("url"):
-                existing.send(_describe_prompt(ctx["url"]))
+                existing.ask_about_page(ctx["url"], ctx.get("title") or "Page")
             elif ctx.get("question"):
                 existing.send(ctx["question"])
         return
@@ -2327,6 +2500,6 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         pass
     if ctx and ctx.get("auto"):
         if ctx.get("url"):
-            session.send(_describe_prompt(ctx["url"]))
+            session.ask_about_page(ctx["url"], ctx.get("title") or "Page")
         elif ctx.get("question"):
             session.send(ctx["question"])
