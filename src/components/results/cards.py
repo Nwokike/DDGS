@@ -8,7 +8,6 @@ from components.results.cards_media import (
     _news_card,
     _video_card,
 )
-from components.results.content_fetcher import _resolve_url
 from components.results.detail_sheet import (
     _result_actions_sheet,
     _show_result_sheet,
@@ -18,12 +17,16 @@ from components.results.downloader import (
     _save_text_content,
 )
 from core import theme, tokens
-from core.constants import EXTRACT_FORMATS
+from core.constants import EXTRACT_FORMATS, EXTRACT_FORMAT_SHORT
 from core.snack import show_snack
 from core.state import SearchResult, state
 from core.styles import build_banner_ad
 from core.theme import AppColors
-from core.utils import display_url, is_web_url
+from core.utils import FetchNav, display_url, resolve_url, set_extract_format
+
+# Tap pacing for extract-card link opens: a double-tap must not stack
+# two Reader views.
+_link_nav = FetchNav()
 
 
 def _open_link_in_reader(page: ft.Page, base_url: str, link: str) -> None:
@@ -33,10 +36,8 @@ def _open_link_in_reader(page: ft.Page, base_url: str, link: str) -> None:
     screen; a subsequent page must continue in the same full-screen
     surface (the Reader), not drop a preview modal over the results.
     """
-    if not link or link.startswith(("#", "mailto:")):
-        return
-    resolved = _resolve_url(link, base_url)
-    if not is_web_url(resolved):
+    resolved = resolve_url(base_url, link)
+    if resolved is None or not _link_nav.allow_tap():
         return
     ctrl = getattr(page, "_ddgs_controller", None)
     if ctrl:
@@ -88,15 +89,9 @@ def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.GestureDetector:
     )
 
 
-# Compact segment labels for the extract formats; the full names live in
-# EXTRACT_FORMATS and stay on each segment's tooltip.
-_FMT_SHORT = {
-    "text_markdown": "MD",
-    "text_plain": "Text",
-    "text_rich": "Rich",
-    "text": "HTML",
-    "content": "Raw",
-}
+# Compact segment labels for the extract formats live in
+# core.constants.EXTRACT_FORMAT_SHORT, shared with the preview sheet and
+# the reader so every switcher reads the same words.
 
 
 def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
@@ -158,16 +153,9 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
         )
 
     async def _change_format(new_fmt: str):
-        state.extract_format = new_fmt
-        # Persist through the controller; never let a persistence failure
-        # block the re-extract below (page._ddgs_controller exposes
-        # save_setting, not save_async).
-        ctrl = getattr(page, "_ddgs_controller", None)
-        try:
-            if ctrl and ctrl.storage:
-                await ctrl.save_setting("extract_format", new_fmt)
-        except Exception:
-            pass
+        # One writer for observable state + persistence, shared with the
+        # preview sheet and the reader.
+        await set_extract_format(page, new_fmt)
         # Re-extract in place: the same card re-renders with the new
         # format. This used to pop the preview modal over the results,
         # which read as "the switch opens something else" instead of
@@ -206,7 +194,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                     ft.Segment(
                         value=f["key"],
                         label=ft.Text(
-                            _FMT_SHORT.get(f["key"], f["label"]),
+                            EXTRACT_FORMAT_SHORT.get(f["key"], f["label"]),
                             size=tokens.FONT_XS,
                             font_family="Outfit",
                             tooltip=f["label"],

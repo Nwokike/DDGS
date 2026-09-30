@@ -221,6 +221,18 @@ EXTRACT_FORMATS = [
     {"key": "content", "label": "Raw Bytes"},
 ]
 
+# Compact segment labels for the extract formats; the full names live in
+# EXTRACT_FORMATS and stay on each segment's tooltip. Shared by the
+# extract card, the preview sheet and the reader so every switcher
+# reads the same words.
+EXTRACT_FORMAT_SHORT = {
+    "text_markdown": "MD",
+    "text_plain": "Text",
+    "text_rich": "Rich",
+    "text": "HTML",
+    "content": "Raw",
+}
+
 REGIONS = [
     {"key": "wt-wt", "label": "All Regions"},
     {"key": "us-en", "label": "United States (English)"},

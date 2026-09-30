@@ -1,10 +1,14 @@
 """AI service - embedded Kiri Router: discovery, catalog, credits, prompts.
 
-Model choice belongs to the router (owner's directive: no auto logic in
-the app). The app sends `state.ai_model` verbatim - default `auto`, the
-router's own rotating catalog model - and the router handles ranking,
-per-conversation stickiness and in-request failover itself. The app only
-fetches /v1/models to fill the model picker.
+Model choice is a client-ranked walk: `auto` in the picker means "the
+ranked best right now" - the turn tries the active high/medium pool in
+tier-then-latency order and only falls back to the router's literal
+`auto` last, because its in-request failover is invisible to the app (a
+dead upstream comes back as HTTP 200 with an empty stream and an
+embedded error body, which used to cost every turn 1-3s of dead air).
+A model that just failed is circuit-breakered out of the walk for five
+minutes. The picker still shows the same catalog; an explicit pick is
+always tried first, verbatim.
 
 - Router discovery attaches to ANY Kiri router already listening in
   8082-8092 (the user's own instance) before starting our own from the
@@ -151,7 +155,9 @@ def candidate_models(*, exclude: tuple[str, ...] = ()) -> list[str]:
     """Fallback order: high tier first, then medium, each by latency.
 
     "auto" is the router's own pick, never a fallback candidate. An
-    explicit exclude skips models that just failed this turn.
+    explicit exclude skips models that just failed this turn, and an
+    open circuit breaker (mark_model_failed) skips a model that failed
+    recently - one sick upstream must not be re-tried on every turn.
     """
     skipped = {str(e) for e in exclude}
     ranked: list[tuple[int, int, str]] = []
@@ -160,6 +166,8 @@ def candidate_models(*, exclude: tuple[str, ...] = ()) -> list[str]:
         if not mid or mid.lower() == "auto" or mid in skipped:
             continue
         if str(m.get("status") or "active") != "active":
+            continue
+        if model_circuit_open(mid):
             continue
         tier = _tier(m)
         if tier not in PICKABLE_TIERS:
@@ -174,6 +182,41 @@ def candidate_models(*, exclude: tuple[str, ...] = ()) -> list[str]:
         )
     ranked.sort()
     return [mid for _, _, mid in ranked]
+
+
+# Per-model circuit breaker: a model that just failed (429/5xx/timeout/
+# empty output) is skipped by the fallback pool for this long. The
+# user's explicit pick is always honored first - only the WALK skips
+# open breakers - and the router's `auto` is never breakered (it is the
+# last resort and the router rotates it server-side).
+MODEL_CIRCUIT_TTL = 300.0
+_model_failed_until: dict[str, float] = {}
+
+
+def mark_model_failed(model_id: str) -> None:
+    """Open the circuit for one model after a walk-worthy failure."""
+    if model_id and model_id.lower() != "auto":
+        _model_failed_until[model_id] = time.monotonic() + MODEL_CIRCUIT_TTL
+
+
+def model_circuit_open(model_id: str) -> bool:
+    """True while a recent failure keeps this model out of the walk."""
+    return _model_failed_until.get(model_id, 0.0) > time.monotonic()
+
+
+def turn_candidates(chosen: str) -> list[str]:
+    """The order a turn walks its candidates.
+
+    An explicit pick goes first, verbatim. `auto` means "the ranked best
+    right now": the tier-then-latency pool leads and the router's own
+    `auto` rides last as the final resort - it may still reach a model
+    the catalog missed, but it no longer gets the first 1-3s of every
+    turn to return an empty 200.
+    """
+    pool = candidate_models()
+    if str(chosen or "").strip().lower() == "auto":
+        return [*pool, "auto"]
+    return [chosen, *[m for m in pool if m != chosen]]
 
 
 def model_hint(model_id: str) -> str:
@@ -371,12 +414,43 @@ def shutdown() -> None:
 def _mark_router_failed() -> None:
     global _router_failed_until
     _router_failed_until = time.monotonic() + ROUTER_STICKY_COOLDOWN
+    # The picker must not keep saying "ready" while the loopback that
+    # just died cools down.
+    with _router_lock:
+        port = _router_port
+    _publish_status("starting", port)
+
+
+_hot_calls = 0
 
 
 async def _router_base() -> str | None:
+    global _router_failed_until, _hot_calls
     if time.monotonic() < _router_failed_until:
-        return None
-    port = await ensure_router()
+        # The blackout is for a dead loopback. If the router answers a
+        # health check right now, the blackout ends immediately instead
+        # of blocking a restarted router for the rest of the 60s.
+        with _router_lock:
+            port = _router_port
+        if port is None:
+            return None
+        try:
+            async with httpx.AsyncClient(http2=False) as client:
+                resp = await client.get(
+                    f"http://{ROUTER_HOST}:{port}/health", timeout=1.0
+                )
+            if resp.status_code != 200:
+                return None
+        except Exception:
+            return None
+        _router_failed_until = 0.0
+        logger.info("AI router recovered; blackout lifted early")
+    _hot_calls += 1
+    # Every 10th hot call pays a 2s health check. The hot path trusts a
+    # remembered port for speed; this is the amortized way to notice the
+    # port died without taxing the other nine turns.
+    verify = _hot_calls % 10 == 0
+    port = await ensure_router(verify=verify)
     if port is None:
         return None
     return f"http://{ROUTER_HOST}:{port}/v1"

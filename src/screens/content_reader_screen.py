@@ -14,7 +14,7 @@ from core import theme, tokens
 from core.state import state
 from core.styles import build_banner_ad
 from core.theme import AppColors
-from core.utils import is_web_url
+from core.utils import FetchNav, resolve_url, set_extract_format
 from core.snack import show_snack
 
 
@@ -22,19 +22,14 @@ def build_content_reader(
     page: ft.Page, url: str, content: str | None = None
 ) -> ft.View:
     """Build a full-screen content reader View with back stack."""
-    # Imperative state (since this runs outside the component tree)
-    _url_stack: list[str] = []
+    # Imperative state (since this runs outside the component tree). The
+    # nav is this view's own: no other surface can bleed history into it,
+    # and rapid link taps are debounced instead of stacking fetches.
+    _nav = FetchNav()
     _current_url = url
     _current_content = content
     _is_loading = content is None
     _error = None
-    # Map extract_format to valid dropdown options
-    _VALID_FORMATS = {"text_markdown", "text_plain", "text_rich", "text", "content"}
-    _format = (
-        state.extract_format
-        if state.extract_format in _VALID_FORMATS
-        else "text_markdown"
-    )
 
     # UI references
     content_text = ft.Ref[ft.Markdown]()
@@ -58,7 +53,9 @@ def build_content_reader(
             # force bypasses the 24h page cache: Refresh and Retry must
             # show what the server serves now, or Retry after a failed
             # extract re-renders the same failure from cache.
-            result, err = await svc.extract_url(target_url, fmt=_format, force=force)
+            result, err = await svc.extract_url(
+                target_url, fmt=state.extract_format, force=force
+            )
             if err:
                 _error = err
                 _current_content = None
@@ -131,20 +128,18 @@ def build_content_reader(
     page.on_keyboard_event = _handle_keyboard
 
     def _on_link_tap(e):
-        import urllib.parse
-
-        link = e.data
-        if not link or link.startswith(("#", "mailto:")):
+        # One resolver for every surface (extract card, preview sheet,
+        # reader): urljoin for relative links, scheme guard after - so
+        # `../`, `?q` and `./path` work while `javascript:` never fetches.
+        resolved = resolve_url(_current_url, e.data)
+        if resolved is None or not _nav.allow_tap():
             return
-        if not is_web_url(link):
-            parsed = urllib.parse.urlparse(_current_url)
-            link = f"{parsed.scheme}://{parsed.netloc}/{link.lstrip('/')}"
-        _url_stack.append(_current_url)
-        page.run_task(_fetch, link)
+        _nav.push(_current_url)
+        page.run_task(_fetch, resolved)
 
     def _go_back():
-        if _url_stack:
-            prev = _url_stack.pop()
+        prev = _nav.pop()
+        if prev:
             page.run_task(_fetch, prev)
         else:
             _exit_reader()
@@ -181,9 +176,15 @@ def build_content_reader(
             page.update()
 
     def _on_format_change(e):
-        nonlocal _format
-        _format = e.control.value
-        page.run_task(_fetch, _current_url)
+        # The reader drives the SAME global setting as the extract card
+        # and the preview sheet: one switch, persisted, reflected
+        # everywhere - it used to keep a private copy that never saved.
+
+        async def _apply():
+            await set_extract_format(page, e.control.value)
+            await _fetch(_current_url)
+
+        page.run_task(_apply)
 
     def _copy_feedback(_=None):
         snack = ft.SnackBar(ft.Text("URL copied"))
@@ -238,7 +239,7 @@ def build_content_reader(
         actions=[
             ft.Dropdown(
                 ref=format_dropdown,
-                value=_format,
+                value=state.extract_format,
                 options=[
                     ft.dropdown.Option("text_markdown", "Markdown"),
                     ft.dropdown.Option("text_plain", "Plain Text"),

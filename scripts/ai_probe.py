@@ -111,7 +111,7 @@ async def probe_tools() -> list[str]:
             out, _ = await _dispatch(
                 "download_media",
                 {
-                    "url": "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf"
+                    "url": "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"
                 },
             )
             dpath = Path(out["saved_to"])
@@ -136,7 +136,7 @@ async def probe_tools() -> list[str]:
             check("scrape_site", False, f"{type(exc).__name__}: {exc}")
 
         # 10/11: schedule + cancel (state only; restored afterwards)
-        from core import state as app_state
+        from core.state import state as app_state
 
         before = list(app_state.scheduled_scrapes)
         try:
@@ -173,7 +173,7 @@ async def probe_tools() -> list[str]:
 
 
 async def probe_end_to_end() -> list[str]:
-    from core import state as app_state
+    from core.state import state as app_state
     from services import ai_service, chat_agent, credit_service
     from services import kani_backend
 
@@ -269,7 +269,12 @@ async def probe_end_to_end() -> list[str]:
         )
         final = next((d for e, d in events2 if e == "text_final"), None)
         errored = next((d for e, d in events2 if e == "error"), None)
-        walked = len(built) >= 2 and built[0] == "auto"
+        # Client-ranked walk: the first engine built is a real ranked
+        # catalog model (never the literal `auto` - that rides last now),
+        # the rigged 429 walks it, and a later candidate still answers.
+        # The exact first id is not pinned: catalog latency ranks shift
+        # between /models fetches.
+        walked = len(built) >= 2 and built[0] != "auto"
         check(
             "fallback_walks_and_answers",
             final is not None and walked and errored is None,

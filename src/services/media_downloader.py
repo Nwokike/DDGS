@@ -150,6 +150,13 @@ async def download_media(
                         except OSError:
                             pass
                     raise
+            # Success: the file is fully written and closed. Return HERE -
+            # falling through used to loop to the next profile, download
+            # the file a second time, and then raise "the download was
+            # refused" as if nothing had been saved (the return lived as
+            # dead code after the loop's raise).
+            logger.info("Downloaded %d bytes to %s", written, dest)
+            return written
         except primp.StatusError as exc:
             # primp errors are NOT builtins (PrimpError, not OSError), so
             # they used to escape every caller's handler: map them to plain
@@ -170,9 +177,6 @@ async def download_media(
         except primp.PrimpError as exc:
             raise RuntimeError(f"download failed: {exc}") from exc
     raise RuntimeError("the download was refused")  # profiles exhausted
-
-    logger.info("Downloaded %d bytes to %s", written, dest)
-    return written
 
 
 def _safe_int(value) -> int | None:
