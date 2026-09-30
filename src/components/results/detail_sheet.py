@@ -113,46 +113,18 @@ def _result_actions_sheet(page: ft.Page, r: SearchResult) -> None:
     )
 
 
-def _qr_dialog(page: ft.Page, url: str) -> None:
-    """Open-on-phone: a QR of the link (plan D6). Scan, keep browsing."""
-    import io
+async def _copy_link_fallback(page: ft.Page, url: str) -> None:
+    """Copy the link via the Clipboard service (no new deps, Android-safe).
 
-    import qrcode
-
-    buffer = io.BytesIO()
-    qrcode.make(url, box_size=8, border=2).save(buffer, format="PNG")
-    png_bytes = buffer.getvalue()
-
-    page.show_dialog(
-        ft.AlertDialog(
-            title=ft.Text("Open on your phone", font_family="Outfit"),
-            content=ft.Column(
-                [
-                    ft.Image(src=png_bytes, width=240, height=240),
-                    ft.Text(
-                        "Scan to open this link on your device",
-                        size=tokens.FONT_SM,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                        text_align=ft.TextAlign.CENTER,
-                        font_family="Outfit",
-                    ),
-                ],
-                tight=True,
-                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                spacing=tokens.SPACE_SM,
-            ),
-            actions=[
-                ft.FilledButton(
-                    "Done",
-                    on_click=lambda e: page.pop_dialog(),
-                    style=ft.ButtonStyle(
-                        bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE
-                    ),
-                )
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-    )
+    Replaces the old QR dialog: qrcode+Pillow are dev-only packages that
+    crash on Android. Copy covers the open-on-phone need.
+    """
+    clipboard = ft.Clipboard()
+    if clipboard not in page.services:
+        page.services.append(clipboard)
+    page.update()
+    await clipboard.set(url)
+    show_snack(page, ft.SnackBar(ft.Text("Link copied - paste it on your phone")))
 
 
 def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
@@ -356,10 +328,12 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                         on_long_press=lambda _: _result_actions_sheet(page, r),
                     ),
                     ft.IconButton(
-                        icon=ft.Icons.QR_CODE_ROUNDED,
+                        icon=ft.Icons.SHARE_ROUNDED,
                         icon_size=tokens.ICON_MD,
-                        tooltip="Open on your phone",
-                        on_click=lambda e: _qr_dialog(page, r.url),
+                        tooltip="Share this link",
+                        on_click=lambda e: page.run_task(
+                            _copy_link_fallback, page, r.url
+                        ),
                     ),
                     ft.IconButton(
                         icon=ft.Icons.CLOSE_ROUNDED,

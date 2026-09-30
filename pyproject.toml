@@ -35,6 +35,13 @@ dependencies = [
     # it would mean hand-rolling the SSE layer that has bitten us before.
     # pydantic/openai/tiktoken come with it. NO [mcp]: never in scope.
     "kani[openai]>=1.10.0",
+    # Imported directly by src/services/kani_backend.py and
+    # src/services/tokenizer.py. Already kani[openai]'s own requirements
+    # and already in uv.lock: declaring them adds no package, it only
+    # makes the direct imports honest - same rule as certifi/idna above.
+    # Floor matches kani 1.10.0's own requirements so the two cannot diverge.
+    "openai>=1.26",
+    "tiktoken>=0.7",
 ]
 
 [tool.flet]

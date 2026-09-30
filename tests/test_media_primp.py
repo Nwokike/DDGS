@@ -118,15 +118,15 @@ def test_html_answer_still_raises_not_media_before_any_retry(monkeypatch, tmp_pa
         )
 
 
-def test_sanitize_filename_slugs_unicode_and_caps_length():
+def test_sanitize_filename_keeps_unicode_and_strips_illegal():
     from services.media_downloader import sanitize_filename
 
-    # International titles transliterate to ASCII (plan D8).
-    assert sanitize_filename("Résumé ünter", "pdf") == "resume-unter.pdf"
+    # Stdlib-only: illegal filesystem chars become "_", unicode preserved.
     assert sanitize_filename("", "mp4") == "download.mp4"
-    # Separators collapse to hyphens, existing extensions don't double.
-    assert sanitize_filename("My Clip: best/of?", ".mp4") == "my-clip-best-of.mp4"
-    assert len(sanitize_filename("A" * 200, "mp4")) == 64 + 4
+    assert sanitize_filename("My Clip: best/of?", ".mp4") == "My Clip_ best_of_.mp4"
+    assert sanitize_filename("Résumé ünter", "pdf") == "Résumé ünter.pdf"
+    # Existing trailing extensions don't double.
+    assert sanitize_filename("My Clip.mp4", "mp4") == "My Clip.mp4"
 
 
 def test_real_client_accepts_connect_timeout():
