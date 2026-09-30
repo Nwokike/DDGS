@@ -306,8 +306,6 @@ def test_new_chat_opens_while_another_reply_streams():
     # scheduled (send() would need a live event loop for ensure_future).
     # The thread carries a real user message so the persist-on-leave
     # writes a file the switch-back can reload (empty means deleted).
-    from services import conversation_service as conversations
-
     session._thread(before_id)["turns"] = [
         {"role": "user", "text": "streaming question"}
     ]
