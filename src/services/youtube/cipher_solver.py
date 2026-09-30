@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-import regex as re  # plan D9: the circuit-breaker regex (timeout= below)
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ _ALGO_CACHE: dict[str, DecipherAlgorithm] = {}
 
 def parse_decipher_algo(js_code: str) -> DecipherAlgorithm:
     """Parses base.js dynamically using the XOR state-machine solver, falling back to legacy parsing if needed."""
-    m = _H_PATTERN.search(js_code, timeout=5.0)
+    m = _H_PATTERN.search(js_code)
     if not m:
         logger.info("H-table not found, trying legacy parser...")
         return parse_legacy_algo(js_code)
@@ -74,7 +74,7 @@ def parse_decipher_algo(js_code: str) -> DecipherAlgorithm:
         chall_init_pattern = re.compile(
             rf"var\s+(\w+)\s*=\s*(\w+)\[{var_h}\[(\w+)\^(\d+)\]\]\({var_h}\[\w+\^\d+\]\);"
         )
-        init_match = chall_init_pattern.search(js_code, timeout=5.0)
+        init_match = chall_init_pattern.search(js_code)
         if not init_match:
             raise ValueError("Split init statement not found")
 
@@ -101,7 +101,7 @@ def parse_decipher_algo(js_code: str) -> DecipherAlgorithm:
             rf"\w+={buf_var}\[{var_h}\[{key_var}\^{join_xor}\]\]\({var_h}\[\w+\^\w+\]\)",
             re.DOTALL,
         )
-        block_match = block_pattern.search(js_code, timeout=5.0)
+        block_match = block_pattern.search(js_code)
         if not block_match:
             raise ValueError("Could not extract challenge block body")
 
@@ -110,7 +110,7 @@ def parse_decipher_algo(js_code: str) -> DecipherAlgorithm:
         stmt_pattern = re.compile(
             rf"(\w+)\[{var_h}\[{key_var}\^(\d+)\]\]\({buf_var},\s*(?:{key_var}\^(\d+)|(\d+))\)"
         )
-        statements = stmt_pattern.findall(block_body, timeout=5.0)
+        statements = stmt_pattern.findall(block_body)
         if not statements:
             raise ValueError("No transformation helper statements found")
 
@@ -119,12 +119,12 @@ def parse_decipher_algo(js_code: str) -> DecipherAlgorithm:
         helper_def_pattern = re.compile(
             rf"(?:var|const|let)\s+{helper_name}\s*=\s*\{{(.*?)\}};", re.DOTALL
         )
-        def_match = helper_def_pattern.search(js_code, timeout=5.0)
+        def_match = helper_def_pattern.search(js_code)
         if not def_match:
             helper_def_pattern = re.compile(
                 rf"{helper_name}\s*=\s*\{{(.*?)\}}", re.DOTALL
             )
-            def_match = helper_def_pattern.search(js_code, timeout=5.0)
+            def_match = helper_def_pattern.search(js_code)
 
         if not def_match:
             raise ValueError(f"Definition of helper {helper_name} not found")
@@ -139,7 +139,7 @@ def parse_decipher_algo(js_code: str) -> DecipherAlgorithm:
         rev_idx_str = f"[{rev_h.get('reverse')}]"
         splice_idx_str = f"[{rev_h.get('splice')}]"
 
-        for name, _args, body in helper_fn_pattern.findall(def_body, timeout=5.0):
+        for name, _args, body in helper_fn_pattern.findall(def_body):
             body_clean = body.replace(" ", "").replace("\n", "")
             if "reverse" in body_clean or rev_idx_str in body_clean:
                 action = "reverse"
@@ -197,7 +197,7 @@ def parse_legacy_algo(js_code: str) -> DecipherAlgorithm:
     )
     CODE_RE = re.compile(r"\w+\.(\w+)\(\w+,(\d+)\);")
 
-    chall_match = CHALL_RE.search(js_code, timeout=5.0)
+    chall_match = CHALL_RE.search(js_code)
     if not chall_match:
         raise ValueError("Legacy CHALL pattern not found")
 
@@ -208,7 +208,7 @@ def parse_legacy_algo(js_code: str) -> DecipherAlgorithm:
         ("reverse", REVERSE_RE),
         ("swap", SWAP_RE),
     ):
-        m = rgx.search(js_code, timeout=5.0)
+        m = rgx.search(js_code)
         if m:
             helpers[m.group(1)] = label
 
