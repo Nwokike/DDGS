@@ -96,16 +96,81 @@ def _hint(entry: dict) -> str:
     return " · ".join(parts) or "free tier"
 
 
+# Tiers the picker is allowed to show or try. "low"/"minimal" exist in
+# the catalog but are too flaky to spend a turn on; they stay out of
+# both the picker and the fallback pool.
+PICKABLE_TIERS = ("high", "medium")
+
+
+def _tier(entry: dict) -> str:
+    rate = entry.get("rate_hint") or {}
+    tier = str(rate.get("tier") or "").lower() if isinstance(rate, dict) else ""
+    return tier or "low"
+
+
 def snapshot_models() -> list[dict]:
-    """Active chat-completion models (auto first, then by latency) with hints."""
+    """Pickable models only: auto first, then active high/medium by latency.
+
+    The catalog keeps everything the router reports; this is what the
+    picker and any other chooser may offer. Low/minimal tiers stay out
+    of both display and fallback, so the app never proposes (or walks
+    to) a model it would refuse to bill a turn on.
+    """
     return [
         {
             "id": m.get("id"),
             "hint": _hint(m),
             "status": m.get("status", "active"),
+            "tier": _tier(m),
         }
-        for m in _catalog
+        for m in pickable_models()
     ]
+
+
+def pickable_models() -> list[dict]:
+    """Models the picker may offer: auto, plus active high/medium tiers."""
+    out: list[dict] = []
+    for m in _catalog:
+        mid = str(m.get("id") or "")
+        if not mid:
+            continue
+        if mid.lower() == "auto":
+            out.append(m)
+            continue
+        if str(m.get("status") or "active") != "active":
+            continue
+        if _tier(m) in PICKABLE_TIERS:
+            out.append(m)
+    return out
+
+
+def candidate_models(*, exclude: tuple[str, ...] = ()) -> list[str]:
+    """Fallback order: high tier first, then medium, each by latency.
+
+    "auto" is the router's own pick, never a fallback candidate. An
+    explicit exclude skips models that just failed this turn.
+    """
+    skipped = {str(e) for e in exclude}
+    ranked: list[tuple[int, int, str]] = []
+    for m in _catalog:
+        mid = str(m.get("id") or "")
+        if not mid or mid.lower() == "auto" or mid in skipped:
+            continue
+        if str(m.get("status") or "active") != "active":
+            continue
+        tier = _tier(m)
+        if tier not in PICKABLE_TIERS:
+            continue
+        lat = m.get("latency_ms")
+        ranked.append(
+            (
+                0 if tier == "high" else 1,
+                lat if isinstance(lat, int) else 10**9,
+                mid,
+            )
+        )
+    ranked.sort()
+    return [mid for _, _, mid in ranked]
 
 
 def model_hint(model_id: str) -> str:

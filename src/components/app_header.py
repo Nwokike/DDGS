@@ -206,11 +206,12 @@ def AppHeader(
         )
 
     right_controls: list[ft.Control] = []
+    # The version chip leads the right group: Home reads [version, credit
+    # pill, theme, settings]; other callers pass no extra actions, so the
+    # chip still sits first no matter who calls.
+    right_controls.append(_build_version_chip(page))
     if extra_actions:
         right_controls.extend(extra_actions)
-
-    # The version chip is always visible on every screen
-    right_controls.append(_build_version_chip(page))
 
     if show_theme:
         right_controls.append(

@@ -327,49 +327,52 @@ def _status(status: int) -> openai.APIStatusError:
 
 
 def test_error_words_stay_byte_identical(monkeypatch):
+    """A dead router is still a dead router; a dead MODEL is a fallback.
+
+    429/5xx/4xx now raise RouterModelFailed (the turn walks to the next
+    candidate); only a severed connection marks the router failed.
+    """
     marked: list[int] = []
     monkeypatch.setattr(ai_service, "_mark_router_failed", lambda: marked.append(1))
 
-    with pytest.raises(AIUnavailable) as e429:
+    with pytest.raises(kani_backend.RouterModelFailed) as e429:
         kani_backend._raise_mapped(_status(429), delivered=False)
-    assert str(e429.value) == "Kiri's free tier is busy right now. Try again shortly."
-    assert not marked  # busy pool: no cooldown
+    assert "busy right now" in str(e429.value)
+    assert not marked, "a busy model must not black out the router"
 
-    with pytest.raises(AIUnavailable) as e404:
+    with pytest.raises(kani_backend.RouterModelFailed) as e404:
         kani_backend._raise_mapped(_status(404), delivered=False)
-    assert str(e404.value) == "The Assistant refused that request. Pick another model."
-    assert not marked  # the router answered: no cooldown either
+    assert "Trying another model" in str(e404.value)
+    assert not marked
 
-    with pytest.raises(AIUnavailable) as e500:
+    with pytest.raises(kani_backend.RouterModelFailed) as e500:
         kani_backend._raise_mapped(_status(503), delivered=False)
-    assert str(e500.value) == "The Assistant had a server problem. Try again shortly."
-    assert marked == [1]
+    assert "server problem" in str(e500.value)
+    assert not marked, "a sick model is not a dead router"
 
     request = httpx.Request("POST", "http://router.test/v1/chat/completions")
     conn = openai.APIConnectionError(request=request)
     with pytest.raises(AIUnavailable) as econn:
         kani_backend._raise_mapped(conn, delivered=False)
     assert str(econn.value) == "Could not reach the Assistant."
-    assert marked == [1, 1]
+    assert marked == [1], "only a dead loopback blacks out the router"
 
     with pytest.raises(AIMidStream):
         kani_backend._raise_mapped(conn, delivered=True)
 
 
 def test_history_is_trimmed_and_roles_filtered():
+    from core.constants import AGENT_HISTORY_MESSAGES
+
     history = [{"role": "system", "content": "no"}]
-    history += [{"role": "user", "content": f"u{i}"} for i in range(9)]
+    history += [{"role": "user", "content": f"u{i}"} for i in range(40)]
     history += [{"role": "assistant", "content": "a"}, {"role": "user", "content": ""}]
     converted = kani_backend._to_history(history)
     texts = [(m.role.value, m.text) for m in converted]
-    # AGENT_HISTORY_MESSAGES from the end; system and empties dropped.
-    assert texts == [
-        ("user", "u5"),
-        ("user", "u6"),
-        ("user", "u7"),
-        ("user", "u8"),
-        ("assistant", "a"),
-    ]
+    # The 30-message input window: empties dropped, last N survive.
+    assert len(texts) == AGENT_HISTORY_MESSAGES - 1
+    assert texts[-1] == ("assistant", "a")
+    assert ("user", "u0") not in texts
 
 
 def test_function_schema_is_the_parameters_document_verbatim():

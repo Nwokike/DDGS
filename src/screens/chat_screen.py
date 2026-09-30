@@ -21,7 +21,6 @@ import time
 
 import flet as ft
 
-from components.app_header import _build_version_chip
 from components.model_picker import build_model_pill
 from components.results.downloader import launch_url
 from components.wallet import show_wallet_dialog
@@ -269,8 +268,6 @@ class ChatSession:
         # Live pill: its label tracks the router lifecycle (starting /
         # ready / stopped) and the selected model, rebuilt on every render.
         self.model_chip = build_model_pill(page)
-        # KTV/Sherlock live version chip: flips to Update Available when new build exists
-        self.version_chip = _build_version_chip(page)
 
         # Sherlock's header shape (the owner's sample): ONE row with a
         # left group and a right group, SPACE_BETWEEN, and scroll on the
@@ -317,7 +314,6 @@ class ChatSession:
                                 on_click=lambda e: self.new_conversation(),
                             ),
                             self._history_button_control(),
-                            self.version_chip,
                             self.credits_chip,
                             self.model_chip,
                         ],
@@ -399,6 +395,28 @@ class ChatSession:
         self.cancel = asyncio.Event()
         self.busy = True
         self._set_busy_ui(True)
+        # Paint FIRST, stream after: the user's message and a Working row
+        # go on screen this frame, so a starter tap answers instantly and
+        # only the model reply travels the network behind it.
+        self.turns.append({"role": "user", "text": text})
+        self._current = {
+            "role": "assistant",
+            "text": "",
+            "thought": "",
+            "steps": 0,
+            "cost": 0,
+            "partial": True,
+            "steps_rows": [],
+            "cards": [],
+            "related": [],
+            "served_by": "",
+            "model": "",
+            "error": None,
+            "stopped": False,
+            "receipt": "",
+        }
+        self.turns.append(self._current)
+        self._render(force=True)
         # Keep the handle so Stop can cancel the task. Setting the flag
         # alone is cooperative: a stalled socket or a long tool can leave
         # the UI spinning long after the user pressed Stop.
@@ -1227,25 +1245,53 @@ class ChatSession:
         now = time.monotonic()
         force = True
         if event == "user":
+            if self.turns and self.turns[-1].get("role") == "assistant":
+                # send() already painted this pair optimistically (the
+                # bubble and the Working row go up before any network
+                # runs); the agent just confirms the question text.
+                self.turns[-2]["text"] = data.get("text", "")
+                return
             self.turns.append({"role": "user", "text": data.get("text", "")})
         elif event == "assistant_start":
-            self._current = {
-                "role": "assistant",
-                "text": "",
-                "thought": "",
-                "steps": 0,
-                "cost": 0,
-                "partial": True,
-                "steps_rows": [],
-                "cards": [],
-                "related": [],
-                "served_by": "",
-                "model": "",
-                "error": None,
-                "stopped": False,
-                "receipt": "",
-            }
-            self.turns.append(self._current)
+            if (
+                self.turns
+                and self._current is not None
+                and self.turns[-1] is self._current
+            ):
+                # Optimistic pair from send(): keep the row already on
+                # screen instead of appending a second, empty one.
+                self._current.update(
+                    {
+                        "steps": 0,
+                        "cost": 0,
+                        "partial": True,
+                        "steps_rows": [],
+                        "cards": [],
+                        "related": [],
+                        "served_by": "",
+                        "model": "",
+                        "error": None,
+                        "stopped": False,
+                    }
+                )
+            else:
+                self._current = {
+                    "role": "assistant",
+                    "text": "",
+                    "thought": "",
+                    "steps": 0,
+                    "cost": 0,
+                    "partial": True,
+                    "steps_rows": [],
+                    "cards": [],
+                    "related": [],
+                    "served_by": "",
+                    "model": "",
+                    "error": None,
+                    "stopped": False,
+                    "receipt": "",
+                }
+                self.turns.append(self._current)
         elif event == "nudge" and self._current is not None:
             self._current["receipt"] = data.get("text", "")
         elif event == "text_partial" and self._current is not None:

@@ -187,7 +187,10 @@ AGENT_MAX_ITERS = 6  # model calls per turn (worst case AGENT_MAX_ITERS * COST_S
 AGENT_MAX_TOOLS = 10  # tool calls per turn
 AGENT_TIMEOUT_S = 240  # wall-clock per turn
 TOOL_OUTPUT_CAP = 2000  # chars of tool output re-sent per loop
-AGENT_HISTORY_MESSAGES = 6
+# How many of the newest transcript messages each turn ships. Raised from 6
+# (three short exchanges): with a 131k-token engine budget the 6-message cap
+# was an arbitrary amputate, not a guard - kani evicts to its own budget.
+AGENT_HISTORY_MESSAGES = 30
 
 
 def credit_word(count: int) -> str:

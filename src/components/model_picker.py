@@ -52,7 +52,17 @@ def model_picker_state() -> PickerState:
     """
     from services import ai_service
 
-    models = tuple(ai_service.snapshot_models())
+    # Only active high/medium-availability models are ever offered; the
+    # catalog itself holds the rest, but the picker and the fallback
+    # pool agree on this set, so switching models never proposes a
+    # flaky tier the turn would refuse to use.
+    catalog = [m for m in ai_service.snapshot_models() if m.get("id") == "auto"]
+    catalog.extend(
+        m
+        for m in ai_service.snapshot_models()
+        if m.get("id") != "auto" and (m.get("tier") or "low") in ("high", "medium")
+    )
+    models = tuple(catalog)
     selected = state.ai_model
     status = getattr(state, "ai_router_status", "starting") or "starting"
     fetched = bool(getattr(ai_service, "_catalog_fetched_at", 0.0))
@@ -83,7 +93,7 @@ def model_picker_state() -> PickerState:
         message, action = "The local model router stopped.", "Start router"
     elif status == "unavailable":
         message, action = (
-            "No local model router is running. Replies will use Kiri Gateway.",
+            "No local model router is running. Replies wait for it.",
             "Start router",
         )
     elif not models:
@@ -93,7 +103,7 @@ def model_picker_state() -> PickerState:
             message, action = "The local model router stopped.", "Start router"
         elif status == "unavailable":
             message, action = (
-                "No local model router is running. Replies will use Kiri Gateway.",
+                "No local model router is running. Replies wait for it.",
                 "Start router",
             )
         else:

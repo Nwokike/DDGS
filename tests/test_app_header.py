@@ -172,8 +172,21 @@ def test_app_header_rendering():
     assert f"v{_APP_VERSION}" in nav_values
 
 
+def test_version_chip_leads_the_home_header():
+    """Home reads [version, credit pill, theme, settings]: the version
+    chip comes first, ahead of the balance the user asked about."""
+    from components.app_header import AppHeader
+
+    placeholder = object()
+    header = AppHeader(None, title="DDGS", extra_actions=[placeholder])
+    right = header.content.controls[1]
+    assert right.controls[0] is not placeholder, "the chip must lead"
+    assert isinstance(right.controls[0], __import__("flet").Container)
+    assert right.controls[1] is placeholder, "extra actions follow the chip"
+
+
 def test_every_screen_mounts_version_chip():
-    """Grep-level verification: all screens include AppHeader or _build_version_chip."""
+    """Grep-level verification: every remaining screen mounts the chip."""
     root = Path(__file__).resolve().parents[1] / "src" / "screens"
 
     home = (root / "home_screen.py").read_text(encoding="utf-8")
@@ -186,7 +199,10 @@ def test_every_screen_mounts_version_chip():
     assert "AppHeader" in settings
 
     chat = (root / "chat_screen.py").read_text(encoding="utf-8")
-    assert "_build_version_chip" in chat
+    # The chat screen deliberately carries NO version chip: update
+    # status lives on every other header, never in the turn flow.
+    assert "_build_version_chip" not in chat
+    assert "version_chip" not in chat
 
     results = (root / "results_screen.py").read_text(encoding="utf-8")
     assert "_build_version_chip" in results
