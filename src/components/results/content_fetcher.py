@@ -195,13 +195,6 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
             file_name = f"{clean_name}{ext}"
             await _save_text_content(page, str(content), file_name)
 
-    def _summarize_preview(_=None):
-        from components.ai_summary import show_ai_summary
-
-        if is_bytes:
-            return
-        show_ai_summary(page, url, str(content), url=url)
-
     def _expand_to_reader():
         """Close this preview and open the full-screen content reader."""
         _url_history.clear()
@@ -256,12 +249,6 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 icon_size=tokens.ICON_MD,
                 tooltip="Save content to file",
                 on_click=lambda _: page.run_task(save_extract),
-            ),
-            ft.IconButton(
-                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                icon_size=tokens.ICON_MD,
-                tooltip="Summarize with Assistant",
-                on_click=_summarize_preview,
             ),
             ft.IconButton(
                 icon=ft.Icons.FULLSCREEN_ROUNDED,
@@ -332,6 +319,18 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         _on_link_tap(page_ref, link_url, base, from_dialog=True)
 
     is_dark = theme.is_dark_mode(page)
+    # Fetch sheet gets the same passive top card as search overviews: it
+    # starts itself once the sheet is up, no button, no modal.
+    summary_card, start_summary = (None, None)
+    if not is_bytes:
+        from components.ai_summary import build_auto_summary
+
+        summary_card, start_summary = build_auto_summary(
+            page,
+            get_title=lambda: url,
+            get_content=lambda: str(content) if content else None,
+            get_url=lambda: url,
+        )
     preview_sheet = ft.BottomSheet(
         content=ft.Container(
             content=ft.Column(
@@ -342,6 +341,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                         height=1,
                         color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                     ),
+                    *((summary_card,) if summary_card is not None else ()),
                     ft.Column(
                         [
                             ft.Markdown(
@@ -371,3 +371,5 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         elevation=8,
     )
     page.show_dialog(preview_sheet)
+    if start_summary is not None:
+        start_summary()

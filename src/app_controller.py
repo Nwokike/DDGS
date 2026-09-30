@@ -7,6 +7,7 @@ and mounts the declarative UI with ``page.render()``.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import replace
 
@@ -89,6 +90,13 @@ class AppController:
         self.page.services.append(connectivity)
         connectivity.on_change = self._on_connectivity_change
         self.page.on_app_lifecycle_state_change = self._on_lifecycle_change
+        # Router watchdog cadence: ~3s while the user is looking (the
+        # model pill must be honest), 30s while the app sits in the
+        # background - a phone should never pay a 3s socket timer for a
+        # status line nobody can see. The event wakes the watchdog the
+        # moment the app returns to the foreground.
+        self._background = False
+        self._router_wakeup = asyncio.Event()
         self._install_global_keyboard()
         self.page.run_task(self._init_connectivity)
 
@@ -280,12 +288,17 @@ class AppController:
             ft.AppLifecycleState.PAUSE,
             ft.AppLifecycleState.DETACH,
         ):
+            self._background = True
             if self.storage:
                 try:
                     await self.storage.flush()
                 except Exception as exc:
                     logger.warning("Lifecycle storage flush failed: %s", exc)
             return
+        self._background = False
+        # Wake the watchdog now: its sleep may have up to 30s left and a
+        # returning user should not read a stale router status.
+        self._router_wakeup.set()
         if e.state not in (ft.AppLifecycleState.RESUME, ft.AppLifecycleState.SHOW):
             return
         try:
@@ -331,9 +344,7 @@ class AppController:
             state.timelimit = await storage.get_timelimit()
             state.backend = await storage.get_backend()
             state.page = await storage.get_page()
-            state.reasoning_effort = (
-                await storage.get_setting("reasoning_effort") or "auto"
-            )
+            state.reasoning_effort = await storage.get_reasoning_effort()
             state.image_size = await storage.get_image_size()
             state.image_color = await storage.get_image_color()
             state.image_type = await storage.get_image_type()
@@ -420,6 +431,10 @@ class AppController:
             "onboarding_done": (self.storage.set_onboarding_done, "has_accepted_terms"),
             "ai_mode": (self.storage.set_ai_mode, "ai_mode_enabled"),
             "ai_model": (self.storage.set_ai_model, "ai_model"),
+            "reasoning_effort": (
+                self.storage.set_reasoning_effort,
+                "reasoning_effort",
+            ),
             # Was never registered before 2.0 - Clear History was a silent no-op.
             "history": (self.storage.set_history, "search_history"),
         }
@@ -1173,7 +1188,12 @@ class AppController:
                 raise
             except Exception as exc:
                 logger.debug("router watchdog tick failed: %s", exc)
-            await asyncio.sleep(3)
+            timeout = 30 if self._background else 3
+            try:
+                await asyncio.wait_for(self._router_wakeup.wait(), timeout=timeout)
+                self._router_wakeup.clear()
+            except TimeoutError:
+                pass
 
     async def _cache_maintenance(self) -> None:
         """Clear temp/ once, then prune the cache every 30 minutes."""

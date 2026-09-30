@@ -41,7 +41,10 @@ def _quiet_expected_logging() -> None:
       teardown save. Inside a live session real coroutine bugs still
       surface - this only covers the teardown race.
     """
-    logging.getLogger("kani").setLevel(logging.INFO)
+    # kani logs its auto_truncate at WARNING; with TOOL_OUTPUT_CAP armed
+    # that fires on every oversized tool result - normal operation, not
+    # trouble. ERROR keeps genuine kani failures visible.
+    logging.getLogger("kani").setLevel(logging.ERROR)
     warnings.filterwarnings(
         "ignore",
         message=r"coroutine '.*' was never awaited",

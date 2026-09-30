@@ -30,10 +30,8 @@ def _load_more_button(page, controller) -> ft.TextButton:
     return ft.TextButton(
         "Load more",
         icon=ft.Icons.EXPAND_MORE_ROUNDED,
-        icon_size=18,
-        size=13,
-        font_family="Outfit",
         on_click=lambda _: page.run_task(controller.load_more_results),
+        style=ft.ButtonStyle(text_style=ft.TextStyle(size=13, font_family="Outfit")),
     )
 
 

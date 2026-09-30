@@ -237,3 +237,92 @@ def test_failed_model_falls_back_inside_one_turn(monkeypatch):
     assert "steady-two" in built, "the turn must walk to the next candidate"
     assert out["text"].strip() == "hello there", "a later candidate answers"
 
+
+def test_upstream_error_mid_stream_walks(monkeypatch):
+    """The owner's exact log: Nvidia overload mid-stream must walk, not die.
+
+    Before the fix this raised out of run_turn and chat_agent logged
+    'chat turn failed' - the turn ended on one sick model.
+    """
+    from kani.engines.base import BaseEngine, Completion
+    from kani.models import ChatMessage, ChatRole
+
+    from services import ai_service, kani_backend
+    from services.reasoning import ThoughtTap
+
+    _catalog(monkeypatch)
+    marked: list[int] = []
+    monkeypatch.setattr(ai_service, "_mark_router_failed", lambda: marked.append(1))
+
+    built: list[str] = []
+
+    class _Script(BaseEngine):
+        disable_function_calling_kwargs = {}
+
+        def __init__(self, script):
+            self.script = script
+            self.max_context_size = 131072
+
+        async def prompt_len(self, messages, functions=None, **kwargs):
+            return 10
+
+        async def predict(self, messages, functions=None, **kwargs):
+            raise AssertionError("streaming only")
+
+        async def stream(self, messages, functions=None, **kwargs):
+            for item in self.script:
+                yield item
+
+    async def overloaded_stream(*a, **k):
+        yield "partial "
+        raise openai.APIError(
+            "Upstream error from Nvidia: Service temporarily overloaded",
+            request=httpx.Request("POST", "http://router.test/v1"),
+            body=None,
+        )
+        yield  # pragma: no cover
+
+    async def answer_stream(*a, **k):
+        yield "hello "
+        yield "there"
+        yield Completion(
+            ChatMessage(role=ChatRole.ASSISTANT, content="hello there")
+        )
+
+    async def fake_build(model, on_thought):
+        built.append(model)
+        engine = _Script([])
+        engine.stream = overloaded_stream if model == "fast-one" else answer_stream  # type: ignore[method-assign]
+        return engine, ThoughtTap(on_thought)
+
+    monkeypatch.setattr(kani_backend, "_build_engine", fake_build)
+
+    out = asyncio.run(
+        kani_backend.run_turn(
+            "hello",
+            [],
+            system_prompt="SYS",
+            specs=[],
+            cancel=asyncio.Event(),
+            on_token=lambda _t: None,
+            model="fast-one",
+        )
+    )
+    assert out["text"].strip() == "hello there", "the turn must finish"
+    assert "steady-two" in built, "the sick model must be walked away from"
+    assert not marked, "an upstream error is not a dead router"
+
+
+def test_hung_model_walks_without_blackout(monkeypatch):
+    """A read timeout walks to the next model; the router stays up."""
+    from services import ai_service, kani_backend
+
+    request = httpx.Request("POST", "http://router.test/v1/chat/completions")
+    timeout = openai.APITimeoutError(request=request)
+    marked: list[int] = []
+    monkeypatch.setattr(ai_service, "_mark_router_failed", lambda: marked.append(1))
+
+    with pytest.raises(kani_backend.RouterModelFailed) as excinfo:
+        kani_backend._raise_mapped(timeout, delivered=True)
+    assert "Trying another model" in str(excinfo.value)
+    assert not marked, "a hung upstream must not black out the router"

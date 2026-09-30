@@ -46,7 +46,10 @@ ROUTER_STICKY_COOLDOWN = 60.0  # cool-off after a router failure before retrying
 # every 3s, and each miss would otherwise pay a serial 11-port scan.
 PROBE_MISS_TTL = 30.0
 
-ANSWER_MAX_TOKENS = 1400
+# 1400 was an arbitrary ceiling on '2-6 sentences unless asked for more'
+# answers; 2048 leaves room for the 'answer in detail' asks, and the
+# empty-retry doubles it to 4096. Free models - the cost is latency only.
+ANSWER_MAX_TOKENS = 2048
 TEMPERATURE = 0.4
 
 
@@ -535,7 +538,8 @@ def build_summary_messages(title: str, content: str) -> list[dict]:
         "You are DDGS AI. Summarize the page below in at most 5 tight bullets, "
         "then one short takeaway line. Facts only, no preamble, no citations."
     )
-    body = content[:8000]
+    # 24k chars: a long article keeps its tail before '5 bullets' is asked.
+    body = content[:24000]
     return [
         {"role": "system", "content": with_clock(system)},
         {"role": "user", "content": f"Title: {title}\n\n{body}"},

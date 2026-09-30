@@ -73,6 +73,8 @@ def build_content_reader(
         finally:
             _is_loading = False
             _update_ui()
+            if not _error and _current_content:
+                start_summary(force=True)
 
     def _update_ui():
         """Rebuild the content area based on current state."""
@@ -188,17 +190,22 @@ def build_content_reader(
         show_snack(page, snack)
         page.update()
 
-    def _on_summarize(e=None):
-        from components.ai_summary import show_ai_summary
+    # ── Assistant summary card (top of reader, expandable - NOT a modal)
+    # The search overview pattern for one page: no button, no modal. The
+    # card starts hidden and auto-starts after the fetch, collapsing via
+    # its chevron. Follow-ups appear only as terminal states.
+    from components.ai_summary import build_auto_summary
 
-        if _is_loading or not _current_content:
-            snack = ft.SnackBar(ft.Text("Page not loaded yet."))
-            show_snack(page, snack)
-            page.update()
-            return
-        show_ai_summary(
-            page, _current_url or "Page", str(_current_content), url=_current_url or ""
-        )
+    summary_card, start_summary = build_auto_summary(
+        page,
+        get_title=lambda: _current_url or "Page",
+        get_content=lambda: (
+            None
+            if isinstance(_current_content, bytes)
+            else (str(_current_content) if _current_content else None)
+        ),
+        get_url=lambda: _current_url or "",
+    )
 
     # ── Build UI ──
 
@@ -257,12 +264,6 @@ def build_content_reader(
                 icon_size=tokens.ICON_SM,
                 tooltip="Refresh content",
                 on_click=lambda _: page.run_task(_fetch, _current_url, True),
-            ),
-            ft.IconButton(
-                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                icon_size=tokens.ICON_SM,
-                tooltip="Summarize with Assistant",
-                on_click=_on_summarize,
             ),
             ft.IconButton(
                 ref=copy_btn,
@@ -389,12 +390,18 @@ def build_content_reader(
         expand=True,
     )
 
+    # Pre-loaded content (extract card / preview sheet path) never goes
+    # through _fetch, so kick the auto-summary here; the streamed tokens
+    # land after the view mounts.
+    if _current_content and not _is_loading:
+        start_summary()
+
     return ft.View(
         route="/reader",
         controls=[
             ft.Container(
                 content=ft.Column(
-                    [appbar, body],
+                    [appbar, summary_card, body],
                     spacing=0,
                     expand=True,
                 ),

@@ -249,6 +249,9 @@ def HistoryScreen() -> Control:
             )
         )
 
+    # History is a top-level dashboard page like Home: same gear + theme
+    # so the user can reach Settings or flip the theme from either.
+    controller = ft.use_context(ControllerMethodsCtx)
     header = AppHeader(
         _get_page(),
         title="History",
@@ -256,8 +259,7 @@ def HistoryScreen() -> Control:
         show_back=True,
         on_back=lambda _: _go_home(),
         extra_actions=header_actions,
-        show_settings=False,
-        show_theme=False,
+        on_settings=lambda e: controller.navigate_tab(2),
     )
 
     return ft.Container(

@@ -184,7 +184,9 @@ async def _build_engine(
     if base is None:
         raise AIUnavailable("The Assistant is reconnecting. Try again shortly.")
     tap = ThoughtTap(on_thought)
-    timeout = httpx.Timeout(180.0, connect=4.0)
+    # 90s of dead air between chunks: enough for a slow-but-alive model,
+    # short enough that a hung one is walked away from quickly.
+    timeout = httpx.Timeout(90.0, connect=4.0)
     raw = build_thought_client(timeout=timeout, max_retries=2, tap=tap)
     client = openai.AsyncOpenAI(
         api_key="any",
@@ -277,7 +279,15 @@ def _raise_mapped(exc: BaseException, *, delivered: bool) -> None:
         raise RouterModelFailed(
             "The Assistant refused that request. Trying another model."
         ) from exc
+    if isinstance(exc, openai.APITimeoutError):
+        # The router answered; one of its upstream models hung. The router
+        # itself is healthy - walk to the next candidate, no blackout.
+        raise RouterModelFailed(
+            "A model timed out. Trying another model."
+        ) from exc
     if isinstance(exc, openai.APIConnectionError):
+        # Refused/DNS: every candidate shares this endpoint, so switching
+        # models cannot help - the router itself is gone.
         ai_service._mark_router_failed()
         if delivered:
             raise AIMidStream(str(exc)) from exc
@@ -343,39 +353,56 @@ async def run_turn(
     last_model_failed: str | None = None
 
     candidates = [chosen, *[m for m in ai_service.candidate_models() if m != chosen]]
-    for attempt_model in candidates:
+
+    def _history_has_query(items: list[ChatMessage]) -> bool:
+        return any(m.role.value == "user" and (m.text or "") == query for m in items)
+
+    # The candidate loop is the turn's whole fallback story: the user's
+    # model first, then the active high/medium pool by latency. When a
+    # candidate dies (429/5xx/refused/hung) or says nothing, the turn
+    # walks to the next one with a FRESH engine and a cleared buffer -
+    # and it carries the failed candidate's transcript (tool results
+    # included) forward, so the next model continues from the searches
+    # that already ran instead of repeating them. kani re-adds the query
+    # at the start of every round, so it is only passed when the carried
+    # history does not already contain it.
+    history = list(base_history)
+    prev_kani: DDGSKani | None = None
+    for attempt, attempt_model in enumerate(candidates):
+        if cancel.is_set():
+            raise ChatCancelled()
+        if attempt:
+            logger.info(
+                "model %s failed for this turn; trying %s",
+                last_model_failed,
+                attempt_model,
+            )
+            round_parts.clear()
+            if on_round_reset is not None:
+                on_round_reset()
+            message = None
+            empty_retried = False
+            budget = max_tokens or ai_service.ANSWER_MAX_TOKENS
+            if prev_kani is not None:
+                history = list(prev_kani.chat_history)
         engine, tap = await _build_engine(attempt_model, on_thought)
         kani = DDGSKani(
             engine,
             system_prompt=system_prompt or None,
-            chat_history=list(base_history),
+            chat_history=history,
             functions=functions,
             # kani consults this only when a tool body itself raises; ours
             # never do (they return error payloads), but an unknown-tool
             # correction should keep the tools available for the retry.
             retry_attempts=1,
         )
-        round_parts.clear()
-        empty_retried = False
-
-    # The candidate loop is the turn's whole fallback story: the user's
-    # model first, then the active high/medium pool by latency. When a
-    # candidate dies (429/5xx/refused) or says nothing, the turn walks
-    # to the next one with a fresh engine and a cleared buffer - no
-    # torn half-replies leak across models.
-    for attempt, attempt_model in enumerate(candidates):
-        if cancel.is_set():
-            raise ChatCancelled()
-        if attempt:
-            logger.info(
-                "model %s failed for this turn; trying %s", last_model_failed, attempt_model
-            )
-            round_parts.clear()
-            if on_round_reset is not None:
-                on_round_reset()
+        prev_kani = kani
+        round_query = (
+            None if attempt and _history_has_query(history) else query
+        )
         try:
             async for manager in kani.full_round_stream(
-                query,
+                round_query,
                 # Plan B3: after N tool rounds kani strips the tools for one
                 # final round, so an over-cap turn ends with an answer built
                 # from what it has instead of the old empty bubble.
@@ -463,7 +490,12 @@ async def run_turn(
             raise
         except asyncio.CancelledError:
             raise
-        except (openai.APIError, AIUnavailable, AIMidStream) as exc:
+        except (
+            openai.APIError,
+            AIUnavailable,
+            AIMidStream,
+            RouterModelFailed,
+        ) as exc:
             # Anything openai can still throw outside a stream maps onto the
             # same words; a local bug instead falls through raw to the
             # caller's generic branch (no invented network message).
@@ -526,32 +558,53 @@ async def complete(
             system = str(item.get("content") or "")
             continue
         body.append(item)
-    engine, tap = await _build_engine(chosen, None)
-    kani = Kani(
-        engine,
-        system_prompt=system or None,
-        chat_history=_to_history(body),
-    )
-    manager = kani.chat_round_stream(
-        None, max_tokens=max_tokens or ai_service.ANSWER_MAX_TOKENS, **_CACHE_WIRE
-    )
-    delivered = False
-    try:
-        async for chunk in manager:
-            if chunk:
-                delivered = True
-                on_token(chunk)
-        message = await manager.message()
-    except ChatCancelled:
-        raise
-    except Exception as exc:
-        _raise_mapped(exc, delivered=delivered)
-        raise
-    return {
-        "text": message.text or "",
-        "model": tap.last_model or chosen,
-        "served_by": "router",
-    }
+    # Passive calls get the same walk as agent turns: a 429 on one model
+    # used to surface as a bare 'Assistant unavailable' because this path
+    # was single-shot. Restarting mid-stream is the one case we refuse -
+    # the caller's buffer cannot be rewound, so two answers would glue.
+    candidates = [chosen, *[m for m in ai_service.candidate_models() if m != chosen]]
+    last_err: Exception | None = None
+    for attempt_model in candidates:
+        engine, tap = await _build_engine(attempt_model, None)
+        kani = Kani(
+            engine,
+            system_prompt=system or None,
+            chat_history=_to_history(body),
+        )
+        manager = kani.chat_round_stream(
+            None, max_tokens=max_tokens or ai_service.ANSWER_MAX_TOKENS, **_CACHE_WIRE
+        )
+        delivered = False
+        try:
+            async for chunk in manager:
+                if chunk:
+                    delivered = True
+                    on_token(chunk)
+            message = await manager.message()
+            return {
+                "text": message.text or "",
+                "model": tap.last_model or attempt_model,
+                "served_by": "router",
+            }
+        except ChatCancelled:
+            raise
+        except Exception as exc:
+            try:
+                _raise_mapped(exc, delivered=delivered)
+            except RouterModelFailed as mapped:
+                if delivered:
+                    raise AIUnavailable(
+                        "The Assistant was interrupted. Try again shortly."
+                    ) from mapped
+                last_err = mapped
+                logger.info(
+                    "passive candidate %s failed: %s", attempt_model, mapped
+                )
+                continue
+            raise
+    raise AIUnavailable(
+        "The Assistant could not answer right now. Try again shortly."
+    ) from last_err
 
 
 class _Archive:

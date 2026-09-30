@@ -35,6 +35,7 @@ from typing import Any
 from core.constants import (
     AGENT_MAX_TOOLS,
     COST_STEP,
+    TOOL_OUTPUT_CAP,
 )
 from core.state import state
 from services import agent_files, ai_service
@@ -349,7 +350,7 @@ async def _dispatch(name: str, args: dict):
         )
         if not res:
             raise RuntimeError(err or "fetch failed")
-        return {"url": url, "content": str(res.get("content") or "")[:3000]}, []
+        return {"url": url, "content": str(res.get("content") or "")[:TOOL_OUTPUT_CAP]}, []
     if name == "save_page":
         url = str(args.get("url") or "")
         if not url.startswith(("http://", "https://")):

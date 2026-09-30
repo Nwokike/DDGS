@@ -251,7 +251,9 @@ def test_usage_falls_back_to_the_local_answer_count():
 def test_tools_are_capped_paragraph_aware_by_kani():
     spec = _spec(_Recorder())
     fn = kani_backend.build_functions([spec])[0]
-    assert fn.auto_truncate == 2000  # TOOL_OUTPUT_CAP, kani truncates
+    from core.constants import TOOL_OUTPUT_CAP
+
+    assert fn.auto_truncate == TOOL_OUTPUT_CAP, 'kani truncates at the cap'
 
 
 def test_cancel_at_the_boundary_makes_no_request(monkeypatch):

@@ -115,21 +115,20 @@ def _result_actions_sheet(page: ft.Page, r: SearchResult) -> None:
 
 def _qr_dialog(page: ft.Page, url: str) -> None:
     """Open-on-phone: a QR of the link (plan D6). Scan, keep browsing."""
-    import base64
     import io
 
     import qrcode
 
     buffer = io.BytesIO()
     qrcode.make(url, box_size=8, border=2).save(buffer, format="PNG")
-    b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+    png_bytes = buffer.getvalue()
 
     page.show_dialog(
         ft.AlertDialog(
             title=ft.Text("Open on your phone", font_family="Outfit"),
             content=ft.Column(
                 [
-                    ft.Image(src_base64=b64, width=240, height=240),
+                    ft.Image(src=png_bytes, width=240, height=240),
                     ft.Text(
                         "Scan to open this link on your device",
                         size=tokens.FONT_SM,
@@ -195,9 +194,12 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         show_snack(page, snack)
         page.update()
 
-    def _ask_assistant(_):
-        async def _run():
-            from components.ai_summary import show_ai_summary
+    # ── Passive summary card (non-media only): same pattern as search
+    # overviews - it starts itself once the sheet is up. The getter pulls
+    # the full page text; when the extract is empty it falls back to the
+    # title + snippet so there is always something to summarize.
+    async def _load_result_text() -> str | None:
+        try:
             from services.search_service import SearchService
 
             svc = SearchService()
@@ -205,9 +207,20 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             text = str((res or {}).get("content") or "")
             if not text.strip():
                 text = f"{r.title}\n\n{r.snippet}"
-            show_ai_summary(page, r.title, text, url=r.url)
+            return text or None
+        except Exception:
+            return f"{r.title}\n\n{r.snippet}"
 
-        page.run_task(_run)
+    summary_card, start_summary = (None, None)
+    if not is_media:
+        from components.ai_summary import build_auto_summary
+
+        summary_card, start_summary = build_auto_summary(
+            page,
+            get_title=lambda: r.title,
+            load_content=_load_result_text,
+            get_url=lambda: r.url,
+        )
 
     # ── Build preview based on type ──
     preview = None
@@ -323,31 +336,38 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     # ── Assemble sheet ──
     controls = [
         drag_handle,
-        # Header
-        ft.Row(
-            [
-                ft.Text(
-                    r.title,
-                    size=tokens.FONT_MD,
-                    weight=ft.FontWeight.W_600,
-                    max_lines=2,
-                    overflow=ft.TextOverflow.ELLIPSIS,
-                    expand=True,
-                    font_family="Outfit",
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.QR_CODE_ROUNDED,
-                    icon_size=tokens.ICON_MD,
-                    tooltip="Open on your phone",
-                    on_click=lambda e: _qr_dialog(page, r.url),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.CLOSE_ROUNDED,
-                    icon_size=tokens.ICON_MD,
-                    on_click=_close,
-                ),
-            ],
-            spacing=tokens.SPACE_SM,
+        # Header: right-click (desktop) and long-press (mobile) open the
+        # quick actions sheet: same verbs as the card row, per plan.
+        ft.GestureDetector(
+            on_secondary_tap=lambda _: _result_actions_sheet(page, r),
+            content=ft.Row(
+                [
+                    ft.Container(
+                        content=ft.Text(
+                            r.title,
+                            size=tokens.FONT_MD,
+                            weight=ft.FontWeight.W_600,
+                            max_lines=2,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            font_family="Outfit",
+                        ),
+                        expand=True,
+                        on_long_press=lambda _: _result_actions_sheet(page, r),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.QR_CODE_ROUNDED,
+                        icon_size=tokens.ICON_MD,
+                        tooltip="Open on your phone",
+                        on_click=lambda e: _qr_dialog(page, r.url),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_ROUNDED,
+                        icon_size=tokens.ICON_MD,
+                        on_click=_close,
+                    ),
+                ],
+                spacing=tokens.SPACE_SM,
+            ),
         ),
         # URL
         ft.Text(
@@ -372,6 +392,12 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     controls.append(
         ft.Divider(height=1, color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE))
     )
+
+    # Passive summary sits above the actions so the stream is visible
+    # without scrolling; collapsible any time - never a button, never
+    # a modal.
+    if summary_card is not None:
+        controls.append(summary_card)
 
     # Primary action
     controls.append(
@@ -472,34 +498,6 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         )
     )
 
-    # AI summarize (non-media results only)
-    if not is_media:
-        controls.append(
-            ft.OutlinedButton(
-                content=ft.Row(
-                    [
-                        ft.Icon(
-                            ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=tokens.ICON_SM
-                        ),
-                        ft.Text(
-                            "Summarize with Assistant",
-                            size=tokens.FONT_SM,
-                            font_family="Outfit",
-                        ),
-                    ],
-                    spacing=4,
-                    tight=True,
-                ),
-                on_click=_ask_assistant,
-                style=ft.ButtonStyle(
-                    shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
-                    side=ft.BorderSide(1, ft.Colors.OUTLINE),
-                    padding=ft.Padding(12, 8, 12, 8),
-                ),
-                expand=True,
-            )
-        )
-
     sheet_content = ft.Container(
         content=ft.Column(
             controls,
@@ -518,3 +516,5 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         elevation=8,
     )
     page.show_dialog(sheet)
+    if start_summary is not None:
+        start_summary()
