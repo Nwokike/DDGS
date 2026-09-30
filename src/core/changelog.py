@@ -4,6 +4,12 @@ current app version (components.settings.version._APP_VERSION) in sync
 when bumping (guarded by tests)."""
 
 CHANGELOG: dict[str, str] = {
+    "2.1.1": (
+        "- Fix: notification bars (with Undo) could stay on screen and "
+        "block every tap; they now always dismiss themselves\n"
+        "- Cleaner activity log: the engine's own truncation notices and "
+        "teardown-only coroutine warnings no longer shout"
+    ),
     "2.1.0": (
         "- The Assistant now runs on the kani agent engine: same tools, "
         "same approval gate, a real agent loop, and the Thinking block "
