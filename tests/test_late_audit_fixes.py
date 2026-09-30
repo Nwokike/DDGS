@@ -540,3 +540,23 @@ def test_announcements_reach_current_installs(monkeypatch):
     assert asyncio.run(svc.check_for_update()) is None, (
         "a plain update still requires a newer build"
     )
+
+
+# ── page cache survives bytes payloads (desktop-found defect) ───────────
+def test_page_cache_round_trips_bytes_instead_of_warning(tmp_path, monkeypatch):
+    """ddgs.extract(fmt="content") returns raw bytes; the JSON cache must
+    decode them, not warn and drop the entry."""
+    monkeypatch.setenv("FLET_APP_STORAGE_CACHE", str(tmp_path))
+    from services.cache_service import CacheService
+
+    async def scenario():
+        cache = CacheService()
+        payload = {"url": "https://host/f", "content": b"<html>\xff binary</html>"}
+        assert await cache.put_page("https://host/f", "content", payload) is True
+        back = await cache.get_page("https://host/f", "content")
+        assert isinstance(back, dict)
+        assert back["url"] == "https://host/f"
+        assert isinstance(back["content"], str)
+        assert "binary" in back["content"]
+
+    asyncio.run(scenario())
