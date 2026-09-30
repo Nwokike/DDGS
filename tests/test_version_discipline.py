@@ -39,9 +39,7 @@ def test_app_fallbacks_end_at_pyproject():
     version, build = _pyproject()
 
     def literals(path: Path, name: str, cast=str):
-        hits = re.findall(
-            rf'{name} = ("[^"]+"|\d+)', path.read_text(encoding="utf-8")
-        )
+        hits = re.findall(rf'{name} = ("[^"]+"|\d+)', path.read_text(encoding="utf-8"))
         return [cast(h.strip('"')) for h in hits]
 
     v_fall = literals(ROOT / "src/components/settings/version.py", "_APP_VERSION")

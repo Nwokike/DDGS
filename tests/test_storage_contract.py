@@ -26,8 +26,7 @@ def test_the_single_resolver_owns_every_ddgs_literal():
     offenders = [
         str(path.relative_to(SRC))
         for path in sorted(SRC.rglob("*.py"))
-        if path.name not in allowed
-        and ".ddgs_ui" in path.read_text(encoding="utf-8")
+        if path.name not in allowed and ".ddgs_ui" in path.read_text(encoding="utf-8")
     ]
     assert not offenders, f"hand-rolled storage paths: {offenders}"
 

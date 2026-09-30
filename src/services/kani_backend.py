@@ -65,6 +65,11 @@ logger = logging.getLogger(__name__)
 # a 6-message transcript can reach, so kani never evicts history.
 DEFAULT_CONTEXT = 131072
 
+# The system prompt and the eleven tool schemas are byte-identical on
+# every turn - exactly the prefix a prompt cache is for. Probed against
+# the live router: accepted (plan B7).
+_CACHE_WIRE = {"prompt_cache_key": "ddgs-agent-system-v1"}
+
 # The tool_call_id of the call currently executing, carried into the
 # AIFunction body (kani does not pass it down). ContextVar, not a plain
 # attribute: kani runs a tool batch with asyncio.gather, and each child
@@ -179,13 +184,18 @@ async def _build_engine(
     if base is None:
         raise AIUnavailable("The Assistant is reconnecting. Try again shortly.")
     tap = ThoughtTap(on_thought)
-    timeout = httpx.Timeout(180.0, connect=4.0)
+    # 90s of dead air between chunks: enough for a slow-but-alive model,
+    # short enough that a hung one is walked away from quickly.
+    timeout = httpx.Timeout(90.0, connect=4.0)
     raw = build_thought_client(timeout=timeout, max_retries=2, tap=tap)
     client = openai.AsyncOpenAI(
         api_key="any",
         base_url=base,
         http_client=raw,
-        max_retries=2,
+        # No SDK-level retries: the candidate walk below IS the retry for
+        # HTTP misses (429/5xx). The SDK's own backoff delayed every walk
+        # by ~1-3s of retrying the same dead model first.
+        max_retries=0,
         timeout=timeout,
     )
     engine = ReasoningEngine(
@@ -212,7 +222,9 @@ def _usage_of(message: Any, text: str, model: str) -> dict | None:
     """
     extra = getattr(message, "extra", None) or {}
     raw = extra.get("openai_usage")
-    if isinstance(raw, dict) and (raw.get("total_tokens") or raw.get("completion_tokens")):
+    if isinstance(raw, dict) and (
+        raw.get("total_tokens") or raw.get("completion_tokens")
+    ):
         return {
             "in": int(raw.get("prompt_tokens") or 0),
             "out": int(raw.get("completion_tokens") or 0),
@@ -238,36 +250,56 @@ def _finish_of(completion: Any) -> str:
     return ""
 
 
+# Marker the chat layer catches: THIS ATTEMPTED MODEL failed, the
+# turn may continue with a different candidate. Never caught by
+# _raise_mapped's generic branches above: the outer handler maps
+# RouterModelFailed onto the next-candidate path, not onto a terminal
+# message, so a single dead model can never end a turn.
+class RouterModelFailed(Exception):
+    """One candidate model failed; the turn should try the next one."""
+
+
 def _raise_mapped(exc: BaseException, *, delivered: bool) -> None:
     """openai's exception ladder -> this app's exact consumer words.
 
-    Mirrors the old _stream_router branches one for one: 429 is a busy
-    pool, 5xx marks the router failed, other 4xx means the router
-    answered and refused (no cooldown), connection trouble marks it
-    failed too - and anything after a token of THIS step was delivered
-    is an AIMidStream, so the caller charges for the work shown.
+    A model-level miss (429/5xx/refused/empty-output) is RouterModelFailed:
+    the turn walks to the next high/medium candidate. Only the router
+    itself being unreachable (connection to 127.0.0.1 dead) is a global
+    failure, and only then is _mark_router_failed called. A single bad
+    model can never black out the whole router for 60 seconds.
     """
-    if isinstance(exc, (AIUnavailable, AIMidStream)):
+    if isinstance(exc, (AIUnavailable, AIMidStream, RouterModelFailed)):
         raise exc
     if isinstance(exc, openai.APIStatusError):
         if exc.status_code == 429:
-            raise AIUnavailable(
-                "Kiri's free tier is busy right now. Try again shortly."
+            raise RouterModelFailed(
+                "Kiri's free tier is busy right now. Trying another model."
             ) from exc
         if exc.status_code >= 500:
-            ai_service._mark_router_failed()
-            raise AIUnavailable(
-                "The Assistant had a server problem. Try again shortly."
+            raise RouterModelFailed(
+                "The Assistant had a server problem. Trying another model."
             ) from exc
-        raise AIUnavailable(
-            "The Assistant refused that request. Pick another model."
+        raise RouterModelFailed(
+            "The Assistant refused that request. Trying another model."
         ) from exc
-    if isinstance(exc, (openai.APIConnectionError, openai.APIError)):
+    if isinstance(exc, openai.APITimeoutError):
+        # The router answered; one of its upstream models hung. The router
+        # itself is healthy - walk to the next candidate, no blackout.
+        raise RouterModelFailed(
+            "A model timed out. Trying another model."
+        ) from exc
+    if isinstance(exc, openai.APIConnectionError):
+        # Refused/DNS: every candidate shares this endpoint, so switching
+        # models cannot help - the router itself is gone.
         ai_service._mark_router_failed()
         if delivered:
             raise AIMidStream(str(exc)) from exc
         logger.info("router unreachable: %r", exc)
         raise AIUnavailable("Could not reach the Assistant.") from exc
+    if isinstance(exc, openai.APIError):
+        raise RouterModelFailed(
+            "The Assistant had a server problem. Trying another model."
+        ) from exc
     raise exc
 
 
@@ -287,6 +319,7 @@ async def run_turn(
     max_tokens: int | None = None,
     max_iters: int = AGENT_MAX_ITERS,
     timeout_s: float = AGENT_TIMEOUT_S,
+    reasoning_effort: str | None = None,
 ) -> dict:
     """Run one full agent turn through kani's full_round_stream.
 
@@ -303,18 +336,15 @@ async def run_turn(
     from services.chat_agent import ChatCancelled
 
     chosen = str(model or "auto").strip() or "auto"
-    query = user_text[:2000]
-    engine, tap = await _build_engine(chosen, on_thought)
-    kani = DDGSKani(
-        engine,
-        system_prompt=system_prompt or None,
-        chat_history=_to_history(history),
-        functions=build_functions(specs) if specs else None,
-        # kani consults this only when a tool body itself raises; ours
-        # never do (they return error payloads), but an unknown-tool
-        # correction should keep the tools available for the retry.
-        retry_attempts=1,
-    )
+    # No length cap here: user text is cheaper than history and the
+    # engine's 131k-token budget rejects itself when genuinely full.
+    query = user_text
+    # The full transcript rides too: the 30-message window above is the
+    # only trimming, and kani itself evicts to the 131k budget. No
+    # prompt compression anywhere in this app - that was the whole
+    # point of wrapping kani.
+    base_history = _to_history(history)
+    functions = build_functions(specs) if specs else None
 
     t0 = time.monotonic()
     steps = 0
@@ -323,100 +353,199 @@ async def run_turn(
     budget = max_tokens or ai_service.ANSWER_MAX_TOKENS
     round_parts: list[str] = []
     final_text = ""
+    last_model_failed: str | None = None
 
-    try:
-        async for manager in kani.full_round_stream(
-            query,
-            # Plan B3: after N tool rounds kani strips the tools for one
-            # final round, so an over-cap turn ends with an answer built
-            # from what it has instead of the old empty bubble.
-            max_function_rounds=max(0, max_iters - 1),
-            max_tokens=budget,
-        ):
-            if cancel.is_set():
-                raise ChatCancelled()
-            if time.monotonic() - t0 > timeout_s or steps >= max_iters:
-                # Today's loop conditions, checked where a boundary
-                # exists. The yielded-but-uniterated next manager has
-                # made no request yet, so stopping here is free.
-                break
-            if "function" in str(getattr(manager, "role", "")).lower():
-                # Tool result: its body already ran inside kani's gather
-                # and emitted its own step rows. Nothing to count.
-                await manager.message()
-                continue
-            if steps and on_model_step is not None:
-                await on_model_step()
-            delivered = False
-            try:
-                async for chunk in manager:
-                    if chunk:
-                        delivered = True
-                        round_parts.append(chunk)
-                        on_token(chunk)
-                message = await manager.message()
-            except ChatCancelled:
-                raise
-            except Exception as exc:
-                if delivered:
-                    # A step that put tokens on the screen is billable,
-                    # exactly like the old `steps += 1` AIMidStream branch.
-                    steps += 1
-                    if on_steps is not None:
-                        on_steps(steps)
-                _raise_mapped(exc, delivered=delivered)
-                raise  # _raise_mapped always raises; keeps flow honest
-            steps += 1
-            if on_steps is not None:
-                on_steps(steps)
-            if message.tool_calls:
-                # Intermediate round: this text never belongs to the
-                # final answer - clear ours and tell the caller to clear
-                # its partial buffer (the emit shows the next round afresh).
-                round_parts.clear()
-                if on_round_reset is not None:
-                    on_round_reset()
-                continue
-            final_text = "".join(round_parts)
-            if not final_text.strip():
-                # message already bound; usage rides below
-                finish = _finish_of(await manager.completion())
+    candidates = [chosen, *[m for m in ai_service.candidate_models() if m != chosen]]
+
+    def _history_has_query(items: list[ChatMessage]) -> bool:
+        return any(m.role.value == "user" and (m.text or "") == query for m in items)
+
+    # The candidate loop is the turn's whole fallback story: the user's
+    # model first, then the active high/medium pool by latency. When a
+    # candidate dies (429/5xx/refused/hung) or says nothing, the turn
+    # walks to the next one with a FRESH engine and a cleared buffer -
+    # and it carries the failed candidate's transcript (tool results
+    # included) forward, so the next model continues from the searches
+    # that already ran instead of repeating them. kani re-adds the query
+    # at the start of every round, so it is only passed when the carried
+    # history does not already contain it.
+    history = list(base_history)
+    prev_kani: DDGSKani | None = None
+    for attempt, attempt_model in enumerate(candidates):
+        if cancel.is_set():
+            raise ChatCancelled()
+        if attempt:
+            logger.info(
+                "model %s failed for this turn; trying %s",
+                last_model_failed,
+                attempt_model,
+            )
+            round_parts.clear()
+            if on_round_reset is not None:
+                on_round_reset()
+            message = None
+            empty_retried = False
+            budget = max_tokens or ai_service.ANSWER_MAX_TOKENS
+            if prev_kani is not None:
+                history = list(prev_kani.chat_history)
+        engine, tap = await _build_engine(attempt_model, on_thought)
+        # Past the model-call budget only answer-only rounds may run. A
+        # rescue attempt carries the tool history, so stripping the tools
+        # lets the next model answer from what was already gathered -
+        # without this the boundary below instant-fails every remaining
+        # candidate (the whole pool walked in 3s and the turn died).
+        at_cap = steps >= max_iters
+        rescue = bool(at_cap and attempt and functions)
+        kani = DDGSKani(
+            engine,
+            system_prompt=system_prompt or None,
+            chat_history=history,
+            functions=None if rescue else functions,
+            # kani consults this only when a tool body itself raises; ours
+            # never do (they return error payloads), but an unknown-tool
+            # correction should keep the tools available for the retry.
+            retry_attempts=1,
+        )
+        prev_kani = kani
+        # One waived boundary: the rescue's single answer round.
+        cap_waiver = rescue
+        round_query = (
+            None if attempt and _history_has_query(history) else query
+        )
+        try:
+            async for manager in kani.full_round_stream(
+                round_query,
+                # Plan B3: after N tool rounds kani strips the tools for one
+                # final round, so an over-cap turn ends with an answer built
+                # from what it has instead of the old empty bubble.
+                max_function_rounds=max(0, max_iters - 1),
+                max_tokens=budget,
+                **_CACHE_WIRE,
+                # Plan B9: only sent when the user picked a depth; "auto"
+                # omits the parameter entirely (owner rule).
+                **(
+                    {"reasoning_effort": reasoning_effort}
+                    if reasoning_effort
+                    else {}
+                ),
+            ):
+                if cancel.is_set():
+                    raise ChatCancelled()
                 if (
-                    finish == "length"
-                    and not empty_retried
-                    and steps < max_iters
+                    time.monotonic() - t0 > timeout_s
+                    or (steps >= max_iters and not cap_waiver)
                 ):
-                    # A reasoning model can burn the whole budget before
-                    # any text appears: retry once with double, same cap.
-                    empty_retried = True
-                    budget = (max_tokens or ai_service.ANSWER_MAX_TOKENS) * 2
-                    kani.chat_history.append(
-                        ChatMessage.user(
-                            "Your previous reply hit the token limit before "
-                            "any text appeared. Answer again, briefly."
-                        )
-                    )
+                    # Today's loop conditions, checked where a boundary
+                    # exists. The yielded-but-uniterated next manager has
+                    # made no request yet, so stopping here is free.
+                    break
+                if "function" in str(getattr(manager, "role", "")).lower():
+                    # Tool result: its body already ran inside kani's gather
+                    # and emitted its own step rows. Nothing to count.
+                    await manager.message()
                     continue
+                if steps and on_model_step is not None:
+                    await on_model_step()
+                delivered = False
+                try:
+                    async for chunk in manager:
+                        if chunk:
+                            delivered = True
+                            round_parts.append(chunk)
+                            on_token(chunk)
+                    message = await manager.message()
+                except ChatCancelled:
+                    raise
+                except Exception as exc:
+                    if delivered:
+                        # A step that put tokens on the screen is billable,
+                        # exactly like the old `steps += 1` AIMidStream branch.
+                        steps += 1
+                        if on_steps is not None:
+                            on_steps(steps)
+                    _raise_mapped(exc, delivered=delivered)
+                    raise  # _raise_mapped always raises; keeps flow honest
+                steps += 1
+                cap_waiver = False
+                if on_steps is not None:
+                    on_steps(steps)
+                if message.tool_calls:
+                    # Intermediate round: this text never belongs to the
+                    # final answer - clear ours and tell the caller to clear
+                    # its partial buffer (the emit shows the next round
+                    # afresh).
+                    round_parts.clear()
+                    if on_round_reset is not None:
+                        on_round_reset()
+                    continue
+                final_text = "".join(round_parts)
+                if not final_text.strip():
+                    # message already bound; usage rides below
+                    finish = _finish_of(await manager.completion())
+                    if (
+                        finish == "length"
+                        and not empty_retried
+                        and steps < max_iters
+                    ):
+                        # A reasoning model can burn the whole budget before
+                        # any text appears: retry once with double, same cap.
+                        empty_retried = True
+                        budget = (
+                            max_tokens or ai_service.ANSWER_MAX_TOKENS
+                        ) * 2
+                        kani.chat_history.append(
+                            ChatMessage.user(
+                                "Your previous reply hit the token limit "
+                                "before any text appeared. Answer again, "
+                                "briefly."
+                            )
+                        )
+                        continue
+                break
+        except ChatCancelled:
+            raise
+        except asyncio.CancelledError:
+            raise
+        except (
+            openai.APIError,
+            AIUnavailable,
+            AIMidStream,
+            RouterModelFailed,
+        ) as exc:
+            # Anything openai can still throw outside a stream maps onto the
+            # same words; a local bug instead falls through raw to the
+            # caller's generic branch (no invented network message).
+            try:
+                _raise_mapped(exc, delivered=False)
+            except RouterModelFailed as mapped:
+                # This candidate is done; the loop below walks to the next.
+                last_model_failed = attempt_model
+                logger.info(
+                    "candidate model %s failed: %s", attempt_model, mapped
+                )
+                if attempt + 1 >= len(candidates):
+                    raise AIUnavailable(
+                        "The Assistant could not answer right now. Try again shortly."
+                    ) from mapped
+                continue
+            raise
+        if final_text.strip():
             break
-    except ChatCancelled:
-        raise
-    except asyncio.CancelledError:
-        raise
-    except (openai.APIError, AIUnavailable, AIMidStream) as exc:
-        # Anything openai can still throw outside a stream maps onto the
-        # same words; a local bug instead falls through raw to the
-        # caller's generic branch (no invented network message).
-        _raise_mapped(exc, delivered=False)
-        raise
+        # A model round that said nothing hands the turn to the next
+        # candidate: the caller's settle-0 not-charged branch only fires
+        # when every model stayed silent.
+        last_model_failed = attempt_model
+        logger.info("candidate model %s said nothing; trying the next", attempt_model)
 
     if cancel.is_set():
         raise ChatCancelled()
+    served_model = tap.last_model or attempt_model
     return {
         "text": final_text,
         "steps": steps,
-        "model": tap.last_model or chosen,
+        "model": served_model,
         "served_by": "router",
-        "usage": _usage_of(message, final_text, chosen),
+        "usage": _usage_of(message, final_text, served_model),
     }
 
 
@@ -445,32 +574,64 @@ async def complete(
             system = str(item.get("content") or "")
             continue
         body.append(item)
-    engine, tap = await _build_engine(chosen, None)
-    kani = Kani(
-        engine,
-        system_prompt=system or None,
-        chat_history=_to_history(body),
-    )
-    manager = kani.chat_round_stream(
-        None, max_tokens=max_tokens or ai_service.ANSWER_MAX_TOKENS
-    )
-    delivered = False
-    try:
-        async for chunk in manager:
-            if chunk:
-                delivered = True
-                on_token(chunk)
-        message = await manager.message()
-    except ChatCancelled:
-        raise
-    except Exception as exc:
-        _raise_mapped(exc, delivered=delivered)
-        raise
-    return {
-        "text": message.text or "",
-        "model": tap.last_model or chosen,
-        "served_by": "router",
-    }
+    # Passive calls get the same walk as agent turns: a 429 on one model
+    # used to surface as a bare 'Assistant unavailable' because this path
+    # was single-shot. Restarting mid-stream is the one case we refuse -
+    # the caller's buffer cannot be rewound, so two answers would glue.
+    candidates = [chosen, *[m for m in ai_service.candidate_models() if m != chosen]]
+    last_err: Exception | None = None
+    for attempt_model in candidates:
+        engine, tap = await _build_engine(attempt_model, None)
+        kani = Kani(
+            engine,
+            system_prompt=system or None,
+            chat_history=_to_history(body),
+        )
+        manager = kani.chat_round_stream(
+            None, max_tokens=max_tokens or ai_service.ANSWER_MAX_TOKENS, **_CACHE_WIRE
+        )
+        delivered = False
+        try:
+            async for chunk in manager:
+                if chunk:
+                    delivered = True
+                    on_token(chunk)
+            message = await manager.message()
+            text = message.text or ""
+            if not text.strip() and not delivered:
+                # An empty stream is a failed candidate here just like in
+                # run_turn: the router answers 200 with an embedded error
+                # for a dead upstream, so walking is the only recovery.
+                last_err = AIUnavailable("candidate produced no answer")
+                logger.info(
+                    "passive candidate %s produced no answer; trying the next",
+                    attempt_model,
+                )
+                continue
+            return {
+                "text": text,
+                "model": tap.last_model or attempt_model,
+                "served_by": "router",
+            }
+        except ChatCancelled:
+            raise
+        except Exception as exc:
+            try:
+                _raise_mapped(exc, delivered=delivered)
+            except RouterModelFailed as mapped:
+                if delivered:
+                    raise AIUnavailable(
+                        "The Assistant was interrupted. Try again shortly."
+                    ) from mapped
+                last_err = mapped
+                logger.info(
+                    "passive candidate %s failed: %s", attempt_model, mapped
+                )
+                continue
+            raise
+    raise AIUnavailable(
+        "The Assistant could not answer right now. Try again shortly."
+    ) from last_err
 
 
 class _Archive:

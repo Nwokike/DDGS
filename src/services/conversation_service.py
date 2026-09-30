@@ -239,9 +239,7 @@ def restore_conversation(
     return save_conversation(conversation_id, messages, title=title)
 
 
-def prune_conversations(
-    limit: int = MAX_CONVERSATIONS, *, protect: str = ""
-) -> int:
+def prune_conversations(limit: int = MAX_CONVERSATIONS, *, protect: str = "") -> int:
     """Delete the oldest conversations past `limit`. Returns how many went.
 
     The active conversation, and `protect` (normally the one just saved),

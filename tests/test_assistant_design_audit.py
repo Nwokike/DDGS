@@ -227,9 +227,7 @@ def test_turn_task_exception_is_retrieved():
     ChatSession, Page = _session_stub()
     session = ChatSession(Page())
     assert hasattr(session, "_on_turn_done")
-    source = (
-        SRC / "screens" / "chat_screen.py"
-    ).read_text(encoding="utf-8")
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
     assert "add_done_callback(self._on_turn_done)" in source
     assert "def shutdown(self)" in source
 
@@ -246,9 +244,7 @@ def test_there_is_no_second_transcript_to_get_out_of_sync():
     assert "self.pending_user" not in source, (
         "the staging field that fed the second list is back"
     )
-    service = (SRC / "services" / "conversation_service.py").read_text(
-        encoding="utf-8"
-    )
+    service = (SRC / "services" / "conversation_service.py").read_text(encoding="utf-8")
     assert "def flat_from_turns(" in service
     # ...and the offset mapper that translated between the two is gone.
     assert "def _transcript_offset" not in source
@@ -341,7 +337,6 @@ def test_daily_reset_does_not_delete_live_holds():
     asyncio.run(scenario())
 
 
-
 def test_cancel_scrape_needs_approval():
     """It deletes a user's recurring crawl and persists the change, yet it
     was the only mutating tool not gated."""
@@ -423,9 +418,7 @@ def test_text_and_thought_use_independent_throttles():
     assert hasattr(session, "_last_text_flush")
     assert hasattr(session, "_last_thought_flush")
     assert not hasattr(session, "_last_partial_flush")
-    source = (
-        SRC / "screens" / "chat_screen.py"
-    ).read_text(encoding="utf-8")
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
     assert "now - self._last_text_flush < 0.2" in source
     assert "now - self._last_thought_flush < 0.5" in source
 
@@ -433,12 +426,10 @@ def test_text_and_thought_use_independent_throttles():
 def test_model_pill_is_not_rebuilt_for_every_token():
     """Building a control tree and sending a panel update per token for a
     label that almost never moves."""
-    source = (
-        SRC / "screens" / "chat_screen.py"
-    ).read_text(encoding="utf-8")
+    source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
     assert "_pill_signature" in source, "the pill must short-circuit"
     refresh = source.split("def refresh_model_chip", 1)[1].split("\n    def ", 1)[0]
-    assert "if signature == getattr(self, \"_pill_signature\", None):" in refresh
+    assert 'if signature == getattr(self, "_pill_signature", None):' in refresh
 
 
 # ── the clock in every prompt ─────────────────────────────────────────────
@@ -468,9 +459,10 @@ def test_chat_prompt_carries_the_current_date():
 def test_write_tools_report_what_they_did():
     from services.chat_agent import tool_outcome
 
-    assert tool_outcome(
-        "save_page", {"saved_to": "/home/u/Downloads/DDGS/kiri.ng.md"}
-    ) == "saved to kiri.ng.md"
+    assert (
+        tool_outcome("save_page", {"saved_to": "/home/u/Downloads/DDGS/kiri.ng.md"})
+        == "saved to kiri.ng.md"
+    )
     assert (
         tool_outcome(
             "scrape_site",
@@ -704,9 +696,7 @@ def test_history_rows_are_not_filled_dark_slabs(tmp_path, monkeypatch):
     )
 
 
-def test_history_marks_the_open_chat_and_reads_disk_every_time(
-    tmp_path, monkeypatch
-):
+def test_history_marks_the_open_chat_and_reads_disk_every_time(tmp_path, monkeypatch):
     from services import conversation_service as conversations
 
     session, page, dlg = _open_history(
@@ -749,7 +739,7 @@ def test_composer_is_one_morphing_button_with_shift_enter():
     assert "shift_enter=True" in source, "Enter sends, Shift+Enter newlines"
     assert "stop_btn" not in source, "the second composer button is gone"
     assert "_on_composer_button" in source
-    assert "hint_text=\"Ask anything\"" in source
+    assert 'hint_text="Ask anything"' in source
 
 
 def test_message_actions_are_revealed_not_parked():
@@ -886,16 +876,16 @@ def test_starters_cover_every_ability_and_all_of_them_render():
     prompts = [text for _icon, text in _SUGGESTION_ROWS]
     assert len(prompts) == 10, prompts
     for needle in (
-        "tech this week",       # search_news
-        "privacy tools",        # search_web
-        "Rust tutorial",        # search_videos + download_media
-        "wallpaper",            # search_images
-        "history of Rome",      # search_books
-        "BBC News",             # scrape_site / save as HTML
-        "solar power",          # save_page as Markdown
+        "tech this week",  # search_news
+        "privacy tools",  # search_web
+        "Rust tutorial",  # search_videos + download_media
+        "wallpaper",  # search_images
+        "history of Rome",  # search_books
+        "BBC News",  # scrape_site / save as HTML
+        "solar power",  # save_page as Markdown
         "website for changes",  # schedule_scrape
-        "Wikipedia",            # fetch_page + summarize
-        "like I'm 12",          # plain chat, no tools
+        "Wikipedia",  # fetch_page + summarize
+        "like I'm 12",  # plain chat, no tools
     ):
         assert any(needle in p for p in prompts), f"no starter covers: {needle}"
 
@@ -985,7 +975,7 @@ def test_thought_header_click_expands_and_collapses_end_to_end():
 
     header = find_header(session._render_assistant(turn, 0))
     assert header is not None, "the thought header must exist and be clickable"
-    header.on_click(None)          # what a physical tap invokes
+    header.on_click(None)  # what a physical tap invokes
     assert turn["thought_open"] is True, "the toggle must flip"
     header2 = find_header(session._render_assistant(turn, 0))
     header2.on_click(None)

@@ -1,13 +1,13 @@
 [project]
 name = "ddgs-app"
-version = "2.1.1"
+version = "2.1.0"
 description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 10 engines."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "ddgs>=9.16.0",
-    "flet>=1.0.1",
-    "flet-ads>=1.0.1",
+    "flet>=1.0.3",
+    "flet-ads>=1.0.3",
     # Directly imported by src/ (ai_service, license_service, update_service).
     # httpx is also a base flet dependency, so this pins the floor without
     # adding a family.
@@ -41,7 +41,7 @@ dependencies = [
 org = "ng.kiri"
 product = "DDGS"
 company = "Kiri Research Labs"
-build_number = 10
+build_number = 9
 
 [tool.flet.android.gradle_properties]
 # flet's default is -Xmx8G + 4G metaspace - MORE than a GitHub runner
@@ -81,7 +81,7 @@ dev = [
     # flet otherwise pip-installs into the venv at runtime. Kept OUT of
     # [project].dependencies so `flet build` never resolves desktop packages
     # for Android. Exact pin: the extras must track the flet SDK version.
-    "flet[cli,desktop]==1.0.1",
+    "flet[cli,desktop]==1.0.3",
 ]
 
 [tool.ruff]
@@ -112,6 +112,9 @@ lint.extend-ignore = [
 # the sys.path bootstrap (SRC insert) must run before third-party
 # imports - that is this repo's established test pattern.
 "tests/**" = ["S101", "S105", "E402"]
+# Diagnostic probes run as plain CLIs (no UI loop): blocking Path checks
+# and prints are the whole point of a probe, not a footgun.
+"scripts/**" = ["ASYNC240", "S101", "T201"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

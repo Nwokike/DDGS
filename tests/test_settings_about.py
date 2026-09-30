@@ -77,8 +77,7 @@ def test_more_apps_url_and_subtitles_match_ktv_exactly():
 
     assert sa._more_apps_subtitle(_AndroidPage()) == "All our apps on Google Play"
     assert (
-        sa._more_apps_subtitle(_DesktopPage())
-        == "Sherlock, DDGS, CollabShell and more"
+        sa._more_apps_subtitle(_DesktopPage()) == "Sherlock, DDGS, CollabShell and more"
     )
 
 

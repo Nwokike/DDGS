@@ -281,7 +281,9 @@ def test_empty_answer_emits_an_unpaid_empty_state():
         "an empty answer must be its own state, not a generic failure"
     )
     # and it settles zero so the hold is released
-    empty_block = source.split('"kind": "empty"')[0].rsplit("if not final_text.strip()", 1)
+    empty_block = source.split('"kind": "empty"')[0].rsplit(
+        "if not final_text.strip()", 1
+    )
     assert "settle_turn(credits, tx, 0)" in empty_block[-1]
 
 
@@ -365,11 +367,15 @@ def test_tool_errors_are_not_flattened_to_no_results():
 def test_minimize_does_not_cancel_the_turn():
     ChatSession, Page = _session_stub()
     source = (SRC / "screens" / "chat_screen.py").read_text(encoding="utf-8")
-    close_block = source.split("    def close(self) -> None:")[1].split("    def restore")[0]
+    close_block = source.split("    def close(self) -> None:")[1].split(
+        "    def restore"
+    )[0]
     assert "self.cancel.set()" not in close_block, (
         "minimising must not stop a turn the user is watching"
     )
-    stop_block = source.split("    def stop(self) -> None:")[1].split("    async def")[0]
+    stop_block = source.split("    def stop(self) -> None:")[1].split("    async def")[
+        0
+    ]
     assert "self.cancel.set()" in stop_block, "Stop must still signal the agent"
     assert "task.cancel()" in stop_block, "Stop must also cancel the task"
     assert ChatSession and Page  # import guard

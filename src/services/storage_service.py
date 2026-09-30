@@ -39,6 +39,7 @@ from core.constants import (
     STORAGE_ONBOARDING_DONE,
     STORAGE_PAGE,
     STORAGE_PROXY,
+    STORAGE_REASONING_EFFORT,
     STORAGE_REGION,
     STORAGE_SAFE_SEARCH,
     STORAGE_SCHEDULED_SCRAPES,
@@ -54,6 +55,7 @@ from core.constants import (
 from core.storage_paths import data_dir
 
 logger = logging.getLogger(__name__)
+
 
 # Single resolver (.flet/README contract lives in core.storage_paths):
 # settings and history are durable user state, so they resolve through
@@ -460,6 +462,12 @@ class StorageService:
 
     async def set_ai_model(self, v: str) -> bool:
         return await self.set(STORAGE_AI_MODEL, v or "auto")
+
+    async def get_reasoning_effort(self) -> str:
+        return str(await self.get(STORAGE_REASONING_EFFORT, "auto") or "auto")
+
+    async def set_reasoning_effort(self, v: str) -> bool:
+        return await self.set(STORAGE_REASONING_EFFORT, v or "auto")
 
     async def get_is_premium(self) -> bool:
         return bool(await self.get(STORAGE_IS_PREMIUM, False))

@@ -115,9 +115,7 @@ def test_empty_conversation_has_no_ad(tmp_path, monkeypatch):
     assert _ads(session) == []
 
 
-def test_failed_reply_still_counts_and_banners_follow_the_rule(
-    tmp_path, monkeypatch
-):
+def test_failed_reply_still_counts_and_banners_follow_the_rule(tmp_path, monkeypatch):
     monkeypatch.setenv("FLET_APP_STORAGE_DATA", str(tmp_path / "data"))
     ChatSession, Page = _session_stub()
     session = ChatSession(Page())

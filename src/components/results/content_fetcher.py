@@ -137,9 +137,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     if not result:
         if classify_error(error_msg) == "offline":
             snack_tmp = ft.SnackBar(
-                ft.Text(
-                    "No internet connection. Check your network and try again."
-                ),
+                ft.Text("No internet connection. Check your network and try again."),
                 action=ft.SnackBarAction(
                     "Retry",
                     on_click=lambda e: page.run_task(_fetch_and_show, page, url, False),
@@ -161,16 +159,22 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         page.update()
         return
 
-    content = result.get("content", "")
-    is_bytes = isinstance(result.get("content", ""), bytes)
-    if is_bytes:
-        content = f"[Binary data extracted: {len(content)} bytes]"
+    # One mutable view for the whole sheet: format switches and link taps
+    # re-extract INTO this sheet. A subsequent page from a fetch continues
+    # right here - it never pops this sheet to open a second modal over
+    # the results (owner's call).
+    view = {
+        "url": url,
+        "content": result.get("content", ""),
+        "raw": result.get("content", b""),
+        "is_bytes": isinstance(result.get("content", ""), bytes),
+    }
+    if view["is_bytes"]:
+        view["content"] = f"[Binary data extracted: {len(view['raw'])} bytes]"
 
     async def save_extract(e=None):
-        if is_bytes:
-            await _save_bytes_content(
-                page, result.get("content", b""), "extracted_file.bin"
-            )
+        if view["is_bytes"]:
+            await _save_bytes_content(page, view["raw"], "extracted_file.bin")
         else:
             fmt_map = {
                 "text_markdown": ".md",
@@ -182,7 +186,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
             ext = fmt_map.get(state.extract_format, ".md")
             import urllib.parse
 
-            parsed_url = urllib.parse.urlparse(url)
+            parsed_url = urllib.parse.urlparse(view["url"])
             domain_name = (
                 (parsed_url.netloc or parsed_url.path or "extracted_page")
                 .replace("www.", "")
@@ -195,14 +199,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 or "extracted_page"
             )
             file_name = f"{clean_name}{ext}"
-            await _save_text_content(page, str(content), file_name)
-
-    def _summarize_preview(_=None):
-        from components.ai_summary import show_ai_summary
-
-        if is_bytes:
-            return
-        show_ai_summary(page, url, str(content), url=url)
+            await _save_text_content(page, str(view["content"]), file_name)
 
     def _expand_to_reader():
         """Close this preview and open the full-screen content reader."""
@@ -210,60 +207,152 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         page.pop_dialog()
         ctrl = getattr(page, "_ddgs_controller", None)
         if ctrl:
-            ctrl.open_content_reader(url, str(content) if content else None)
+            ctrl.open_content_reader(
+                view["url"],
+                None if view["is_bytes"] else str(view["content"] or ""),
+            )
 
     def _close_preview(_):
         _url_history.clear()
         page.pop_dialog()
 
+    def _body_control():
+        if view["is_bytes"]:
+            return ft.Text(
+                str(view["content"]), size=tokens.FONT_SM, selectable=True
+            )
+        return ft.Markdown(
+            value=str(view["content"]),
+            selectable=True,
+            extension_set="gitHubWeb",
+            on_tap_link=lambda e: _nav_to(e.data),
+        )
+
+    def _loading_control():
+        return ft.Row(
+            [
+                ft.ProgressRing(
+                    width=20,
+                    height=20,
+                    stroke_width=2,
+                    color=AppColors.PRIMARY,
+                ),
+                ft.Text(
+                    "Loading…",
+                    size=tokens.FONT_SM,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                ),
+            ],
+            spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+
+    async def _load(new_url: str, push_history: bool = False) -> None:
+        """Re-extract into THIS sheet: no pop, no second modal."""
+        body_col.controls = [_loading_control()]
+        try:
+            page.update()
+        except Exception:
+            pass
+        try:
+            fresh, err = await _search_service.extract_url(
+                new_url, fmt=state.extract_format
+            )
+        except Exception as ex:
+            fresh, err = None, str(ex)
+        if not fresh:
+            body_col.controls = [_body_control()]
+            show_snack(
+                page,
+                ft.SnackBar(
+                    ft.Text(
+                        f"Could not load {new_url[:60]} ({err or 'Unavailable'})"
+                    ),
+                    bgcolor=AppColors.ERROR,
+                ),
+            )
+            try:
+                page.update()
+            except Exception:
+                pass
+            return
+        if push_history and view["url"] != new_url:
+            _url_history.append(view["url"])
+        raw = fresh.get("content", "")
+        view["url"] = new_url
+        view["raw"] = raw
+        view["is_bytes"] = isinstance(raw, bytes)
+        view["content"] = (
+            f"[Binary data extracted: {len(raw)} bytes]" if view["is_bytes"] else raw
+        )
+        header_text.value = new_url[:60] + ("..." if len(new_url) > 60 else "")
+        back_btn.visible = bool(_url_history)
+        open_btn.action = ft.OpenUrl(new_url)
+        body_col.controls = [_body_control()]
+        if summary_card is not None:
+            if view["is_bytes"]:
+                summary_card.visible = False
+            else:
+                summary_card.visible = True
+                start_summary(force=True)
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def _nav_to(link: str) -> None:
+        if not link or link.startswith(("#", "mailto:")):
+            return
+        resolved = _resolve_url(link, view["url"])
+        if not is_web_url(resolved):
+            # urljoin keeps foreign schemes (javascript:alert(1) survives
+            # it), so the http(s) guard runs AFTER resolution.
+            return
+        page.run_task(_load, resolved, True)
+
     def _go_back(_):
         if _url_history:
             prev_url = _url_history.pop()
-            page.pop_dialog()
-            page.run_task(_fetch_and_show, page, prev_url, pop_current=False)
+            page.run_task(_load, prev_url, False)
 
-    has_history = len(_url_history) > 0
+    back_btn = ft.IconButton(
+        icon=ft.Icons.ARROW_BACK_ROUNDED,
+        icon_size=tokens.ICON_MD,
+        tooltip="Back to previous page",
+        on_click=_go_back,
+        visible=bool(_url_history),
+    )
+    header_text = ft.Text(
+        view["url"][:60] + ("..." if len(view["url"]) > 60 else ""),
+        size=tokens.FONT_SM,
+        weight=ft.FontWeight.W_600,
+        font_family="Outfit",
+        expand=True,
+        max_lines=1,
+        overflow=ft.TextOverflow.ELLIPSIS,
+    )
+    open_btn = ft.IconButton(
+        icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+        icon_size=tokens.ICON_MD,
+        tooltip="Open in browser",
+        action=ft.OpenUrl(view["url"]),
+    )
 
     header_row = ft.Row(
         [
-            ft.IconButton(
-                icon=ft.Icons.ARROW_BACK_ROUNDED,
-                icon_size=tokens.ICON_MD,
-                tooltip="Back to previous page",
-                on_click=_go_back,
-                visible=has_history,
-            ),
+            back_btn,
             ft.Icon(
                 ft.Icons.LANGUAGE_ROUNDED,
                 size=tokens.ICON_MD,
                 color=AppColors.PRIMARY,
             ),
-            ft.Text(
-                url[:60] + ("..." if len(url) > 60 else ""),
-                size=tokens.FONT_SM,
-                weight=ft.FontWeight.W_600,
-                font_family="Outfit",
-                expand=True,
-                max_lines=1,
-                overflow=ft.TextOverflow.ELLIPSIS,
-            ),
-            ft.IconButton(
-                icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
-                icon_size=tokens.ICON_MD,
-                tooltip="Open in browser",
-                action=ft.OpenUrl(url),
-            ),
+            header_text,
+            open_btn,
             ft.IconButton(
                 icon=ft.Icons.SAVE_ALT_ROUNDED,
                 icon_size=tokens.ICON_MD,
                 tooltip="Save content to file",
                 on_click=lambda _: page.run_task(save_extract),
-            ),
-            ft.IconButton(
-                icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
-                icon_size=tokens.ICON_MD,
-                tooltip="Summarize with Assistant",
-                on_click=_summarize_preview,
             ),
             ft.IconButton(
                 icon=ft.Icons.FULLSCREEN_ROUNDED,
@@ -284,16 +373,18 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     async def _change_preview_format(new_fmt: str):
         state.extract_format = new_fmt
         # Persist through the controller; never let a persistence failure
-        # block the pop-and-refetch below (page._ddgs_controller exposes
-        # save_setting, not save_async).
+        # block the in-place re-extract below (page._ddgs_controller
+        # exposes save_setting, not save_async).
         ctrl = getattr(page, "_ddgs_controller", None)
         try:
             if ctrl and ctrl.storage:
                 await ctrl.save_setting("extract_format", new_fmt)
         except Exception:
             pass
-        page.pop_dialog()
-        await _fetch_and_show(page, url, pop_current=False)
+        # In place: the sheet stays up and its content re-renders in the
+        # newly chosen format. The old pop-and-reopen read as "the switch
+        # opens something else" instead of "the content changed".
+        await _load(view["url"], push_history=False)
 
     preview_format_row = ft.Row(
         [
@@ -329,11 +420,27 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
-    def _nav_link(page_ref, link_url, base):
-        _url_history.append(url)
-        _on_link_tap(page_ref, link_url, base, from_dialog=True)
-
     is_dark = theme.is_dark_mode(page)
+    # Fetch sheet gets the same passive top card as search overviews: it
+    # starts itself once the sheet is up, no button, no modal - and a
+    # navigation inside the sheet restarts it for the new page.
+    from components.ai_summary import build_auto_summary
+
+    summary_card, start_summary = build_auto_summary(
+        page,
+        get_title=lambda: view["url"],
+        get_content=lambda: (
+            None
+            if view["is_bytes"]
+            else (str(view["content"]) if view["content"] else None)
+        ),
+        get_url=lambda: view["url"],
+    )
+    body_col = ft.Column(
+        [_body_control()],
+        expand=True,
+        scroll=ft.ScrollMode.AUTO,
+    )
     preview_sheet = ft.BottomSheet(
         content=ft.Container(
             content=ft.Column(
@@ -344,22 +451,8 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                         height=1,
                         color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
                     ),
-                    ft.Column(
-                        [
-                            ft.Markdown(
-                                value=str(content),
-                                selectable=True,
-                                extension_set="gitHubWeb",
-                                on_tap_link=lambda e: _nav_link(page, e.data, url),
-                            )
-                            if not is_bytes
-                            else ft.Text(
-                                str(content), size=tokens.FONT_SM, selectable=True
-                            )
-                        ],
-                        expand=True,
-                        scroll=ft.ScrollMode.AUTO,
-                    ),
+                    summary_card,
+                    body_col,
                     build_banner_ad(page),
                 ],
                 spacing=tokens.SPACE_SM,
@@ -373,3 +466,5 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         elevation=8,
     )
     page.show_dialog(preview_sheet)
+    if not view["is_bytes"]:
+        start_summary()

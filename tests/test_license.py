@@ -100,7 +100,11 @@ def test_valid_webcrypto_token_verifies():
 def test_tampered_payload_is_rejected():
     from services.license_token import TokenRejected, verify_token
 
-    flipped = _VECTOR_TOKEN[:40] + ("A" if _VECTOR_TOKEN[40] != "A" else "B") + _VECTOR_TOKEN[41:]
+    flipped = (
+        _VECTOR_TOKEN[:40]
+        + ("A" if _VECTOR_TOKEN[40] != "A" else "B")
+        + _VECTOR_TOKEN[41:]
+    )
     with pytest.raises(TokenRejected) as exc:
         verify_token(flipped, _VECTOR_PUB, _APP)
     # Depending on where the mutation lands it breaks the base64 (rejected as
@@ -135,12 +139,12 @@ def test_signature_is_the_raw_webcrypto_pair():
     payload_b64, signature_b64 = _VECTOR_TOKEN.split(".")[1:3]
     raw = _b64url_decode(signature_b64)
     assert len(raw) == 64, "a WebCrypto P-256 signature is 64 raw bytes"
-    assert _verify_signature(
-        _VECTOR_PUB, payload_b64.encode("utf-8"), raw
-    ), "the raw signature must verify against the payload string"
-    assert not _verify_signature(
-        _VECTOR_PUB, b"tampered", raw
-    ), "a different message must not verify"
+    assert _verify_signature(_VECTOR_PUB, payload_b64.encode("utf-8"), raw), (
+        "the raw signature must verify against the payload string"
+    )
+    assert not _verify_signature(_VECTOR_PUB, b"tampered", raw), (
+        "a different message must not verify"
+    )
 
 
 @pytest.mark.parametrize(
@@ -181,12 +185,14 @@ def test_expiry_and_unlocking_status_are_enforced():
     # the claim itself is checked through the same path the UI uses.
     from services.license_service import LicenseStatus
 
-    assert LicenseStatus(
-        status="active", product="lifetime", recovery_id="x"
-    ).unlocks is True
-    assert LicenseStatus(
-        status="expired", product="lifetime", recovery_id="x"
-    ).unlocks is False
+    assert (
+        LicenseStatus(status="active", product="lifetime", recovery_id="x").unlocks
+        is True
+    )
+    assert (
+        LicenseStatus(status="expired", product="lifetime", recovery_id="x").unlocks
+        is False
+    )
     assert (
         LicenseStatus(status="revoked", product="lifetime", recovery_id="x").unlocks
         is False
@@ -289,9 +295,12 @@ def test_price_label_is_human_readable():
         id="lifetime", amount=49.99, currency="USD", kind="one_time", description=""
     )
     assert life.price_label == "$49.99 USD"
-    assert LicenseProduct(
-        id="m", amount=3.99, currency="USD", kind="recurring", description=""
-    ).price_label == "$3.99 USD"
+    assert (
+        LicenseProduct(
+            id="m", amount=3.99, currency="USD", kind="recurring", description=""
+        ).price_label
+        == "$3.99 USD"
+    )
 
 
 def test_play_products_map_to_license_tiers():
@@ -323,9 +332,7 @@ def test_play_build_never_offers_a_purchase_control(monkeypatch):
     monkeypatch.setattr(ps, "CHANNEL", "play", raising=False)
 
     # Layer 1: the settings screen never renders the card on play.
-    screen_source = (SRC / "screens" / "settings_screen.py").read_text(
-        encoding="utf-8"
-    )
+    screen_source = (SRC / "screens" / "settings_screen.py").read_text(encoding="utf-8")
     assert 'if CHANNEL == "play" else [build_premium_section(page)]' in (
         screen_source
     ), "settings_screen must skip the whole premium card on the play channel"
@@ -383,9 +390,7 @@ def test_play_build_never_offers_a_purchase_control(monkeypatch):
     rendered = " ".join(blob)
 
     for forbidden in ("Subscribe", "Choose", "Restore", "Buy", "Recovery ID"):
-        assert forbidden not in rendered, (
-            f"the Play build must not offer {forbidden!r}"
-        )
+        assert forbidden not in rendered, f"the Play build must not offer {forbidden!r}"
     # KTV Player declares nothing at all: no cross-sell of other channels.
     assert "not sold in this build" not in rendered
     assert "direct APK" not in rendered
@@ -510,9 +515,7 @@ def test_a_play_aab_is_stamped_free_only():
         # main builds direct APKs, desktop and web only. There is no AAB to
         # stamp here, so the stamp cannot be missing.
         pytest.skip("this branch builds no AAB, so there is nothing to stamp")
-    assert "Stamp the Play channel" in workflow, (
-        "the AAB job must stamp CHANNEL = play"
-    )
+    assert "Stamp the Play channel" in workflow, "the AAB job must stamp CHANNEL = play"
     stamp_step = workflow.split("Stamp the Play channel", 1)[1].split("Build AAB", 1)[0]
     # The YAML wraps the two replacement arguments onto separate lines, so
     # match them independently rather than as one literal.
@@ -522,5 +525,3 @@ def test_a_play_aab_is_stamped_free_only():
     assert workflow.index("Stamp the Play channel") < workflow.index("Build AAB"), (
         "the stamp has to happen before the AAB is built, not after"
     )
-
-

@@ -99,7 +99,9 @@ def test_page_cache_is_scoped_by_format():
         cache = CacheService()
         await cache.put_page("https://x.test", "text_markdown", "markdown body")
         await cache.put_page("https://x.test", "html", "<html>")
-        assert await cache.get_page("https://x.test", "text_markdown") == "markdown body"
+        assert (
+            await cache.get_page("https://x.test", "text_markdown") == "markdown body"
+        )
         assert await cache.get_page("https://x.test", "html") == "<html>"
 
     run(scenario())
@@ -303,9 +305,16 @@ def test_picker_shows_the_selected_model_when_present():
     from core.state import state
     from services import ai_service
 
+    # A pickable catalog carries the router's tier: high/medium ride,
+    # low tiers never reach the picker.
     catalog = [
         {"id": "auto", "hint": "rotates", "status": "active"},
-        {"id": "ling-3.0-flash", "hint": "210ms", "status": "active"},
+        {
+            "id": "ling-3.0-flash",
+            "hint": "210ms",
+            "status": "active",
+            "rate_hint": {"tier": "high", "label": "High"},
+        },
     ]
     state.ai_router_status = "ready"
     state.ai_model = "ling-3.0-flash"

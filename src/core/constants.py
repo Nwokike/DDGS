@@ -27,6 +27,7 @@ STORAGE_SEARCH_DURATION = "search_duration"
 STORAGE_SEARCH_LICENSE = "search_license"
 STORAGE_SCHEDULED_SCRAPES = "scheduled_scrapes"
 STORAGE_AI_MODEL = "ai_model"
+STORAGE_REASONING_EFFORT = "reasoning_effort"
 STORAGE_ASSISTANT_HISTORY = "assistant_history"
 STORAGE_ACTIVE_CONVERSATION = "active_conversation"
 
@@ -186,8 +187,15 @@ AD_TOPUP_COOLDOWN_SEC = 30.0
 AGENT_MAX_ITERS = 6  # model calls per turn (worst case AGENT_MAX_ITERS * COST_STEP)
 AGENT_MAX_TOOLS = 10  # tool calls per turn
 AGENT_TIMEOUT_S = 240  # wall-clock per turn
-TOOL_OUTPUT_CAP = 2000  # chars of tool output re-sent per loop
-AGENT_HISTORY_MESSAGES = 6
+# chars of tool output re-sent per loop. Raised 2000 -> 8000: kani's
+# paragraph-aware truncation was firing on EVERY search_news/search_web
+# result (2.4k-3.4k chars), so the model never saw full result sets.
+# 10 tools x 8k still fits the engine's 131k budget comfortably.
+TOOL_OUTPUT_CAP = 8000
+# How many of the newest transcript messages each turn ships. Raised from 6
+# (three short exchanges): with a 131k-token engine budget the 6-message cap
+# was an arbitrary amputate, not a guard - kani evicts to its own budget.
+AGENT_HISTORY_MESSAGES = 30
 
 
 def credit_word(count: int) -> str:
@@ -198,6 +206,7 @@ def credit_word(count: int) -> str:
     in another.
     """
     return f"{count} credit" if count == 1 else f"{count} credits"
+
 
 STORAGE_AI_MODE = "ai_mode_enabled"
 STORAGE_IS_PREMIUM = "is_premium"

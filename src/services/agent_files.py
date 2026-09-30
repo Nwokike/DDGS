@@ -83,7 +83,9 @@ async def save_page(url: str, fmt: str = "text_markdown", svc=None) -> str:
     return path
 
 
-def extract_links(html: str, base: str, same_host: bool = True, limit: int = 200) -> list[str]:
+def extract_links(
+    html: str, base: str, same_host: bool = True, limit: int = 200
+) -> list[str]:
     """Pull http(s) links out of raw HTML (lxml is already shipped via ddgs)."""
     from lxml import html as lxml_html
 

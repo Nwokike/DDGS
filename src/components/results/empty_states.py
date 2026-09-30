@@ -39,9 +39,7 @@ def _skeleton_card() -> ft.Shimmer:
             ),
             padding=16,
             border_radius=tokens.RADIUS_LG,
-            border=ft.Border.all(
-                1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)
-            ),
+            border=ft.Border.all(1, ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE)),
         ),
         base_color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
         highlight_color=ft.Colors.with_opacity(0.10, ft.Colors.ON_SURFACE),

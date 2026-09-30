@@ -10,6 +10,7 @@ from __future__ import annotations
 import flet as ft
 from flet import Control
 
+from components.app_header import _build_version_chip
 from components.results.empty_states import (
     build_empty_results_box,
     build_error_box,
@@ -29,10 +30,8 @@ def _load_more_button(page, controller) -> ft.TextButton:
     return ft.TextButton(
         "Load more",
         icon=ft.Icons.EXPAND_MORE_ROUNDED,
-        icon_size=18,
-        size=13,
-        font_family="Outfit",
         on_click=lambda _: page.run_task(controller.load_more_results),
+        style=ft.ButtonStyle(text_style=ft.TextStyle(size=13, font_family="Outfit")),
     )
 
 
@@ -98,6 +97,7 @@ def ResultsScreen() -> Control:
             spacing=2,
         ),
         actions=[
+            _build_version_chip(page),
             ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,
                 icon_size=tokens.ICON_MD,
@@ -226,9 +226,9 @@ def ResultsScreen() -> Control:
                         and (
                             is_running
                             or bool(
-                                getattr(controller, "is_search_running", lambda _: False)(
-                                    search_type
-                                )
+                                getattr(
+                                    controller, "is_search_running", lambda _: False
+                                )(search_type)
                             )
                         )
                     ),

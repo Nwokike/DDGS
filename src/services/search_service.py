@@ -77,7 +77,6 @@ def _parse_view_count(text: str) -> int | None:
         return None
 
 
-
 async def _youtube_video_fallback(
     query: str,
 ) -> tuple[list[SearchResult], str | None]:
@@ -125,22 +124,16 @@ async def _youtube_video_fallback(
                 duration = vr.get("lengthText", {}).get("simpleText", "")
                 views_str = vr.get("viewCountText", {}).get("simpleText", "") or ""
                 views = _parse_view_count(views_str)
-                publisher = (
-                    vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
-                )
+                publisher = vr.get("ownerText", {}).get("runs", [{}])[0].get("text", "")
                 thumbnail = (
-                    vr.get("thumbnail", {})
-                    .get("thumbnails", [{}])[-1]
-                    .get("url", "")
+                    vr.get("thumbnail", {}).get("thumbnails", [{}])[-1].get("url", "")
                 )
                 if title and video_id:
                     parsed.append(
                         SearchResult(
                             title=title,
                             url=url,
-                            snippet=f"{publisher} • {duration}"
-                            if publisher
-                            else title,
+                            snippet=f"{publisher} • {duration}" if publisher else title,
                             search_type="videos",
                             thumbnail=thumbnail,
                             duration=duration,
@@ -163,6 +156,7 @@ async def _youtube_video_fallback(
     ) as ex:
         logger.warning(f"[{LOG_TAG}] YouTube video fallback error: {ex}")
         return [], str(ex)
+
 
 class SearchService:
     """Wraps DDGS - every method, every parameter, all logged."""
@@ -292,9 +286,7 @@ class SearchService:
                 except Exception:
                     valid = []  # cannot verify: send what was chosen
                 if not valid:
-                    valid = [
-                        b.strip() for b in state.backend.split(",") if b.strip()
-                    ]
+                    valid = [b.strip() for b in state.backend.split(",") if b.strip()]
                 if valid:
                     params["backend"] = ",".join(valid)
 

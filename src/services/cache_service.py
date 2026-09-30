@@ -60,6 +60,7 @@ def search_key(query: str, search_type: str, **filters: object) -> str:
     parts.extend(f"{name}={filters[name]}" for name in sorted(filters, key=str))
     return "s_" + hashlib.sha1(chr(31).join(parts).encode("utf-8")).hexdigest()  # noqa: S324 - cache key, never security
 
+
 def page_key(url: str, fmt: str = "") -> str:
     raw = f"{str(url).strip()}\x1f{fmt!s}"
     return "p_" + hashlib.sha1(raw.encode("utf-8")).hexdigest()  # noqa: S324 - cache key, never security
@@ -163,9 +164,7 @@ class CacheService:
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 tmp = path.with_suffix(".json.tmp")
-                tmp.write_text(
-                    json.dumps(entry, ensure_ascii=False), encoding="utf-8"
-                )
+                tmp.write_text(json.dumps(entry, ensure_ascii=False), encoding="utf-8")
                 tmp.replace(path)  # atomic on every platform we ship to
                 return True
             except (OSError, ValueError, TypeError) as exc:

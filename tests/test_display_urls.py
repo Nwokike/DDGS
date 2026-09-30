@@ -27,8 +27,7 @@ def test_display_url_decodes_only_the_host():
     assert display_url(url) == "https://münchen.de/artikel?q=1#top"
     # Port and scheme survive the rewrite.
     assert (
-        display_url("https://xn--mnchen-3ya.de:8443/x")
-        == "https://münchen.de:8443/x"
+        display_url("https://xn--mnchen-3ya.de:8443/x") == "https://münchen.de:8443/x"
     )
     # Plain URLs are byte-identical (zero render churn).
     plain = "https://kiri.ng/projects?x=1"

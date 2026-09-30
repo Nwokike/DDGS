@@ -54,9 +54,7 @@ def build_cache_banner(
             )
         )
     else:
-        controls.append(
-            ft.ProgressRing(width=14, height=14, stroke_width=2)
-        )
+        controls.append(ft.ProgressRing(width=14, height=14, stroke_width=2))
 
     return ft.Container(
         content=ft.Row(

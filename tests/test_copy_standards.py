@@ -46,9 +46,7 @@ def test_no_em_dash_in_comments_or_code_lines():
     """The sweep is total: no line of app source carries the mark either."""
     offenders: list[str] = []
     for path in _app_files():
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), 1
-        ):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if "—" in line or "–" in line:
                 offenders.append(f"{path.relative_to(SRC)}:{lineno}")
     assert not offenders, "em/en-dash in source lines: " + ", ".join(offenders)
@@ -74,9 +72,7 @@ def test_font_floor_holds_everywhere():
     assert FONT_XS >= 11, "the smallest token IS the floor"
     offenders = []
     for path in _app_files():
-        for lineno, line in enumerate(
-            path.read_text(encoding="utf-8").splitlines(), 1
-        ):
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if re.search(r"\bsize=9\b|\bsize=10\b", line):
                 offenders.append(f"{path.relative_to(SRC)}:{lineno}")
     assert not offenders, "sub-11px font literals: " + ", ".join(offenders)

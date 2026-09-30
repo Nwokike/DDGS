@@ -33,16 +33,16 @@ if __name__ == "__main__":
 
 # Passes _validate (main guard + VERSION) but blows up on import: the
 # stage where a naive implementation used to overwrite the good cache.
-UNIMPORTABLE_ENGINE = b'''VERSION = "1.2.3"
+UNIMPORTABLE_ENGINE = b"""VERSION = "1.2.3"
 def acquire_server( :
 if __name__ == "__main__":
-'''
+"""
 
 # Imports cleanly but lacks the one contract ensure_router calls.
-NO_CONTRACT_ENGINE = b'''VERSION = "1.0.0"
+NO_CONTRACT_ENGINE = b"""VERSION = "1.0.0"
 x = 1
 if __name__ == "__main__":
-'''
+"""
 
 
 def _cache_at(tmp_path: Path, monkeypatch) -> Path:

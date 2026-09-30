@@ -71,6 +71,7 @@ def _exchange_bounds(turns: list[dict], index: int) -> tuple[int, int]:
         start -= 1
     return start, end
 
+
 # One row per ability, covering every tool the Assistant has (owner:
 # "a sample cover every single ability") plus plain chat. The welcome
 # slice shows the WHOLE list (see _welcome), so a row can never be
@@ -309,9 +310,7 @@ class ChatSession:
                                 icon_size=18,
                                 icon_color=AppColors.PRIMARY,
                                 tooltip="New chat",
-                                style=ft.ButtonStyle(
-                                    padding=ft.Padding(2, 6, 2, 6)
-                                ),
+                                style=ft.ButtonStyle(padding=ft.Padding(2, 6, 2, 6)),
                                 on_click=lambda e: self.new_conversation(),
                             ),
                             self._history_button_control(),
@@ -396,6 +395,28 @@ class ChatSession:
         self.cancel = asyncio.Event()
         self.busy = True
         self._set_busy_ui(True)
+        # Paint FIRST, stream after: the user's message and a Working row
+        # go on screen this frame, so a starter tap answers instantly and
+        # only the model reply travels the network behind it.
+        self.turns.append({"role": "user", "text": text})
+        self._current = {
+            "role": "assistant",
+            "text": "",
+            "thought": "",
+            "steps": 0,
+            "cost": 0,
+            "partial": True,
+            "steps_rows": [],
+            "cards": [],
+            "related": [],
+            "served_by": "",
+            "model": "",
+            "error": None,
+            "stopped": False,
+            "receipt": "",
+        }
+        self.turns.append(self._current)
+        self._render(force=True)
         # Keep the handle so Stop can cancel the task. Setting the flag
         # alone is cooperative: a stalled socket or a long tool can leave
         # the UI spinning long after the user pressed Stop.
@@ -651,7 +672,9 @@ class ChatSession:
         except Exception:
             logger.exception("conversation save failed")
 
-    def _snack(self, message: str, *, action: str | None = None, on_action=None) -> None:
+    def _snack(
+        self, message: str, *, action: str | None = None, on_action=None
+    ) -> None:
         snack = ft.SnackBar(ft.Text(message))
         if action:
             snack.action = action
@@ -795,6 +818,7 @@ class ChatSession:
                 title=(payload or {}).get("title"),
             )
             conversations.refresh_state()
+
         conversations.refresh_state()
         if was_active:
             rows = conversations.list_conversations()
@@ -836,9 +860,7 @@ class ChatSession:
             conversations.refresh_state()
 
         if failed:
-            self._snack(
-                f"Deleted {deleted} chats, {failed} could not be removed"
-            )
+            self._snack(f"Deleted {deleted} chats, {failed} could not be removed")
         else:
             self._snack("All chats deleted", action="Undo", on_action=_undo)
 
@@ -901,9 +923,12 @@ class ChatSession:
             if not messages:
                 self._snack("That chat has nothing to export")
                 return
-            safe = "".join(
-                c for c in (title or conversation_id) if c.isalnum() or c in "-_"
-            )[:32] or "chat"
+            safe = (
+                "".join(
+                    c for c in (title or conversation_id) if c.isalnum() or c in "-_"
+                )[:32]
+                or "chat"
+            )
             path = await _resolve_save_path(self.page, f"ddgs-{safe}.kani")
             if not path:
                 return  # the user cancelled the dialog
@@ -1220,25 +1245,53 @@ class ChatSession:
         now = time.monotonic()
         force = True
         if event == "user":
+            if self.turns and self.turns[-1].get("role") == "assistant":
+                # send() already painted this pair optimistically (the
+                # bubble and the Working row go up before any network
+                # runs); the agent just confirms the question text.
+                self.turns[-2]["text"] = data.get("text", "")
+                return
             self.turns.append({"role": "user", "text": data.get("text", "")})
         elif event == "assistant_start":
-            self._current = {
-                "role": "assistant",
-                "text": "",
-                "thought": "",
-                "steps": 0,
-                "cost": 0,
-                "partial": True,
-                "steps_rows": [],
-                "cards": [],
-                "related": [],
-                "served_by": "",
-                "model": "",
-                "error": None,
-                "stopped": False,
-                "receipt": "",
-            }
-            self.turns.append(self._current)
+            if (
+                self.turns
+                and self._current is not None
+                and self.turns[-1] is self._current
+            ):
+                # Optimistic pair from send(): keep the row already on
+                # screen instead of appending a second, empty one.
+                self._current.update(
+                    {
+                        "steps": 0,
+                        "cost": 0,
+                        "partial": True,
+                        "steps_rows": [],
+                        "cards": [],
+                        "related": [],
+                        "served_by": "",
+                        "model": "",
+                        "error": None,
+                        "stopped": False,
+                    }
+                )
+            else:
+                self._current = {
+                    "role": "assistant",
+                    "text": "",
+                    "thought": "",
+                    "steps": 0,
+                    "cost": 0,
+                    "partial": True,
+                    "steps_rows": [],
+                    "cards": [],
+                    "related": [],
+                    "served_by": "",
+                    "model": "",
+                    "error": None,
+                    "stopped": False,
+                    "receipt": "",
+                }
+                self.turns.append(self._current)
         elif event == "nudge" and self._current is not None:
             self._current["receipt"] = data.get("text", "")
         elif event == "text_partial" and self._current is not None:
@@ -1459,9 +1512,8 @@ class ChatSession:
                 # the newest reply gets its banner with the next turn.
                 # Positional, so streaming re-reenders regenerate the
                 # identical layout instead of stacking duplicates.
-                if (
-                    assistant_replies % BANNER_AD_EVERY_N_REPLIES == 0
-                    and idx + 1 < len(self.turns)
+                if assistant_replies % BANNER_AD_EVERY_N_REPLIES == 0 and idx + 1 < len(
+                    self.turns
                 ):
                     ad = self._pooled_ad(assistant_replies - 1)
                     if ad is not None:
@@ -1531,9 +1583,7 @@ class ChatSession:
             )
         )
         return ft.Container(
-            content=ft.Column(
-                kids, horizontal_alignment=ft.CrossAxisAlignment.STRETCH
-            ),
+            content=ft.Column(kids, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
             expand=True,
         )
 
@@ -1555,9 +1605,7 @@ class ChatSession:
     def _copy_turn(self, index: int) -> None:
         if not (0 <= index < len(self.turns)):
             return
-        self.page.run_task(
-            self._copy_text, str(self.turns[index].get("text") or "")
-        )
+        self.page.run_task(self._copy_text, str(self.turns[index].get("text") or ""))
 
     def _edit_turn(self, index: int) -> None:
         """Prefill the composer with a sent message so it can be changed.
@@ -2056,9 +2104,7 @@ class ChatSession:
             if meta is not None:
                 kids.append(meta)
         elif turn.get("receipt"):
-            kids.append(
-                ui.notice(str(turn["receipt"]), level="warning")
-            )
+            kids.append(ui.notice(str(turn["receipt"]), level="warning"))
 
         return ft.Container(
             content=ft.Column(kids, spacing=6, tight=True),
@@ -2266,7 +2312,7 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         existing.restore()
         if ctx and ctx.get("auto"):
             if ctx.get("url"):
-                existing.send(_describe_prompt(ctx['url']))
+                existing.send(_describe_prompt(ctx["url"]))
             elif ctx.get("question"):
                 existing.send(ctx["question"])
         return
@@ -2281,6 +2327,6 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         pass
     if ctx and ctx.get("auto"):
         if ctx.get("url"):
-            session.send(_describe_prompt(ctx['url']))
+            session.send(_describe_prompt(ctx["url"]))
         elif ctx.get("question"):
             session.send(ctx["question"])

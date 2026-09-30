@@ -35,6 +35,7 @@ from typing import Any
 from core.constants import (
     AGENT_MAX_TOOLS,
     COST_STEP,
+    TOOL_OUTPUT_CAP,
 )
 from core.state import state
 from services import agent_files, ai_service
@@ -349,7 +350,7 @@ async def _dispatch(name: str, args: dict):
         )
         if not res:
             raise RuntimeError(err or "fetch failed")
-        return {"url": url, "content": str(res.get("content") or "")[:3000]}, []
+        return {"url": url, "content": str(res.get("content") or "")[:TOOL_OUTPUT_CAP]}, []
     if name == "save_page":
         url = str(args.get("url") or "")
         if not url.startswith(("http://", "https://")):
@@ -503,6 +504,12 @@ def tool_outcome(name: str, out: object) -> str:
     if isinstance(scheduled, dict):
         return f"every {scheduled.get('interval_minutes')} minutes"
     return ""
+
+
+def _thinking_depth() -> str | None:
+    """The user's Thinking depth, or None to stay on the router's own."""
+    depth = str(getattr(state, "reasoning_effort", "auto") or "auto")
+    return None if depth == "auto" else depth
 
 
 async def run_turn(
@@ -674,6 +681,7 @@ async def run_turn(
             on_model_step=on_model_step,
             on_steps=on_steps,
             model=getattr(state, "ai_model", "auto"),
+            reasoning_effort=_thinking_depth(),
         )
         steps = result["steps"]
         final_text = result["text"]

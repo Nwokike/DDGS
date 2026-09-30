@@ -37,7 +37,9 @@ def build_credit_pill(page: ft.Page, credits: int) -> ft.Container:
         content=ft.Row(
             [
                 ft.Icon(
-                    ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=tokens.ICON_SM, color=color
+                    ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+                    size=tokens.ICON_SM,
+                    color=color,
                 ),
                 ft.Text(
                     str(credits),

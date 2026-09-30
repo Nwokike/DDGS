@@ -306,13 +306,17 @@ def test_download_failure_cleans_up_the_partial_file():
 
 
 def test_every_download_kind_checks_the_media_type():
-    source = (SRC / "components" / "results" / "downloader.py").read_text(encoding="utf-8")
+    source = (SRC / "components" / "results" / "downloader.py").read_text(
+        encoding="utf-8"
+    )
     # both branches must pass it; only the video branch used to
     assert source.count("expect_media=True") >= 2
 
 
 def test_unresolved_youtube_does_not_download_a_watch_page():
-    source = (SRC / "components" / "results" / "downloader.py").read_text(encoding="utf-8")
+    source = (SRC / "components" / "results" / "downloader.py").read_text(
+        encoding="utf-8"
+    )
     if "YouTube Downloading Restricted" in source:
         # The Play build blocks YouTube downloads behind its own dialog and
         # returns before the resolver, so this path does not exist there.
@@ -465,9 +469,9 @@ def test_ci_gates_every_build_on_lint_and_tests():
     nothing — including the Play-policy assertions that only execute on the
     playstore branch.
     """
-    workflow = (
-        SRC.parent / ".github" / "workflows" / "build-all.yml"
-    ).read_text(encoding="utf-8")
+    workflow = (SRC.parent / ".github" / "workflows" / "build-all.yml").read_text(
+        encoding="utf-8"
+    )
 
     assert "\n  quality:" in workflow, "a gate job must exist"
     assert "needs: [quality]" in workflow, "the release must wait for it"
