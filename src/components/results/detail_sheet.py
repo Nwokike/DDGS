@@ -9,6 +9,149 @@ from components.results.downloader import _download_media
 from core import theme, tokens
 from core.state import SearchResult
 from core.theme import AppColors
+from core.utils import display_url
+from core.snack import show_snack
+
+
+def _result_actions_sheet(page: ft.Page, r: SearchResult) -> None:
+    """Quick actions for a result row - long-press (mobile) or right-click
+    (desktop) - the same three verbs the detail sheet offers, one gesture
+    away (plan C3)."""
+    display = display_url(r.url)
+
+    def _close(e=None):
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
+
+    async def _open_browser(e=None):
+        _close()
+        from components.results.downloader import launch_url
+
+        await launch_url(r.url, page)
+
+    def _copied(e=None):
+        _close()
+        snack = ft.SnackBar(ft.Text("Link copied"))
+        show_snack(page, snack)
+
+    def _shared(e=None):
+        _close()
+
+    def _button(icon, label, handler, action=None):
+        return ft.OutlinedButton(
+            content=ft.Row(
+                [
+                    ft.Icon(icon, size=tokens.ICON_SM),
+                    ft.Text(label, size=tokens.FONT_MD, font_family="Outfit"),
+                ],
+                spacing=8,
+                tight=True,
+            ),
+            action=action,
+            on_click=handler,
+            style=ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                padding=ft.Padding(12, 10, 12, 10),
+            ),
+            expand=True,
+        )
+
+    page.show_dialog(
+        ft.BottomSheet(
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row(
+                            [
+                                ft.Icon(
+                                    ft.Icons.LINK_ROUNDED,
+                                    size=tokens.ICON_SM,
+                                    color=AppColors.PRIMARY,
+                                ),
+                                ft.Text(
+                                    display,
+                                    size=tokens.FONT_SM,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                    expand=True,
+                                    font_family="Outfit",
+                                ),
+                            ],
+                            spacing=6,
+                        ),
+                        _button(
+                            ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                            "Open in browser",
+                            _open_browser,
+                        ),
+                        _button(
+                            ft.Icons.CONTENT_COPY_ROUNDED,
+                            "Copy link",
+                            _copied,
+                            action=ft.CopyToClipboard(r.url),
+                        ),
+                        _button(
+                            ft.Icons.SHARE_ROUNDED,
+                            "Share",
+                            _shared,
+                            action=ft.ShareText(f"{r.title}{chr(10)}{r.url}", title=r.title),
+                        ),
+                    ],
+                    spacing=tokens.SPACE_SM,
+                    tight=True,
+                ),
+                padding=ft.Padding(
+                    tokens.SPACE_LG, tokens.SPACE_MD, tokens.SPACE_LG, tokens.SPACE_LG
+                ),
+            ),
+        )
+    )
+
+
+def _qr_dialog(page: ft.Page, url: str) -> None:
+    """Open-on-phone: a QR of the link (plan D6). Scan, keep browsing."""
+    import base64
+    import io
+
+    import qrcode
+
+    buffer = io.BytesIO()
+    qrcode.make(url, box_size=8, border=2).save(buffer, format="PNG")
+    b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    page.show_dialog(
+        ft.AlertDialog(
+            title=ft.Text("Open on your phone", font_family="Outfit"),
+            content=ft.Column(
+                [
+                    ft.Image(src_base64=b64, width=240, height=240),
+                    ft.Text(
+                        "Scan to open this link on your device",
+                        size=tokens.FONT_SM,
+                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        text_align=ft.TextAlign.CENTER,
+                        font_family="Outfit",
+                    ),
+                ],
+                tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=tokens.SPACE_SM,
+            ),
+            actions=[
+                ft.FilledButton(
+                    "Done",
+                    on_click=lambda e: page.pop_dialog(),
+                    style=ft.ButtonStyle(
+                        bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE
+                    ),
+                )
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+    )
 
 
 def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
@@ -47,8 +190,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     def _copy_url(_):
         # Copying happens client-side via action=ft.CopyToClipboard.
         snack = ft.SnackBar(ft.Text("URL copied"))
-        snack.open = True
-        page.show_dialog(snack)
+        show_snack(page, snack)
         page.update()
 
     def _ask_assistant(_):
@@ -68,22 +210,29 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
     # ── Build preview based on type ──
     preview = None
     if search_type == "images" and (r.thumbnail or r.image_url):
+        # Plan C10: the preview pinch-zooms (mouse-wheel zooms on desktop),
+        # so a photo is inspectable without leaving the sheet.
         preview = ft.Container(
-            content=ft.Image(
-                src=r.thumbnail or r.image_url or "",
-                fit=ft.BoxFit.CONTAIN,
-                border_radius=tokens.RADIUS_MD,
-                error_content=ft.Container(
-                    ft.Icon(
-                        ft.Icons.BROKEN_IMAGE_ROUNDED,
-                        size=32,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
+            content=ft.InteractiveViewer(
+                content=ft.Image(
+                    src=r.thumbnail or r.image_url or "",
+                    fit=ft.BoxFit.CONTAIN,
+                    border_radius=tokens.RADIUS_MD,
+                    error_content=ft.Container(
+                        ft.Icon(
+                            ft.Icons.BROKEN_IMAGE_ROUNDED,
+                            size=32,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        height=120,
+                        alignment=ft.Alignment.CENTER,
                     ),
-                    height=120,
-                    alignment=ft.Alignment.CENTER,
                 ),
+                min_scale=1.0,
+                max_scale=5.0,
+                trackpad_scroll_causes_scale=True,
             ),
-            height=180,
+            height=220,
             border_radius=tokens.RADIUS_MD,
             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
             alignment=ft.Alignment.CENTER,
@@ -185,6 +334,12 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
                     font_family="Outfit",
                 ),
                 ft.IconButton(
+                    icon=ft.Icons.QR_CODE_ROUNDED,
+                    icon_size=tokens.ICON_MD,
+                    tooltip="Open on your phone",
+                    on_click=lambda e: _qr_dialog(page, r.url),
+                ),
+                ft.IconButton(
                     icon=ft.Icons.CLOSE_ROUNDED,
                     icon_size=tokens.ICON_MD,
                     on_click=_close,
@@ -194,7 +349,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         ),
         # URL
         ft.Text(
-            r.url,
+            display_url(r.url),
             size=tokens.FONT_XS,
             color=AppColors.PRIMARY,
             selectable=True,

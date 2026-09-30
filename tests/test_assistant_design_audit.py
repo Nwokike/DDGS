@@ -381,8 +381,10 @@ def test_the_app_has_no_model_suggestion_layer():
     source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
     # no candidate loop on the request path
     assert "for candidate in candidates" not in source
-    assert '"model": chosen' in source
-    assert "Try again shortly" in source  # the429 keeps honest copy
+    # the request model passes through in kani_backend (the wire moved)
+    backend = (SRC / "services" / "kani_backend.py").read_text(encoding="utf-8")
+    assert 'chosen = str(model or "auto")' in backend
+    assert "Try again shortly" in backend  # the429 keeps honest copy
 
 
 def test_a_stopped_router_outranks_a_stale_catalog():

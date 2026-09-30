@@ -1,14 +1,14 @@
 """Gateway engine: run.py fetched live from router.kiri.ng, never vendored.
 
-Owner directive (LM Router pattern): upstream changes constantly, so a
+Owner directive: upstream changes constantly, so a
 bundled snapshot would silently shadow it. Every cold start fetches
 ENGINE_URL fresh, validates it, imports it, and only then replaces the
 last-known-good cache; a broken download can never brick offline starts.
-When both tiers fail the caller reports "unavailable" honestly and
-stream_llm degrades to the gateway fallback on its own.
+When both tiers fail the caller reports "unavailable" honestly -
+there is no fallback source anymore (owner: router only).
 
-The only constant is where to fetch from (same as LM Router's
-ENGINE_URL); what must never be hardcoded is the engine itself.
+The only constant is where to fetch from (ENGINE_URL); what must
+never be hardcoded is the engine itself.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ import httpx
 from components.settings.version import _APP_VERSION
 from core.constants import ENGINE_URL
 from core.storage_paths import cache_dir
+from services.net_clients import httpx_proxy
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +50,16 @@ def engine_cache_path() -> Path:
 
 
 async def _download(url: str) -> bytes:
-    # router.kiri.ng answers 403 to default library user-agents (the rule
-    # LM Router documents for the same host), so the app could never fetch
+    # router.kiri.ng answers 403 to default library user-agents, so the
+    # app could never fetch
     # its own engine without this header. One bounded retry: a transient
     # blip must not fall through to the cache tier.
     last: Exception | None = None
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(http2=False) as client:
+            async with httpx.AsyncClient(
+                http2=False, proxy=httpx_proxy()
+            ) as client:
                 resp = await client.get(
                     url,
                     headers={"User-Agent": USER_AGENT},

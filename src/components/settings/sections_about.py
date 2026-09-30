@@ -18,6 +18,7 @@ from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_LG, FONT_MD, FONT_SM, FONT_XS
 from core.utils import in_memory_log_handler
 from services.update_service import PLAY_STORE_URL
+from core.snack import show_snack
 
 
 def _launch(page, url: str) -> None:
@@ -87,8 +88,7 @@ def build_logs_dialog(page: ft.Page):
 
     async def copy_logs(e=None):
         snack = ft.SnackBar(ft.Text("Activity log copied to clipboard!"))
-        snack.open = True
-        page.show_dialog(snack)
+        show_snack(page, snack)
         page.update()
 
     return ft.AlertDialog(

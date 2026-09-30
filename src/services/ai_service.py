@@ -1,32 +1,28 @@
-"""AI service - embedded Kiri Router (auto-model first, free) → Kiri Gateway fallback.
+"""AI service - embedded Kiri Router: discovery, catalog, credits, prompts.
 
 Model choice belongs to the router (owner's directive: no auto logic in
 the app). The app sends `state.ai_model` verbatim - default `auto`, the
 router's own rotating catalog model - and the router handles ranking,
-per-conversation stickiness and in-request failover itself (`auto_order`,
-run.py). The app only fetches /v1/models to fill the model picker.
+per-conversation stickiness and in-request failover itself. The app only
+fetches /v1/models to fill the model picker.
 
 - Router discovery attaches to ANY Kiri router already listening in
   8082-8092 (the user's own instance) before starting our own from the
   live engine (run.py fetched from router.kiri.ng on every cold start,
-  cached to user storage, never vendored: owner directive, LM Router
-  pattern); embed only when none exists.
-- Streaming returns finish_reason + assembled `tool_calls` deltas so the
-  chat agent can run DDGS tools (OpenAI streaming tool_calls contract:
-  arguments arrive as string fragments per index - concatenate, parse at
-  finish).
-- `stream_llm` does the raw router→gateway failover with NO credit
-  reservation (the agent reserves once per whole turn); `stream_chat` keeps
-  the reserve→call→commit wrapper for single-shot calls (summaries).
+  cached to user storage, never vendored: owner directive); embed
+  only when none exists.
+- The router is the ONLY AI source (owner: gateway dropped - "router
+  only"). kani speaks its OpenAI wire through services.kani_backend;
+  this module keeps discovery, the catalog, prompt builders, the credit
+  exceptions and the streaming credit wrapper - no SSE parsing of its
+  own.
 
 Manual search/scraping never imports this module, so it can never spend
-credits. Streaming is httpx SSE on both endpoints - AI never touches primp.
-"""
+credits. """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 import threading
@@ -41,19 +37,11 @@ from services.engine import EngineUnavailable, load_engine
 
 logger = logging.getLogger(__name__)
 
-# ── Gateway - Akili's exact Worker secret/header (verified 200 on
-#    api.kiri.ng/chat; no new secret to register) ─────────────────────────
-GATEWAY_URL = "https://api.kiri.ng"
-GATEWAY_SECRET = "mobile-v1"
-from components.settings.version import _APP_VERSION
-
-USER_AGENT = f"DDGSApp/{_APP_VERSION}"
-
 # ── Embedded/attached router ──────────────────────────────────────────────
 ROUTER_HOST = "127.0.0.1"
 ROUTER_BASE_PORT = 8082
 ROUTER_SPAN = 10  # scan 8082..8092 for a running Kiri router before embedding
-ROUTER_STICKY_COOLDOWN = 60.0  # prefer gateway for a while after router failure
+ROUTER_STICKY_COOLDOWN = 60.0  # cool-off after a router failure before retrying
 # A full port-scan miss is remembered this long: the status watchdog ticks
 # every 3s, and each miss would otherwise pay a serial 11-port scan.
 PROBE_MISS_TTL = 30.0
@@ -170,8 +158,8 @@ async def probe_router() -> tuple[str, int | None]:
       unavailable  no router, and none is embedded
       starting     embedded server is coming up but not yet healthy
 
-    The picker turns this into an honest label, the same way LM Router's
-    ModelPicker distinguishes "Starting gateway..." from "Gateway stopped".
+    The picker turns this into an honest label, so an empty list during
+    discovery reads as "still starting" rather than as a broken app.
     """
     with _router_lock:
         port = _router_port
@@ -259,8 +247,8 @@ async def ensure_router(*, verify: bool = False) -> int | None:
         logger.info("AI router: embedded on %s:%d", ROUTER_HOST, port)
         return port
     except EngineUnavailable as exc:
-        # No engine and no cache: honest label. stream_llm already degrades
-        # to the gateway fallback on its own, so chat keeps working.
+        # No engine and no cache: honest label. The next turn then reports
+        # unavailable - there is no second source (owner: router only).
         logger.warning("AI router: %s", exc)
         _publish_status("unavailable", None)
         return None
@@ -388,364 +376,6 @@ async def refresh_catalog() -> list[dict]:
 # ── SSE consumption with tool_calls assembly ──────────────────────────────
 
 
-def assemble_tool_calls(fragments: dict) -> list[dict]:
-    """Turn per-index delta fragments into complete OpenAI tool_calls.
-
-    fragments: {index: {"id": str, "name": str, "args": str}} - `arguments`
-    accumulates as JSON string fragments across chunks; parsing happens at
-    the caller once finish_reason == "tool_calls". Pure (unit-tested).
-    """
-    calls = []
-    for idx in sorted(fragments):
-        piece = fragments[idx]
-        calls.append(
-            {
-                "id": piece.get("id") or f"call_{idx}",
-                "type": "function",
-                "function": {
-                    "name": piece.get("name") or "",
-                    "arguments": piece.get("args") or "",
-                },
-            }
-        )
-    return calls
-
-
-async def _consume_sse(
-    resp: httpx.Response,
-    on_token: Callable[[str], None],
-    collect_tools: bool,
-    on_thought: Callable[[str], None] | None = None,
-) -> tuple[str, list[dict] | None]:
-    """Parse OpenAI-style SSE. Returns (finish_reason, tool_calls|None).
-
-    Lenient per the SSE grammar: `data:` needs no space, consecutive
-    `data:` lines join with a newline into one value, and keepalives or
-    `event:`/`id:` lines are skipped. A value that parses as JSON on its
-    own is dispatched immediately - how every provider this app talks to
-    actually frames events - and buffering only engages for a genuinely
-    partial value.
-    """
-    finish = ""
-    fragments: dict = {}
-    buffer: list[str] = []
-
-    def _process(payload: str) -> str:
-        """Handle one event. Returns ok | incomplete."""
-        nonlocal finish
-        try:
-            chunk = json.loads(payload)
-        except ValueError:
-            return "incomplete"
-        if "error" in chunk and not (chunk.get("choices")):
-            raise AIUnavailable(str(chunk.get("error"))[:200])
-        choices = chunk.get("choices") or [{}]
-        choice = choices[0] or {}
-        if choice.get("finish_reason"):
-            finish = str(choice["finish_reason"])
-        delta = choice.get("delta") or {}
-        text = delta.get("content") or ""
-        message = choice.get("message") or {}
-        if not text:
-            text = message.get("content") or ""
-        if text:
-            on_token(text)
-        thought = (
-            delta.get("reasoning_content")
-            or delta.get("reasoning")
-            or message.get("reasoning_content")
-            or ""
-        )
-        if not thought:
-            details = delta.get("reasoning_details")
-            if isinstance(details, list):
-                parts = []
-                for item in details:
-                    if isinstance(item, str):
-                        parts.append(item)
-                    elif isinstance(item, dict) and item.get("text"):
-                        parts.append(str(item["text"]))
-                thought = "".join(parts)
-        if thought and on_thought:
-            on_thought(thought)
-        if collect_tools:
-            for tc in delta.get("tool_calls") or []:
-                idx = tc.get("index", 0)
-                piece = fragments.setdefault(idx, {"id": "", "name": "", "args": ""})
-                fn = tc.get("function") or {}
-                if tc.get("id"):
-                    piece["id"] = tc["id"]
-                if fn.get("name"):
-                    piece["name"] = fn["name"]
-                if fn.get("arguments"):
-                    piece["args"] += fn["arguments"]
-            # some providers stream whole tool_calls only under message
-            for tc in (choice.get("message") or {}).get("tool_calls") or []:
-                idx = tc.get("index", len(fragments))
-                fn = tc.get("function") or {}
-                fragments[idx] = {
-                    "id": tc.get("id") or f"call_{idx}",
-                    "name": fn.get("name") or "",
-                    "args": fn.get("arguments") or "",
-                }
-        return "ok"
-
-    async for line in resp.aiter_lines():
-        if not line.startswith("data:"):
-            continue
-        payload = line[5:]
-        payload = payload.removeprefix(" ")
-        if payload == "[DONE]":
-            break
-        buffer.append(payload)
-        if _process("\n".join(buffer)) == "ok":
-            buffer.clear()
-    if buffer:
-        # Trailing partial value: only real if it parses, else it is noise.
-        _process("\n".join(buffer))
-    tool_calls = assemble_tool_calls(fragments) if fragments else None
-    if tool_calls and not finish:
-        finish = "tool_calls"
-    return finish, tool_calls
-
-
-async def _stream_json_body(
-    resp: httpx.Response,
-    on_token: Callable[[str], None],
-    on_thought: Callable[[str], None] | None = None,
-) -> tuple[str, None]:
-    body = resp.json()
-    choices = body.get("choices") or [{}]
-    choice = choices[0] or {}
-    message = choice.get("message") or {}
-    text = message.get("content") or choice.get("text", "")
-    if text:
-        on_token(text)
-    if on_thought is not None:
-        thought = message.get("reasoning") or message.get("reasoning_content") or ""
-        if thought:
-            on_thought(str(thought))
-    return str(choice.get("finish_reason") or ""), None
-
-
-# ── Router streaming (model passthrough) ──────────────────────────────────
-
-
-async def _stream_router(
-    client: httpx.AsyncClient,
-    messages: list[dict],
-    on_token: Callable[[str], None],
-    tools: list[dict] | None,
-    on_thought: Callable[[str], None] | None = None,
-    model: str | None = None,
-    max_tokens: int | None = None,
-) -> dict:
-    """One request, model passed through untouched.
-
-    The router owns selection and failover: `auto` means the router picks,
-    an explicit id means that model. A rejection reaching here is the
-    router's final answer (it already failed over internally), so the app
-    surfaces it honestly instead of rotating models itself.
-    """
-    base = await _router_base()
-    if base is None:
-        raise AIUnavailable("The Assistant is reconnecting. Try again shortly.")
-    chosen = str(model or "auto").strip() or "auto"
-    payload: dict = {
-        "model": chosen,
-        "messages": messages,
-        "stream": True,
-        "max_tokens": max_tokens or ANSWER_MAX_TOKENS,
-        "temperature": TEMPERATURE,
-    }
-    if tools:
-        payload["tools"] = tools
-        payload["tool_choice"] = "auto"
-    got_first = False
-    try:
-        async with client.stream(
-            "POST",
-            f"{base}/chat/completions",
-            json=payload,
-            headers={"Authorization": "Bearer any"},
-            timeout=httpx.Timeout(180.0, connect=4.0),
-        ) as resp:
-            if resp.status_code >= 400:
-                await resp.aread()
-                detail = resp.content[:200].decode("utf-8", "replace")
-                logger.info(
-                    "router refused %s (HTTP %d): %s",
-                    chosen,
-                    resp.status_code,
-                    detail[:120],
-                )
-                if resp.status_code == 429:
-                    # The router already failed over internally; the whole
-                    # free pool is capped. Busy, not broken - no cooldown.
-                    raise AIUnavailable(
-                        "Kiri's free tier is busy right now. Try again shortly."
-                    )
-                if resp.status_code >= 500:
-                    _mark_router_failed()
-                    raise AIUnavailable(
-                        "The Assistant had a server problem. Try again shortly."
-                    )
-                # 4xx: the router answered; this request or model id was
-                # wrong. The router is alive, so no cooldown either.
-                raise AIUnavailable(
-                    "The Assistant refused that request. Pick another model."
-                )
-            ctype = resp.headers.get("content-type", "")
-
-            def _counting(token: str) -> None:
-                nonlocal got_first
-                got_first = True
-                on_token(token)
-
-            if "text/event-stream" in ctype:
-                finish, tool_calls = await _consume_sse(
-                    resp, _counting, bool(tools), on_thought
-                )
-            else:
-                await resp.aread()
-                got_first = True
-                finish, tool_calls = await _stream_json_body(resp, _counting, on_thought)
-        return {"finish_reason": finish, "tool_calls": tool_calls, "model": chosen}
-    except AIUnavailable:
-        raise
-    except (
-        httpx.TimeoutException,
-        httpx.RequestError,
-        ValueError,
-        KeyError,
-    ) as exc:
-        _mark_router_failed()
-        if got_first:
-            raise AIMidStream(str(exc)) from exc
-        logger.info("router unreachable for %s: %r", chosen, exc)
-        raise AIUnavailable("Could not reach the Assistant.") from exc
-
-
-# ── Gateway streaming ─────────────────────────────────────────────────────
-
-
-async def _stream_gateway(
-    client: httpx.AsyncClient,
-    messages: list[dict],
-    on_token: Callable[[str], None],
-    tools: list[dict] | None,
-    on_thought: Callable[[str], None] | None = None,
-    model: str | None = None,
-    max_tokens: int | None = None,
-) -> dict:
-    payload: dict = {
-        "messages": messages,
-        "task_type": "text",
-        "stream": True,
-        "max_tokens": max_tokens or ANSWER_MAX_TOKENS,
-        "temperature": TEMPERATURE,
-    }
-    if tools:
-        payload["tools"] = tools
-        payload["tool_choice"] = "auto"
-    headers = {"Authorization": f"Bearer {GATEWAY_SECRET}", "User-Agent": USER_AGENT}
-    got_first = False
-    attempts = 2  # SpanInsight-style: narrow retry (connect/502/503/504)
-    last_exc: Exception | None = None
-    for attempt in range(attempts):
-        try:
-            async with client.stream(
-                "POST",
-                f"{GATEWAY_URL}/chat",
-                json=payload,
-                headers=headers,
-                timeout=httpx.Timeout(120.0, connect=10.0),
-            ) as resp:
-                if resp.status_code >= 400:
-                    await resp.aread()
-                    if resp.status_code in (502, 503, 504) and attempt + 1 < attempts:
-                        await asyncio.sleep(0.5 * (2**attempt))
-                        continue
-                    logger.info("gateway HTTP %d", resp.status_code)
-                    raise AIUnavailable(
-                        "The Assistant could not answer. Try again shortly."
-                    )
-                ctype = resp.headers.get("content-type", "")
-
-                def _counting(token: str) -> None:
-                    nonlocal got_first
-                    got_first = True
-                    on_token(token)
-
-                if "text/event-stream" in ctype:
-                    finish, tool_calls = await _consume_sse(
-                        resp, _counting, bool(tools), on_thought
-                    )
-                else:
-                    await resp.aread()
-                    got_first = True
-                    finish, tool_calls = await _stream_json_body(resp, _counting, on_thought)
-            return {
-                "finish_reason": finish,
-                "tool_calls": tool_calls,
-                "model": model or "gateway auto",
-            }
-        except AIUnavailable:
-            raise
-        except (
-            httpx.TimeoutException,
-            httpx.RequestError,
-            ValueError,
-            KeyError,
-        ) as exc:
-            last_exc = exc
-            if got_first:
-                raise AIMidStream(str(exc)) from exc
-            if attempt + 1 < attempts:
-                await asyncio.sleep(0.5 * (2**attempt))
-                continue
-            break
-    logger.info("gateway unreachable: %r", last_exc)
-    raise AIUnavailable("Could not reach the Assistant.")
-
-
-# ── Orchestration ─────────────────────────────────────────────────────────
-
-
-async def stream_llm(
-    messages: list[dict],
-    on_token: Callable[[str], None],
-    tools: list[dict] | None = None,
-    on_thought: Callable[[str], None] | None = None,
-    model: str | None = None,
-    max_tokens: int | None = None,
-) -> dict:
-    """Raw router→gateway failover. NO credit handling (agent settles per step).
-
-    Returns {"served_by", "model", "finish_reason", "tool_calls"|None}.
-    `model` is what was requested: under `auto` the router picks internally
-    and echoes `auto` back, so the app never needs to know the pick.
-    Raises AIUnavailable (nothing delivered) or AIMidStream (partial).
-    """
-    try:
-        async with httpx.AsyncClient(http2=False) as client:
-            result = await _stream_router(
-                client, messages, on_token, tools, on_thought, model, max_tokens
-            )
-        result["served_by"] = "router"
-        return result
-    except AIUnavailable as exc:
-        logger.info("AI router unavailable (%s) - falling back to gateway", exc)
-    except AIMidStream:
-        raise
-    async with httpx.AsyncClient(http2=False) as client:
-        result = await _stream_gateway(
-            client, messages, on_token, tools, on_thought, model, max_tokens
-        )
-    result["served_by"] = "gateway"
-    return result
-
-
 async def stream_chat(
     messages: list[dict],
     cost: int,
@@ -753,18 +383,28 @@ async def stream_chat(
     model: str | None = None,
     max_tokens: int | None = None,
 ) -> dict:
-    """Single-shot metered call (cost 0 = free passive; >0 = reserve/settle)."""
+    """Single-shot metered call (cost 0 = free passive; >0 = reserve/settle).
+
+    The engine is kani_backend (imported here, not at module top: it
+    imports this module for the router base and the shared exceptions).
+    """
+    from services import kani_backend
+
     credits = getattr(state, "credit_service", None)
     if cost <= 0:
         # Free passive calls (search overview, page summary) skip credits.
-        return await stream_llm(messages, on_token, model=model, max_tokens=max_tokens)
+        return await kani_backend.complete(
+            messages, on_token, model=model, max_tokens=max_tokens
+        )
     if credits is None:
         raise AIUnavailable("Assistant credits are unavailable right now.")
     tx_id = await credits.reserve(cost)
     if tx_id is None:
         raise NotEnoughCredits(await credits.get_balance())
     try:
-        result = await stream_llm(messages, on_token, model=model, max_tokens=max_tokens)
+        result = await kani_backend.complete(
+            messages, on_token, model=model, max_tokens=max_tokens
+        )
         await credits.commit(tx_id)
     except AIMidStream:
         # Tokens were delivered - charge fairly.
@@ -776,7 +416,7 @@ async def stream_chat(
         except Exception:
             logger.exception("credit rollback failed (tx=%s)", tx_id)
         raise
-    return {"served_by": result.get("served_by", "")}
+    return {"served_by": result.get("served_by", "router")}
 
 
 # ── Prompt builders + response parsing ────────────────────────────────────
@@ -787,9 +427,8 @@ def _clock_line() -> str:
 
     The model's training data ends well before today, so a prompt asking
     what happened "this week" was answered from its knowledge cutoff and
-    confidently returned last year's news. LM Router solves this the same
-    way; one line at the top of the system prompt removes the whole class
-    of stale-date answers.
+    confidently returned last year's news. One line at the top of the
+    system prompt removes the whole class of stale-date answers.
     """
     moment = datetime.now().astimezone()
     offset = moment.strftime("%z")

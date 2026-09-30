@@ -28,7 +28,7 @@ except ImportError:
 class AdService:
     """Manages AdMob banner and interstitial ads."""
 
-    MIN_INTERSTITIAL_GAP = 90.0  # seconds between interstitials (all call sites)
+    MIN_INTERSTITIAL_GAP = 60.0  # seconds between interstitials (all call sites)
 
     USE_TEST_IDS = False  # Production AdMob IDs active
 
@@ -315,8 +315,8 @@ class AdService:
             RuntimeError,
             ConnectionError,
             ImportError,
-        ) as err:
-            logger.error("Failed to trigger rewarded interstitial: %s", err)
+        ):
+            logger.exception("Failed to trigger rewarded interstitial")
             if asyncio.iscoroutinefunction(on_close):
                 await on_close()
             else:

@@ -8,7 +8,7 @@ import urllib.parse
 
 import primp
 
-from core.state import state
+from services.net_clients import primp_kwargs
 from services.youtube.cipher_solver import _ALGO_CACHE, parse_decipher_algo
 from services.youtube.format_parser import (
     VideoStream,
@@ -54,10 +54,7 @@ async def resolve_youtube(
         "impersonate": "chrome_153",
         "impersonate_os": "random",
     }
-    if state.proxy:
-        client_kwargs["proxy"] = state.proxy
-    if state.verify_ssl is False:
-        client_kwargs["verify"] = False
+    client_kwargs.update(primp_kwargs())
     async with primp.AsyncClient(**client_kwargs) as client:
         try:
             watch_url = f"https://www.youtube.com/watch?v={video_id}"
@@ -229,8 +226,8 @@ async def resolve_youtube(
                 RuntimeError,
                 ConnectionError,
                 ImportError,
-            ) as e:
-                logger.error("Failed to compile decipher algorithm from base.js: %s", e)
+            ):
+                logger.exception("Failed to compile decipher algorithm from base.js")
 
         if not algo:
             logger.error("Decipher algorithm is None, cannot resolve")

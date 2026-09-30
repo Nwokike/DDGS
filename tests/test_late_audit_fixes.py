@@ -176,19 +176,34 @@ def test_search_client_is_rebuilt_when_network_settings_change():
 
 # ── a rate limit and an outage are different things ─────────────────────
 def test_stream_chat_forwards_max_tokens():
+    # stream_chat's engine is kani_backend now; the passive path must
+    # still forward both knobs the old stream_llm call did.
     source = (SRC / "services" / "ai_service.py").read_text(encoding="utf-8")
-    assert "stream_llm(messages, on_token, model=model, max_tokens=max_tokens)" in source
+    block = source.split("async def stream_chat(", 1)[1]
+    assert "kani_backend.complete(" in block
+    assert "model=model" in block
+    assert "max_tokens=max_tokens" in block
 
 
 def test_tool_cap_writes_a_reply_for_every_requested_call():
-    source = (SRC / "services" / "chat_agent.py").read_text(encoding="utf-8")
-    assert "role\": \"tool\"" in source
-    block = source.split("if tools_used >= AGENT_MAX_TOOLS:", 1)[1]
-    assert '"role": "tool"' in block, (
-        "the assistant's tool_calls need matching tool replies or the API "
-        "rejects the transcript"
+    # Every call the model asks for goes through kani's AIFunctions now,
+    # and kani writes a FUNCTION message for each one - success, decline,
+    # error or over-cap - so a transcript can never carry tool_calls
+    # without replies (the API rejects that). What stays pinned here is
+    # that the over-cap and declined paths still answer with the exact
+    # payload the model used to be handed by hand.
+    chat = (SRC / "services" / "chat_agent.py").read_text(encoding="utf-8")
+    block = chat.split("if tools_used >= AGENT_MAX_TOOLS:", 1)[1]
+    assert '"error": "tool limit reached; nothing else was run"' in block, (
+        "the over-cap call must still be answered with the limit payload"
     )
-    assert "break" in block
+    assert '"error": "user declined this action"' in chat, (
+        "a declined action is an answer to the model, not silence"
+    )
+    backend = (SRC / "services" / "kani_backend.py").read_text(encoding="utf-8")
+    assert "return await spec.run(kwargs)" in backend, (
+        "every spec must resolve to a reply kani can write to history"
+    )
 
 
 # ── the Premium card must not ask for an unknown amount ─────────────────

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from services.net_clients import httpx_proxy
+
 logger = logging.getLogger("UpdateService")
 try:
     import tomllib
@@ -19,8 +21,8 @@ try:
     _APP_BUILD = int(_pdata["tool"]["flet"]["build_number"])
     _APP_REPO = "DDGS"
 except Exception:
-    _APP_VERSION = "2.0.2"
-    _APP_BUILD = 8
+    _APP_VERSION = "2.1.1"
+    _APP_BUILD = 10
     _APP_REPO = "DDGS"
 UPDATE_CONFIG_URL = (
     f"https://raw.githubusercontent.com/Nwokike/{_APP_REPO}/main/version.json"
@@ -65,6 +67,7 @@ class UpdateService:
                 timeout=4.0,
                 follow_redirects=True,
                 headers={"User-Agent": f"DDGS/{_APP_VERSION}"},
+                proxy=httpx_proxy(),
             ) as client:
                 resp = await client.get(self.config_url)
                 if resp.status_code != 200:

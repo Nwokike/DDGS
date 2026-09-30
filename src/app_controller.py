@@ -8,6 +8,7 @@ and mounts the declarative UI with ``page.render()``.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 import flet as ft
 
@@ -28,6 +29,7 @@ from services.credit_service import init_credit_service
 from services.search_service import SearchService
 from services.storage_service import StorageService
 from services.update_service import UpdateService
+from core.snack import show_snack
 
 LOG_TAG = "AppController"
 
@@ -87,6 +89,7 @@ class AppController:
         self.page.services.append(connectivity)
         connectivity.on_change = self._on_connectivity_change
         self.page.on_app_lifecycle_state_change = self._on_lifecycle_change
+        self._install_global_keyboard()
         self.page.run_task(self._init_connectivity)
 
         # ── Services ──
@@ -639,6 +642,75 @@ class AppController:
         finally:
             self._skip_cache_once = False
 
+    def _install_global_keyboard(self) -> None:
+        """Desktop shortcuts (plan C9): Esc closes the top dialog, Ctrl+K
+        jumps to the Home search field. Screens that need their own keys
+        (the Reader) chain on top of this one instead of replacing it."""
+
+        def _on_key(e) -> None:
+            if e.key == "Escape":
+                try:
+                    self.page.pop_dialog()
+                except Exception:
+                    pass
+            elif e.ctrl and str(e.key).lower() == "k":
+                self.page.run_task(self._focus_home_search)
+
+        self.page.on_keyboard_event = _on_key
+
+    async def _focus_home_search(self) -> None:
+        try:
+            if state.selected_tab != 0 or state.search_active:
+                self.navigate_tab(0)
+            bar = getattr(self.page, "_ddgs_search_bar", None)
+            if bar is not None:
+                await bar.focus()
+        except Exception:
+            logger.debug("Ctrl+K focus unavailable", exc_info=True)
+
+    async def load_more_results(self) -> None:
+        """Append the next page to the on-screen results (plan D2).
+
+        Fresh page per tap, no cursor: the service reads state.page, so
+        bump-then-search is the whole protocol. Merged results dedupe by
+        URL, because engines overlap across pages.
+        """
+        progress = state.search_progress
+        if progress is None or progress.is_running:
+            return
+        search_type = progress.search_type
+        query = state.current_query
+        if not query or search_type == "extract":
+            return
+        previous = list(state.last_results.get(search_type) or [])
+        if not previous:
+            return
+        seen = {r.url for r in previous}
+        state.page += 1
+        try:
+            progress = await self.search_service.search(search_type, query, ui=False)
+        except Exception as exc:
+            state.page -= 1
+            logger.warning("load-more failed for %s: %r", query, exc)
+            return
+        fresh = [r for r in progress.results or [] if r.url not in seen]
+        if not fresh:
+            # That page held nothing new - put the counter back so the
+            # next tap retries the same page.
+            state.page -= 1
+            return
+        merged = previous + fresh
+        state.last_results[search_type] = merged
+        state.search_progress = replace(
+            progress, results=merged, total_results=len(merged)
+        )
+        log_search_event(
+            "search_load_more",
+            query=query,
+            search_type=search_type,
+            results=len(merged),
+        )
+
     async def start_search(self, query: str, search_type: str = "text"):
         """Execute a search and update state with progress/results."""
         if not query or not query.strip():
@@ -710,6 +782,7 @@ class AppController:
         state.search_active = True
         state.ai_overview = None
         state.ai_overview_expanded = False
+        state.page = 1  # a new query starts at page 1 (plan D2)
         log_search_event("search_start", query=query, search_type=search_type)
 
         async def _run_search():
@@ -781,7 +854,7 @@ class AppController:
             await self._refresh(progress)
 
             # Interstitial on every search (Sherlock-parity frequency);
-            # the 90s minimum gap is enforced centrally in AdService.
+            # the 60s minimum gap is enforced centrally in AdService.
             if not state.is_premium and state.ad_service:
                 await state.ad_service.show_interstitial()
 
@@ -894,7 +967,7 @@ class AppController:
         ]
         overview = AiOverview(
             query=query,
-            sources=[{"title": s["title"], "url": s["url"], "thumb": getattr(r, "thumbnail", "") or ""} for r, s in zip(results[:8], sources)],
+            sources=[{"title": s["title"], "url": s["url"], "thumb": getattr(r, "thumbnail", "") or ""} for r, s in zip(results[:8], sources, strict=False)],
             is_running=True,
         )
         state.ai_overview = overview
@@ -1170,6 +1243,14 @@ class AppController:
                 logger.exception("scrape scheduler tick failed")
             await asyncio.sleep(60)
 
+    async def reschedule_scrape(self, url: str, interval_minutes: int) -> None:
+        """Change a scheduled crawl's interval (settings edit dialog)."""
+        from services import chat_agent
+        from services.chat_agent import _persist_schedule
+
+        chat_agent._schedule(url, interval_minutes)
+        await _persist_schedule()
+
     async def cancel_scheduled_scrape(self, url: str) -> None:
         """Remove a scheduled crawl (settings UI)."""
         from services.chat_agent import _persist_schedule
@@ -1215,6 +1296,5 @@ class AppController:
         }.get(level, AppColors.PRIMARY)
 
         snack = ft.SnackBar(ft.Text(message), bgcolor=bg)
-        snack.open = True
-        self.page.show_dialog(snack)
+        show_snack(self.page, snack)
         self.page.update()

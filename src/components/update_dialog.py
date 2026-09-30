@@ -22,6 +22,7 @@ import flet as ft
 from components.results.downloader import launch_url
 from core.build_channel import CHANNEL
 from core.theme import AppColors
+from core.snack import show_snack
 
 
 def _dismiss(page: ft.Page, e=None) -> None:
@@ -53,8 +54,9 @@ def _show_up_to_date(page: ft.Page) -> None:
             show_update_dialog(page, result)
             return
         try:
-            page.show_dialog(
-                ft.SnackBar(ft.Text(f"You're up to date on v{version}"))
+            show_snack(
+                page,
+                ft.SnackBar(ft.Text(f"You're up to date on v{version}")),
             )
         except Exception:
             pass

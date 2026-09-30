@@ -9,7 +9,10 @@ from components.results.cards_media import (
     _video_card,
 )
 from components.results.content_fetcher import _fetch_and_show, _on_link_tap
-from components.results.detail_sheet import _show_result_sheet
+from components.results.detail_sheet import (
+    _result_actions_sheet,
+    _show_result_sheet,
+)
 from components.results.downloader import (
     _save_bytes_content,
     _save_text_content,
@@ -19,10 +22,16 @@ from core.constants import EXTRACT_FORMATS
 from core.state import SearchResult, state
 from core.styles import build_banner_ad
 from core.theme import AppColors
+from core.utils import display_url
 
 
-def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
-    return ft.Container(
+def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.GestureDetector:
+    # Long-press (mobile) / right-click (desktop) opens the quick actions
+    # sheet (plan C3); primary taps keep opening the detail sheet.
+    return ft.GestureDetector(
+        on_secondary_tap=lambda e: _result_actions_sheet(page, r),
+        content=ft.Container(
+            on_long_press=lambda e: _result_actions_sheet(page, r),
         content=ft.Column(
             [
                 ft.Text(
@@ -34,7 +43,7 @@ def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
                     font_family="Outfit",
                 ),
                 ft.Text(
-                    r.url,
+                    display_url(r.url),
                     size=tokens.FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     max_lines=1,
@@ -55,9 +64,21 @@ def _text_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
         border_radius=tokens.RADIUS_LG,
         bgcolor=theme.adaptive_glass_bg(page),
         border=ft.Border.all(1, theme.adaptive_glass_border(page)),
-        ink=True,
-        on_click=lambda _: _show_result_sheet(page, r, "text"),
+            ink=True,
+            on_click=lambda _: _show_result_sheet(page, r, "text"),
+        ),
     )
+
+
+# Compact segment labels for the extract formats; the full names live in
+# EXTRACT_FORMATS and stay on each segment's tooltip.
+_FMT_SHORT = {
+    "text_markdown": "MD",
+    "text_plain": "Text",
+    "text_rich": "Rich",
+    "text": "HTML",
+    "content": "Raw",
+}
 
 
 def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
@@ -107,6 +128,11 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
             value=str(content),
             selectable=True,
             extension_set="gitHubWeb",
+            code_theme=(
+                ft.MarkdownCodeTheme.DRACULA
+                if theme.is_dark_mode(page)
+                else ft.MarkdownCodeTheme.DEFAULT
+            ),
             on_tap_link=lambda e: _on_link_tap(page, e.data, url),
         )
 
@@ -137,18 +163,26 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                 font_family="Outfit",
                 weight=ft.FontWeight.W_500,
             ),
-            ft.Dropdown(
-                value=state.extract_format,
-                options=[
-                    ft.dropdown.Option(f["key"], f["label"]) for f in EXTRACT_FORMATS
+            # Plan C4: all five formats visible at once beats a dropdown
+            # that hid four of them behind a tap.
+            ft.SegmentedButton(
+                segments=[
+                    ft.Segment(
+                        value=f["key"],
+                        label=ft.Text(
+                            _FMT_SHORT.get(f["key"], f["label"]),
+                            size=tokens.FONT_XS,
+                            font_family="Outfit",
+                            tooltip=f["label"],
+                        ),
+                    )
+                    for f in EXTRACT_FORMATS
                 ],
-                on_select=lambda e: page.run_task(_change_format, e.control.value),
-                filled=True,
-                text_size=tokens.FONT_XS,
-                content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
-                border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_MD),
-                width=150,
-                height=36,
+                selected=[state.extract_format],
+                allow_multiple_selection=False,
+                on_change=lambda e: page.run_task(
+                    _change_format, (e.control.selected or [state.extract_format])[0]
+                ),
             ),
         ],
         spacing=6,

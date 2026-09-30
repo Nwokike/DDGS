@@ -14,6 +14,7 @@ from core.utils import (
     log_performance,
     logger,
 )
+from services.net_clients import primp_kwargs
 
 LOG_TAG = "SearchService"
 
@@ -34,7 +35,8 @@ except ImportError as e:
 
 
 def _primp_client_kwargs(timeout: float) -> dict[str, Any]:
-    """Shared primp 2.0 settings: current browser profile + user proxy/SSL prefs.
+    """Shared primp 2.0 settings: current browser profile (proxy/SSL prefs
+    come from services.net_clients so every primp path agrees).
 
     Matches how ddgs itself configures primp (see ddgs/http_client.py) so the
     app's direct fallback requests get the same anti-bot treatment.
@@ -44,10 +46,7 @@ def _primp_client_kwargs(timeout: float) -> dict[str, Any]:
         "impersonate_os": "random",
         "timeout": timeout,
     }
-    if state.proxy:
-        kwargs["proxy"] = state.proxy
-    if state.verify_ssl is False:
-        kwargs["verify"] = False
+    kwargs.update(primp_kwargs())
     return kwargs
 
 
@@ -281,15 +280,23 @@ class SearchService:
                 # Only send engines this category actually ships: ddgs
                 # substitutes an invalid backend silently, so the user's
                 # chosen source would be a lie. Registry churn between
-                # releases is caught here, at the send site.
+                # releases is caught here, at the send site. A
+                # comma-delimited value fans the search out over several
+                # sources (plan D1) - each name is still validated.
                 try:
                     from ddgs.engines import ENGINES
 
-                    backend_ok = state.backend in ENGINES.get(search_type, {})
+                    available = ENGINES.get(search_type, {})
+                    wanted = [b.strip() for b in state.backend.split(",") if b.strip()]
+                    valid = [b for b in wanted if b in available]
                 except Exception:
-                    backend_ok = True  # cannot verify: send what was chosen
-                if backend_ok:
-                    params["backend"] = state.backend
+                    valid = []  # cannot verify: send what was chosen
+                if not valid:
+                    valid = [
+                        b.strip() for b in state.backend.split(",") if b.strip()
+                    ]
+                if valid:
+                    params["backend"] = ",".join(valid)
 
             if state.page and state.page > 1:
                 params["page"] = state.page

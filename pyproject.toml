@@ -1,6 +1,6 @@
 [project]
 name = "ddgs-app"
-version = "2.0.2"
+version = "2.1.1"
 description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 10 engines."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -21,22 +21,42 @@ dependencies = [
     # never raise this floor past the Android ceiling or only the APK job
     # dies with "No matching distribution found".
     "lxml>=6.1.1",
+    # Imported by src/core/utils.py (display_host: punycode result URLs
+    # render as unicode). Already httpx's own requirement and already in
+    # uv.lock: declaring it adds no package, it only makes the direct
+    # import honest - same rule as certifi above.
+    "idna>=3.4",
     # Imported by src/services/media_downloader.py and youtube/innertube_client.py.
     # Floor matches ddgs' own requirement so the two cannot diverge.
     "primp>=1.3.1",
+    # The chat engine (Phase 6): kani is the agent loop, wrapped not
+    # rebuilt. The [openai] extra is the adapter that speaks the OpenAI
+    # wire our router uses (and any user-added provider later); skipping
+    # it would mean hand-rolling the SSE layer that has bitten us before.
+    # pydantic/openai/tiktoken come with it. NO [mcp]: never in scope.
+    "kani[openai]>=1.10.0",
 ]
 
 [tool.flet]
 org = "ng.kiri"
 product = "DDGS"
 company = "Kiri Research Labs"
-build_number = 8
+build_number = 10
+
+[tool.flet.android.gradle_properties]
+# flet's default is -Xmx8G + 4G metaspace - MORE than a GitHub runner
+# has (their own comment says so); the Android job risked an OOM kill.
+org.gradle.jvmargs = "-Xmx4g -XX:MaxMetaspaceSize=1G -XX:ReservedCodeCacheSize=512m -XX:+HeapDumpOnOutOfMemoryError"
 
 [tool.flet.app]
 path = "src"
 
-[tool.flet.app.boot_screen]
-startup_message = "Initializing DDGS..."
+[tool.flet.splash]
+# Plan C11: the Android launch screen matches the app's own surfaces
+# (light: white cards bg; dark: #1A1D22) instead of flet's defaults -
+# and the deprecated [tool.flet.app.boot_screen] mapping is gone.
+color = "#FFFFFF"
+dark_color = "#1A1D22"
 
 [tool.flet.android]
 bundle_id = "ng.kiri.ddgs"
@@ -65,7 +85,33 @@ dev = [
 ]
 
 [tool.ruff]
-lint.extend-ignore = ["BLE001", "S110"]
+# The gate grew from the dependency audit (plan A8): defaults plus the
+# families that catch real footguns in an async/Flet/network codebase.
+lint.select = [
+    "E4", "E7", "E9", "F",  # ruff's defaults
+    "B",      # bugbear: mutable defaults, lost exception context, ...
+    "ASYNC",  # async pitfalls: blocking calls in coroutines, timeouts
+    "UP",     # pyupgrade: modern syntax only
+    "S",      # bandit: security basics
+    "TRY",    # exception hygiene around our error mapping
+    "PERF",   # performance footguns
+]
+lint.extend-ignore = [
+    "BLE001",   # deliberate broad catches at UI/task boundaries
+    "S110",     # try/except/pass is annotated policy in places
+    "ASYNC109", # timeout-as-parameter is how our fetch wrappers are shaped
+    "TRY003",   # raise messages ARE consumer-facing copy, not style debt
+    "TRY300",   # else-after-try: no bug class, pure churn
+    "TRY301",   # raise-in-try is exactly how the error mapping reads
+    "PERF401",  # append-loops in render paths are intentional; blind
+                # extend/comprehension rewrites change nesting semantics
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Asserts and fixture token names are the point of tests; E402 because
+# the sys.path bootstrap (SRC insert) must run before third-party
+# imports - that is this repo's established test pattern.
+"tests/**" = ["S101", "S105", "E402"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

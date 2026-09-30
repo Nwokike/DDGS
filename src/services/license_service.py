@@ -36,12 +36,13 @@ from core.constants import (
     KIRI_LICENSE_TIMEOUT,
 )
 from services.license_token import LicenseClaims, TokenRejected, verify_token
+from services.net_clients import httpx_proxy
 
 logger = logging.getLogger(__name__)
 
 # Shared with the other Kiri apps so the recovery story reads the same.
 SETTING_RECOVERY_ID = "kiri_recovery_id"
-SETTING_TOKEN = "kiri_token"
+SETTING_TOKEN = "kiri_token"  # noqa: S105 - storage key name, not a secret
 SETTING_PRODUCT = "kiri_product"
 
 
@@ -97,7 +98,9 @@ class LicenseStatus:
 
 
 def _client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(http2=False, timeout=KIRI_LICENSE_TIMEOUT)
+    return httpx.AsyncClient(
+        http2=False, timeout=KIRI_LICENSE_TIMEOUT, proxy=httpx_proxy()
+    )
 
 
 class KiriLicenseService:

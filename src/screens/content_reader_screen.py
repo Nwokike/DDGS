@@ -13,6 +13,8 @@ from core import theme, tokens
 from core.state import state
 from core.styles import build_banner_ad
 from core.theme import AppColors
+from core.utils import is_web_url
+from core.snack import show_snack
 
 
 def build_content_reader(
@@ -109,12 +111,20 @@ def build_content_reader(
         except Exception:
             pass
 
+    # Register keyboard handler - chained, not replacing (plan C9): the
+    # global Esc/Ctrl+K handler must survive a Reader round-trip.
+    _prev_key_handler = page.on_keyboard_event
+
     def _handle_keyboard(e):
-        """Handle hardware back button on Android."""
+        """Handle hardware back button on Android; delegate the rest."""
+        if _prev_key_handler is not None:
+            try:
+                _prev_key_handler(e)
+            except Exception:
+                pass
         if e.key in ("Back", "Escape", "BrowserBack"):
             _go_back()
 
-    # Register keyboard handler
     page.on_keyboard_event = _handle_keyboard
 
     def _on_link_tap(e):
@@ -123,7 +133,7 @@ def build_content_reader(
         link = e.data
         if not link or link.startswith(("#", "mailto:")):
             return
-        if not link.startswith("http"):
+        if not is_web_url(link):
             parsed = urllib.parse.urlparse(_current_url)
             link = f"{parsed.scheme}://{parsed.netloc}/{link.lstrip('/')}"
         _url_stack.append(_current_url)
@@ -139,7 +149,7 @@ def build_content_reader(
     def _exit_reader():
         """Always exit the reader - pop back to whatever was underneath."""
         try:
-            page.on_keyboard_event = None
+            page.on_keyboard_event = _prev_key_handler
             if len(page.views) > 1:
                 page.views.pop()
                 page.update()
@@ -164,8 +174,7 @@ def build_content_reader(
                 )
         except Exception as ex:
             snack = ft.SnackBar(ft.Text(f"Save failed: {ex}"))
-            snack.open = True
-            page.show_dialog(snack)
+            show_snack(page, snack)
             page.update()
 
     def _on_format_change(e):
@@ -175,8 +184,7 @@ def build_content_reader(
 
     def _copy_feedback(_=None):
         snack = ft.SnackBar(ft.Text("URL copied"))
-        snack.open = True
-        page.show_dialog(snack)
+        show_snack(page, snack)
         page.update()
 
     def _on_summarize(e=None):
@@ -184,8 +192,7 @@ def build_content_reader(
 
         if _is_loading or not _current_content:
             snack = ft.SnackBar(ft.Text("Page not loaded yet."))
-            snack.open = True
-            page.show_dialog(snack)
+            show_snack(page, snack)
             page.update()
             return
         show_ai_summary(
@@ -357,6 +364,14 @@ def build_content_reader(
             value=str(_current_content) if _current_content else "",
             selectable=True,
             extension_set="gitHubWeb",
+            # Plan D7: code fences in scraped pages now carry a real
+            # pygments theme (Dart-side, zero cost) - dark reads DRACULA,
+            # light keeps the default.
+            code_theme=(
+                ft.MarkdownCodeTheme.DRACULA
+                if theme.is_dark_mode(page)
+                else ft.MarkdownCodeTheme.DEFAULT
+            ),
             on_tap_link=_on_link_tap,
             visible=bool(_current_content),
         ),

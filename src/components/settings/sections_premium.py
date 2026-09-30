@@ -42,6 +42,7 @@ from core.tokens import (
 )
 from services import license_service
 from services.premium_service import page_has_ads
+from core.snack import show_snack
 
 _OPACITY_DIM = 0.6
 
@@ -230,8 +231,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 "warning": AppColors.WARNING,
             }.get(level, AppColors.PRIMARY),
         )
-        snack.open = True
-        page.show_dialog(snack)
+        show_snack(page, snack)
         try:
             page.update()
         except Exception:

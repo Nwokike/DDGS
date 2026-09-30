@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import flet as ft
 
-from components.results.detail_sheet import _show_result_sheet
+from components.results.detail_sheet import (
+    _result_actions_sheet,
+    _show_result_sheet,
+)
 from core import theme, tokens
 from core.state import SearchResult
 from core.theme import AppColors
+from core.utils import display_url
 
 
 def _image_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
     is_dark = theme.is_dark_mode(page)
-    return ft.Container(
+    card = ft.Container(
         content=ft.Column(
             [
                 ft.Container(
@@ -59,10 +63,17 @@ def _image_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
         ink=True,
         on_click=lambda _: _show_result_sheet(page, r, "images"),
     )
+    # Quick actions one gesture away (plan C3): long-press on mobile,
+    # right-click on desktop.
+    return ft.GestureDetector(
+        on_secondary_tap=lambda e: _result_actions_sheet(page, r),
+        on_long_press=lambda e: _result_actions_sheet(page, r),
+        content=card,
+    )
 
 
 def _video_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
-    return ft.Container(
+    card = ft.Container(
         content=ft.Row(
             [
                 ft.Container(
@@ -149,11 +160,18 @@ def _video_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
         ink=True,
         on_click=lambda _: _show_result_sheet(page, r, "videos"),
     )
+    # Quick actions one gesture away (plan C3): long-press on mobile,
+    # right-click on desktop.
+    return ft.GestureDetector(
+        on_secondary_tap=lambda e: _result_actions_sheet(page, r),
+        on_long_press=lambda e: _result_actions_sheet(page, r),
+        content=card,
+    )
 
 
 def _news_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
     is_dark = theme.is_dark_mode(page)
-    return ft.Container(
+    card = ft.Container(
         content=ft.Row(
             [
                 ft.Column(
@@ -230,10 +248,17 @@ def _news_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
         ink=True,
         on_click=lambda _: _show_result_sheet(page, r, "news"),
     )
+    # Quick actions one gesture away (plan C3): long-press on mobile,
+    # right-click on desktop.
+    return ft.GestureDetector(
+        on_secondary_tap=lambda e: _result_actions_sheet(page, r),
+        on_long_press=lambda e: _result_actions_sheet(page, r),
+        content=card,
+    )
 
 
 def _books_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
-    return ft.Container(
+    card = ft.Container(
         content=ft.Column(
             [
                 ft.Text(
@@ -245,7 +270,7 @@ def _books_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
                     font_family="Outfit",
                 ),
                 ft.Text(
-                    r.url,
+                    display_url(r.url),
                     size=tokens.FONT_XS,
                     color=ft.Colors.ON_SURFACE_VARIANT,
                     max_lines=1,
@@ -268,4 +293,11 @@ def _books_card(r: SearchResult, i: int, page: ft.Page) -> ft.Container:
         border=ft.Border.all(1, theme.adaptive_glass_border(page)),
         ink=True,
         on_click=lambda _: _show_result_sheet(page, r, "books"),
+    )
+    # Quick actions one gesture away (plan C3): long-press on mobile,
+    # right-click on desktop.
+    return ft.GestureDetector(
+        on_secondary_tap=lambda e: _result_actions_sheet(page, r),
+        on_long_press=lambda e: _result_actions_sheet(page, r),
+        content=card,
     )

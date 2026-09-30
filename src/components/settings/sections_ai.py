@@ -25,6 +25,82 @@ from core.tokens import (
 
 PREMIUM_PRODUCTS = ["premium_monthly", "premium_yearly", "premium_lifetime"]
 
+# Recurring crawl intervals the edit dialog offers (plan C6). The tool
+# schema clamps to 15..1440 minutes, so these cover the whole legal range.
+_INTERVALS = (
+    ("15", "15m"),
+    ("30", "30m"),
+    ("60", "1h"),
+    ("360", "6h"),
+    ("720", "12h"),
+    ("1440", "24h"),
+)
+
+
+def _edit_schedule_dialog(page: ft.Page, controller, task: dict) -> None:
+    """Edit a scheduled crawl's interval with a SegmentedButton (plan C6)."""
+    url = str(task.get("url") or "")
+    current = str(int(task.get("interval_minutes") or 60))
+    if current not in {v for v, _ in _INTERVALS}:
+        current = "60"
+
+    picked = [current]
+
+    async def _save(e=None):
+        page.pop_dialog()
+        interval = int(picked[0] or current)
+        from services import chat_agent
+        from services.chat_agent import _persist_schedule
+
+        chat_agent._schedule(url, interval)
+        await _persist_schedule()
+
+    page.show_dialog(
+        ft.AlertDialog(
+            title=ft.Text("Edit crawl schedule", font_family="Outfit"),
+            content=ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            url,
+                            size=FONT_SM,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            max_lines=2,
+                            overflow=ft.TextOverflow.ELLIPSIS,
+                            font_family="Outfit",
+                        ),
+                        ft.SegmentedButton(
+                            segments=[
+                                ft.Segment(value=v, label=ft.Text(lbl, font_family="Outfit"))
+                                for v, lbl in _INTERVALS
+                            ],
+                            selected=[current],
+                            allow_multiple_selection=False,
+                            on_change=lambda e: picked.__setitem__(
+                                0,
+                                (list(e.control.selected) or [current])[0],
+                            ),
+                        ),
+                        ft.Text(
+                            "Runs while the app is open.",
+                            size=FONT_SM,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                            font_family="Outfit",
+                        ),
+                    ],
+                    tight=True,
+                    spacing=12,
+                ),
+                width=380,
+            ),
+            actions=[
+                ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
+                ft.FilledButton("Save", on_click=_save),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+    )
+
 _OPACITY_DIM = 0.6
 
 
@@ -145,15 +221,30 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
                     f"Every {task.get('interval_minutes', 60)} min · "
                     f"next in {next_in // 60}m {next_in % 60}s · "
                     f"{task.get('pages_saved', 0)} pages last run",
-                    ft.IconButton(
-                        icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
-                        icon_size=ICON_SM,
-                        icon_color=ft.Colors.ON_SURFACE_VARIANT,
-                        tooltip="Cancel scheduled crawl",
-                        on_click=lambda e, u=task: page.run_task(
-                            controller.cancel_scheduled_scrape,
-                            u.get("url") or "",
-                        ),
+                    ft.Row(
+                        [
+                            ft.IconButton(
+                                icon=ft.Icons.EDIT_ROUNDED,
+                                icon_size=ICON_SM,
+                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                                tooltip="Edit crawl interval",
+                                on_click=lambda e, u=task: _edit_schedule_dialog(
+                                    page, controller, u
+                                ),
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.DELETE_OUTLINE_ROUNDED,
+                                icon_size=ICON_SM,
+                                icon_color=ft.Colors.ON_SURFACE_VARIANT,
+                                tooltip="Cancel scheduled crawl",
+                                on_click=lambda e, u=task: page.run_task(
+                                    controller.cancel_scheduled_scrape,
+                                    u.get("url") or "",
+                                ),
+                            ),
+                        ],
+                        spacing=0,
+                        tight=True,
                     ),
                 )
             )

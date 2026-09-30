@@ -60,7 +60,7 @@ def SettingsScreen() -> Control:
     ft.on_mounted(_watch_premium)
     # Read so the hook holds a live subscription; the card below re-derives
     # every row from `state` when this function re-runs.
-    assert _premium_verdict is not None
+    assert _premium_verdict is not None  # noqa: S101 - live-subscription read
 
     def _set(key: str, val):
         controller.save(key, val)

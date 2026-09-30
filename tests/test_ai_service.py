@@ -1,19 +1,18 @@
-"""Unit tests for ai_service: model passthrough, tool assembly, and answer
-post-processing. Model choice belongs to the router — the app must not rank
-or rotate (owner's directive: no auto logic in the app)."""
+"""Unit tests for ai_service: model passthrough, answer post-processing,
+the router probe cache. Model choice belongs to the router — the app must
+not rank or rotate (owner's directive: no auto logic in the app).
+
+Streaming itself is kani's now (services.kani_backend); the wire-level
+guarantees it took over are pinned in tests/test_kani_backend.py.
+"""
 
 from __future__ import annotations
 
 import asyncio
-import json
 
-import httpx
+import pytest
 
-from services.ai_service import (
-    assemble_tool_calls,
-    link_citations,
-    parse_related,
-)
+from services.ai_service import link_citations, parse_related
 
 
 def test_rotation_layer_is_gone():
@@ -37,74 +36,60 @@ def test_rotation_layer_is_gone():
         assert not hasattr(ai_service, symbol), f"{symbol} must stay deleted"
 
 
-def _capture_request(model: str | None) -> tuple[dict, dict]:
-    """Call _stream_router against a mock transport; return (request, result)."""
+# ── the model reaches the engine verbatim (no app-side picking) ──────────
+def _fake_base(monkeypatch):
     from services import ai_service
 
-    captured: dict = {}
+    async def fake():
+        return "http://127.0.0.1:9999/v1"
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        captured.update(json.loads(request.content))
-        return httpx.Response(
-            200,
-            json={
-                "choices": [
-                    {"message": {"content": "ok"}, "finish_reason": "stop"}
-                ]
-            },
-        )
+    monkeypatch.setattr(ai_service, "_router_base", fake)
 
-    async def run() -> tuple[dict, dict]:
-        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-        old_port, old_failed = ai_service._router_port, ai_service._router_failed_until
-        ai_service._router_port = 9999  # trust it; never probe or embed
-        ai_service._router_failed_until = 0.0
-        try:
-            result = await ai_service._stream_router(
-                client,
-                [{"role": "user", "content": "hi"}],
-                lambda _t: None,
-                None,
-                model=model,
+
+def test_model_auto_is_passed_through_verbatim(monkeypatch):
+    from services import kani_backend
+
+    _fake_base(monkeypatch)
+    engine, _tap = asyncio.run(kani_backend._build_engine("auto", None))
+    assert engine.model == "auto", "the router's own model must reach the router"
+    assert str(engine.client.base_url).rstrip("/") == "http://127.0.0.1:9999/v1"
+
+
+def test_default_model_is_auto(monkeypatch):
+    from services import ai_service, kani_backend
+
+    seen: list[str] = []
+    real = kani_backend._build_engine
+
+    async def spy(model, on_thought):
+        seen.append(model)
+        return await real(model, on_thought)
+
+    async def no_base():
+        return None
+
+    monkeypatch.setattr(kani_backend, "_build_engine", spy)
+    monkeypatch.setattr(ai_service, "_router_base", no_base)
+    with pytest.raises(ai_service.AIUnavailable):
+        asyncio.run(
+            kani_backend.run_turn(
+                "hi",
+                [],
+                system_prompt="SYS",
+                specs=[],
+                cancel=asyncio.Event(),
+                on_token=lambda _t: None,
             )
-            return captured, result
-        finally:
-            await client.aclose()
-            ai_service._router_port = old_port
-            ai_service._router_failed_until = old_failed
-
-    return asyncio.run(run())
+        )
+    assert seen == ["auto"]
 
 
-def test_model_auto_is_passed_through_verbatim():
-    request, result = _capture_request("auto")
-    assert request["model"] == "auto", "the router's own model must reach the router"
-    assert result["model"] == "auto"
+def test_explicit_pick_is_never_substituted(monkeypatch):
+    from services import kani_backend
 
-
-def test_default_model_is_auto():
-    request, _result = _capture_request(None)
-    assert request["model"] == "auto"
-
-
-def test_explicit_pick_is_never_substituted():
-    request, result = _capture_request("GLM-5.3-Flash")
-    assert request["model"] == "GLM-5.3-Flash", "no app-side substitution"
-    assert result["model"] == "GLM-5.3-Flash"
-
-
-def test_assemble_tool_calls_merges_fragments():
-    fragments = {
-        0: {"id": "call_abc", "name": "search_web", "args": '{"query": "par'},
-        1: {"id": "", "name": "", "args": ""},
-    }
-    calls = assemble_tool_calls(fragments)
-    assert len(calls) == 2
-    assert calls[0]["id"] == "call_abc"
-    assert calls[0]["function"]["name"] == "search_web"
-    assert calls[0]["function"]["arguments"] == '{"query": "par'
-    assert calls[1]["id"] == "call_1"  # auto id for missing
-    assert calls[0]["type"] == "function"
+    _fake_base(monkeypatch)
+    engine, _tap = asyncio.run(kani_backend._build_engine("GLM-5.3-Flash", None))
+    assert engine.model == "GLM-5.3-Flash", "no app-side substitution"
 
 
 def test_parse_related_strips_tail():
@@ -149,51 +134,7 @@ def test_catalog_hint_formats():
     )
 
 
-# ── SSE leniency and the probe cache ─────────────────────────────────────
-class _FakeResp:
-    def __init__(self, lines):
-        self._lines = lines
-
-    async def aiter_lines(self):
-        for line in self._lines:
-            yield line
-
-
-def test_sse_parser_accepts_spaceless_and_multiline_data():
-    from services.ai_service import _consume_sse
-
-    tokens: list[str] = []
-    lines = [
-        ": keepalive",
-        "event: message",
-        'data:{"choices":[{"delta":{"content":"hel"}}]}',
-        "",
-        'data: {"choices":[{"delta":{"content":"lo"}}]}',
-        (
-            'data: {"choices":[{"delta":{"content":"!"},'
-            '"finish_reason":"stop"}]}'
-        ),
-        "",
-        "data: [DONE]",
-    ]
-    finish, tools = asyncio.run(_consume_sse(_FakeResp(lines), tokens.append, False))
-    assert "".join(tokens) == "hello!", tokens
-    assert finish == "stop"
-    assert tools is None
-
-    # One event split across two data lines (split between JSON tokens,
-    # where the spec's newline join is whitespace).
-    tokens2: list[str] = []
-    lines2 = [
-        'data: {"choices":',
-        'data: [{"delta":{"content":"multi"}}]}',
-        "",
-        "data: [DONE]",
-    ]
-    asyncio.run(_consume_sse(_FakeResp(lines2), tokens2.append, False))
-    assert "".join(tokens2) == "multi", tokens2
-
-
+# ── the probe cache ─────────────────────────────────────────────────────────
 def test_probe_miss_is_cached(monkeypatch):
     """The 3s watchdog must not pay an 11-port scan per tick."""
     from services import ai_service

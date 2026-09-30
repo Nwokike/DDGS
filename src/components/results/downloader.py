@@ -9,6 +9,7 @@ import flet as ft
 from core import tokens
 from core.state import SearchResult, state
 from core.theme import AppColors
+from core.utils import is_launchable_url
 from services.media_downloader import (
     DownloadCancelled,
     NotMediaError,
@@ -34,6 +35,10 @@ def _human_bytes(n: int) -> str:
 async def launch_url(url: str, page: ft.Page | None = None):
     """Open a URL in the system browser. Works on mobile + desktop."""
     if not url:
+        return
+    if not is_launchable_url(url):
+        # Markdown link taps come from untrusted content (scraped pages,
+        # model replies): javascript:/file:/data: never reaches the OS.
         return
     launcher = getattr(page, "url_launcher", None) if page is not None else None
     if launcher is None and page is not None:
@@ -98,31 +103,45 @@ async def _resolve_save_path(page: ft.Page, default_name: str) -> str | None:
             getattr(ft.PagePlatform, "ANDROID_TV", ft.PagePlatform.ANDROID),
             ft.PagePlatform.IOS,
         )
-        if is_mobile:
-            dl_dir = "/storage/emulated/0/Download"
-            if not os.path.exists(dl_dir):
-                dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
-        else:
-            dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
-
-        try:
-            os.makedirs(dl_dir, exist_ok=True)
-        except OSError:
-            # No writable default location: the caller reports the failure
-            # instead of an unhandled OSError escaping the task.
+        # mkdir + the exists() uniqueness loop are real syscalls; they run
+        # on a worker so the UI loop never stalls picking a path.
+        path = await asyncio.to_thread(_default_save_path, is_mobile, default_name)
+        if not path:
             return None
-        name_part, ext_part = os.path.splitext(default_name)
-        counter = 1
-        unique_name = default_name
-        while os.path.exists(os.path.join(dl_dir, unique_name)):
-            unique_name = f"{name_part} ({counter}){ext_part}"
-            counter += 1
-        path = os.path.join(dl_dir, unique_name)
 
     return path
 
 
-def _show_feedback(page: ft.Page, title: str, message: str, is_error: bool = False):
+def _default_save_path(is_mobile: bool, default_name: str) -> str | None:
+    """Fallback path under Downloads: mkdir + unique name. Sync by design."""
+    if is_mobile:
+        dl_dir = "/storage/emulated/0/Download"
+        if not os.path.exists(dl_dir):
+            dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    else:
+        dl_dir = os.path.join(os.path.expanduser("~"), "Downloads")
+    try:
+        os.makedirs(dl_dir, exist_ok=True)
+    except OSError:
+        # No writable default location: the caller reports the failure
+        # instead of an unhandled OSError escaping the task.
+        return None
+    name_part, ext_part = os.path.splitext(default_name)
+    counter = 1
+    unique_name = default_name
+    while os.path.exists(os.path.join(dl_dir, unique_name)):
+        unique_name = f"{name_part} ({counter}){ext_part}"
+        counter += 1
+    return os.path.join(dl_dir, unique_name)
+
+
+def _show_feedback(
+    page: ft.Page,
+    title: str,
+    message: str,
+    is_error: bool = False,
+    path: str | None = None,
+):
     """Display a clear, prominent completion/error dialog on both mobile and desktop screens."""
     icon = ft.Icons.CHECK_CIRCLE_ROUNDED if not is_error else ft.Icons.ERROR_OUTLINED
     icon_color = AppColors.SUCCESS if not is_error else AppColors.ERROR
@@ -146,17 +165,52 @@ def _show_feedback(page: ft.Page, title: str, message: str, is_error: bool = Fal
             selectable=True,
             style=ft.TextStyle(height=1.4),
         ),
-        actions=[
-            ft.FilledButton(
-                "OK",
-                on_click=lambda e: page.pop_dialog(),
-                style=ft.ButtonStyle(bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE),
-            )
-        ],
+        actions=(_feedback_actions(page, title, path, is_error)),
         actions_alignment=ft.MainAxisAlignment.END,
     )
     page.show_dialog(dlg)
     page.update()
+    if not is_error:
+        # Plan C8: a finished save buzzes on mobile (no-op on desktop).
+        try:
+            haptic = getattr(page, "haptic_feedback", None)
+            if not haptic:
+                haptic = ft.HapticFeedback()
+                page.services.append(haptic)
+            page.run_task(haptic.medium_impact)
+        except Exception:
+            pass
+
+
+def _feedback_actions(page: ft.Page, title: str, path: str | None, is_error: bool):
+    """OK always; Share sits beside it when a real file was just written."""
+    actions = []
+    if path and not is_error:
+
+        async def _share(e=None):
+            share = getattr(page, "share", None)
+            if not share:
+                share = ft.Share()
+                page.services.append(share)
+            await share.share_files([ft.ShareFile(path=path)], title=title)
+
+        actions.append(
+            ft.OutlinedButton(
+                "Share",
+                on_click=lambda e: page.run_task(_share),
+                style=ft.ButtonStyle(
+                    side=ft.BorderSide(1, AppColors.PRIMARY),
+                ),
+            )
+        )
+    actions.append(
+        ft.FilledButton(
+            "OK",
+            on_click=lambda e: page.pop_dialog(),
+            style=ft.ButtonStyle(bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE),
+        )
+    )
+    return actions
 
 
 async def _download_media(page: ft.Page, result: SearchResult, search_type: str):
@@ -324,6 +378,7 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
             "Download Complete",
             f"File successfully saved to:\n\n{path}",
             is_error=False,
+            path=path,
         )
     except NotMediaError:
         page.pop_dialog()
@@ -369,6 +424,7 @@ async def _save_text_content(page: ft.Page, text: str, default_name: str):
                 "File Saved",
                 f"File successfully saved to:\n\n{path}",
                 is_error=False,
+                path=path,
             )
         except (
             ValueError,

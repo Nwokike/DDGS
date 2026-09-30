@@ -278,6 +278,60 @@ def log_ddgs_call(
         logger.debug(f"DDGS_CALL: {log_data}")
 
 
+def is_web_url(url: str) -> bool:
+    """True for http(s) only - the schemes an in-app fetch may perform.
+
+    Link taps in Markdown views arrive from untrusted content (scraped
+    pages, model replies), so `javascript:`, `file:`, `data:` and friends
+    must never reach a fetch or a launcher.
+    """
+    return isinstance(url, str) and url.lower().startswith(("http://", "https://"))
+
+
+def is_launchable_url(url: str) -> bool:
+    """True for schemes the system browser/mail handler may be opened with."""
+    return is_web_url(url) or (
+        isinstance(url, str) and url.lower().startswith("mailto:")
+    )
+
+
+def display_host(host: str) -> str:
+    """Decode a punycode host for humans: xn--mnchen-3ya -> münchen.
+
+    Clicks, copies and requests keep the raw host - only display text
+    changes. Invalid punycode passes through untouched.
+    """
+    import idna
+
+    try:
+        return idna.decode(host, uts46=True, display=True)
+    except Exception:
+        return host
+
+
+def display_url(url: str) -> str:
+    """Pretty-print a result URL with its host decoded for display."""
+    import urllib.parse
+
+    if not is_web_url(url):
+        return url
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname
+    if not host:
+        return url
+    pretty = display_host(host)
+    if pretty == host:
+        return url
+    netloc = pretty
+    if parsed.username:
+        netloc = f"{parsed.username}:{parsed.password or ''}@{netloc}"
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
+    )
+
+
 def sanitize_url(url: str) -> str | None:
     """Validate and sanitize URL. Prepend https:// if it looks like a domain name.
     Return None if completely invalid (e.g. contains spaces or no dots).

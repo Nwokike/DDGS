@@ -27,6 +27,8 @@ from components.wallet import show_wallet_dialog
 from core import tokens, ui
 from core.state import SearchResult, state
 from core.theme import AppColors
+from core.utils import display_host, is_launchable_url
+from core.snack import show_snack
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +45,31 @@ _KIND_ICONS = {
 # 900 characters used to hide the reasoning the user asked to see.
 _THROUGHT_CAP = 8000
 
-# Owner rule (LM Router's chat): one ad after every AI reply, and the
+# Owner rule: one ad after every AI reply, and the
 # thread never ends on an ad (the newest reply earns its banner once the
 # next message exists). Tunable here, positionally derived in _render.
 BANNER_AD_EVERY_N_REPLIES = 1
+
+
+def _exchange_bounds(turns: list[dict], index: int) -> tuple[int, int]:
+    """Bounds of the whole exchange a turn belongs to.
+
+    Drop the exchange, not one side of it: a question with no answer (or
+    the reverse) reads as a glitch. Shared by the delete flow and its
+    Undo, so both always agree on what "one exchange" is.
+    """
+    role = turns[index].get("role")
+    if role not in ("user", "assistant"):
+        return index, index + 1
+    start, end = index, index + 1
+    if role == "user":
+        if end < len(turns) and turns[end].get("role") == "assistant":
+            end += 1
+    elif start > 0 and turns[start - 1].get("role") == "user":
+        # Include the question that asked for this answer, otherwise
+        # regenerate leaves the old question in the transcript.
+        start -= 1
+    return start, end
 
 # One row per ability, covering every tool the Assistant has (owner:
 # "a sample cover every single ability") plus plain chat. The welcome
@@ -98,7 +121,7 @@ def _thought_seconds(turn: dict) -> int:
 
 def _domain(url: str) -> str:
     if "//" in url:
-        return url.split("/")[2].removeprefix("www.")
+        return display_host(url.split("/")[2].removeprefix("www."))
     return url[:40]
 
 
@@ -322,8 +345,8 @@ class ChatSession:
                 # SafeArea replaces the AppBar's status-bar inset: the
                 # header is a plain Sherlock-style row now, not a material
                 # AppBar, so the top inset has to come from here.
-                # expand=True is load-bearing (LM Router's shell does the
-                # same): as the View's top-level child it must fill the
+                # expand=True is load-bearing: as the View's top-level
+                # child it must fill the
                 # screen, or the Column gets loose height, the ListView
                 # never receives a bounded extent (no scrolling) and the
                 # composer stops being pinned to the bottom.
@@ -525,10 +548,19 @@ class ChatSession:
     def _clear_chat(self) -> None:
         if not self.turns:
             return
+        cleared = self.turns
         self.turns = []
         self._persist_history()
         self._render(force=True)
-        self._snack("Chat cleared")
+
+        def _undo(e=None):
+            if self._turn_task is not None:
+                return  # a reply is streaming; restoring now would fight it
+            self.turns = cleared
+            self._persist_history()
+            self._render(force=True)
+
+        self._snack("Chat cleared", action="Undo", on_action=_undo)
 
     def _model_history(self) -> list[dict]:
         """The flat transcript the agent consumes, projected on demand.
@@ -558,18 +590,7 @@ class ChatSession:
             self._render(force=True)
             return
 
-        # Drop the whole exchange, not one side of it: a question with no
-        # answer, or an answer with no question, reads as a glitch.
-        start, end = index, index + 1
-        if role == "user":
-            if end < len(self.turns) and self.turns[end].get("role") == "assistant":
-                end += 1
-        elif start > 0 and self.turns[start - 1].get("role") == "user":
-            # Include the question that asked for this answer, otherwise
-            # regenerate leaves the old question in the transcript and the
-            # resent one is appended alongside it.
-            start -= 1
-
+        start, end = _exchange_bounds(self.turns, index)
         del self.turns[start:end]
         self._persist_history()
         self._render(force=True)
@@ -630,10 +651,12 @@ class ChatSession:
         except Exception:
             logger.exception("conversation save failed")
 
-    def _snack(self, message: str) -> None:
+    def _snack(self, message: str, *, action: str | None = None, on_action=None) -> None:
         snack = ft.SnackBar(ft.Text(message))
-        snack.open = True
-        self.page.show_dialog(snack)
+        if action:
+            snack.action = action
+            snack.on_action = on_action
+        show_snack(self.page, snack)
         try:
             self.page.update()
         except Exception:
@@ -760,9 +783,18 @@ class ChatSession:
         was_active = conversation_id == self.conversation_id
         if was_active and self._busy_refuse("deleting this chat"):
             return
+        payload = conversations.load_conversation(conversation_id)
         if not conversations.delete_conversation(conversation_id):
             self._snack("That chat could not be deleted")
             return
+
+        def _undo(e=None):
+            conversations.restore_conversation(
+                conversation_id,
+                (payload or {}).get("messages") or [],
+                title=(payload or {}).get("title"),
+            )
+            conversations.refresh_state()
         conversations.refresh_state()
         if was_active:
             rows = conversations.list_conversations()
@@ -777,25 +809,43 @@ class ChatSession:
                     self._adopt(loaded)
             else:
                 self.new_conversation(keep_current=False)
-        self._snack("Chat deleted")
+        self._snack("Chat deleted", action="Undo", on_action=_undo)
 
     def delete_all_conversations(self) -> None:
         from services import conversation_service as conversations
 
         if self._busy_refuse("deleting your chats"):
             return
+        payloads = [
+            conversations.load_conversation(r["id"])
+            for r in conversations.list_conversations()
+        ]
         deleted, failed = conversations.delete_all()
         conversations.refresh_state()
         self.new_conversation(keep_current=False)
+
+        def _undo(e=None):
+            for payload in payloads:
+                if not payload:
+                    continue
+                conversations.restore_conversation(
+                    str(payload.get("id") or ""),
+                    payload.get("messages") or [],
+                    title=payload.get("title"),
+                )
+            conversations.refresh_state()
+
         if failed:
-            self._snack(f"Deleted {deleted} chats, {failed} could not be removed")
+            self._snack(
+                f"Deleted {deleted} chats, {failed} could not be removed"
+            )
         else:
-            self._snack("All chats deleted")
+            self._snack("All chats deleted", action="Undo", on_action=_undo)
 
     def _history_button_control(self) -> ft.IconButton:
         """Past conversations get a history icon, not a hamburger: the
         hamburger implies navigation or settings, and this sheet is only
-        the chat log (LM Router's header pair, history + plus).
+        the chat log (a history + plus header pair).
 
         It stays a modal rebuilt from disk every time: a popup menu froze
         its items when the session was created, so a deleted chat kept
@@ -837,6 +887,81 @@ class ChatSession:
             on_click=on_click,
             subtitle_lines=1,
         )
+
+    def _export_conversation(self, conversation_id: str, title: str) -> None:
+        """One chat -> a .kani archive via the save dialog (plan B6)."""
+
+        async def _go() -> None:
+            from components.results.downloader import _resolve_save_path
+            from services import conversation_service as conversations
+            from services import kani_backend
+
+            payload = conversations.load_conversation(conversation_id) or {}
+            messages = payload.get("messages") or []
+            if not messages:
+                self._snack("That chat has nothing to export")
+                return
+            safe = "".join(
+                c for c in (title or conversation_id) if c.isalnum() or c in "-_"
+            )[:32] or "chat"
+            path = await _resolve_save_path(self.page, f"ddgs-{safe}.kani")
+            if not path:
+                return  # the user cancelled the dialog
+            try:
+                await asyncio.to_thread(kani_backend.export_archive, messages, path)
+            except Exception:
+                logger.exception("chat export failed")
+                self._snack("Export failed")
+                return
+            self._snack(f"Exported to {path}")
+
+        self.page.run_task(_go)
+
+    def _import_conversation(self) -> None:
+        """Read a .kani/.json archive back as a new conversation (plan B6)."""
+
+        async def _go() -> None:
+            from services import conversation_service as conversations
+            from services import kani_backend
+
+            picker = getattr(self.page, "file_picker", None)
+            if not picker:
+                picker = ft.FilePicker()
+                self.page.services.append(picker)
+                self.page.update()
+            try:
+                files = await picker.pick_files(
+                    dialog_title="Import a DDGS chat",
+                    allowed_extensions=["kani", "json"],
+                    allow_multiple=False,
+                )
+            except (ValueError, TypeError, OSError, RuntimeError, AttributeError):
+                self._snack("The file dialog is unavailable here")
+                return
+            if not files:
+                return
+            src = getattr(files[0], "path", None) or str(files[0])
+            try:
+                messages = await asyncio.to_thread(kani_backend.import_archive, src)
+            except Exception:
+                logger.exception("chat import failed")
+                self._snack("That file is not a valid chat archive")
+                return
+            if not messages:
+                self._snack("That archive has no messages")
+                return
+            cid = conversations.new_conversation_id()
+            if not conversations.save_conversation(cid, messages):
+                self._snack("Could not save the imported chat")
+                return
+            try:
+                self.page.pop_dialog()
+            except Exception:
+                pass
+            self._snack(f"Imported {len(messages)} messages")
+            self.switch_conversation(cid)
+
+        self.page.run_task(_go)
 
     def _open_history_dialog(self) -> None:
         """Build and show the chat list as a modal, newest first, all of them.
@@ -890,6 +1015,22 @@ class ChatSession:
                 thickness=1,
                 color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
             ),
+            self._history_row(
+                ft.Icons.FOLDER_OPEN_ROUNDED,
+                "Import chat",
+                "Restore a .kani or .json archive",
+                ft.Icon(
+                    ft.Icons.CHEVRON_RIGHT_ROUNDED,
+                    size=tokens.ICON_SM,
+                    color=ft.Colors.with_opacity(0.4, ft.Colors.ON_SURFACE_VARIANT),
+                ),
+                on_click=lambda e: self._import_conversation(),
+            ),
+            ft.Divider(
+                height=1,
+                thickness=1,
+                color=ft.Colors.with_opacity(0.18, ft.Colors.OUTLINE),
+            ),
         ]
 
         if not rows:
@@ -915,6 +1056,14 @@ class ChatSession:
                     conversations.summarize(row),
                     ft.Row(
                         [
+                            ft.IconButton(
+                                icon=ft.Icons.SAVE_ALT_ROUNDED,
+                                icon_size=tokens.ICON_SM,
+                                tooltip="Export this chat",
+                                on_click=lambda e, cid=conversation_id, t=title: (
+                                    self._export_conversation(cid, t)
+                                ),
+                            ),
                             ft.Icon(
                                 ft.Icons.CHECK_CIRCLE_ROUNDED,
                                 size=tokens.ICON_SM,
@@ -927,7 +1076,7 @@ class ChatSession:
                                 icon_color=AppColors.ERROR,
                                 tooltip="Delete this chat",
                                 on_click=_delete_chat(conversation_id),
-                            )
+                            ),
                         ],
                         spacing=0,
                         tight=True,
@@ -1002,7 +1151,7 @@ class ChatSession:
                 title=ft.Text("Delete chat?", font_family="Outfit"),
                 content=ft.Text(
                     f'"{title}" will be removed from this device. '
-                    "This cannot be undone."
+                    "You can undo right after."
                 ),
                 actions=[
                     ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
@@ -1031,7 +1180,7 @@ class ChatSession:
                 title=ft.Text("Delete all chats?", font_family="Outfit"),
                 content=ft.Text(
                     f"All {count} saved chats will be removed from this device. "
-                    "This cannot be undone."
+                    "You can undo right after."
                 ),
                 actions=[
                     ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
@@ -1143,6 +1292,7 @@ class ChatSession:
                 model=data.get("model", ""),
                 steps=data.get("steps", 0),
                 cost=data.get("cost", 0),
+                tokens=data.get("tokens"),
                 partial=False,
                 receipt="",
             )
@@ -1259,8 +1409,8 @@ class ChatSession:
         emit() re-renders up to 5x per second while streaming; building a
         fresh BannerAd every time would churn the native ad view per token.
         The pool is keyed by reply position so a slot keeps the same
-        control identity across renders (the same reason LM Router derives
-        its banners positionally instead of pushing them on stream events).
+        control identity across renders (banners derive positionally
+        instead of pushing on stream events).
         Premium and desktop return None: no placeholder rows, so a paid or
         wide conversation has no stray gaps.
         """
@@ -1305,7 +1455,7 @@ class ChatSession:
             if turn.get("role") != "user":
                 assistant_replies += 1
                 # Ad after every AI reply, never as the last row (owner
-                # rule, LM Router): the thread must end on a message, so
+                # rule): the thread must end on a message, so
                 # the newest reply gets its banner with the next turn.
                 # Positional, so streaming re-reenders regenerate the
                 # identical layout instead of stacking duplicates.
@@ -1456,14 +1606,27 @@ class ChatSession:
 
         def _do_delete(e=None):
             self.page.pop_dialog()
-            self._delete_turn(index)
+            start, end = _exchange_bounds(self.turns, index)
+            removed = self.turns[start:end]
+            del self.turns[start:end]
+            self._persist_history()
+            self._render(force=True)
+
+            def _undo(e2=None):
+                if self._turn_task is not None:
+                    return
+                self.turns[start:start] = removed
+                self._persist_history()
+                self._render(force=True)
+
+            self._snack("Message deleted", action="Undo", on_action=_undo)
 
         self.page.show_dialog(
             ft.AlertDialog(
                 title=ft.Text("Delete message?", font_family="Outfit"),
                 content=ft.Text(
                     "This message and its exchange leave this chat. "
-                    "This cannot be undone."
+                    "You can undo right after."
                 ),
                 actions=[
                     ft.TextButton("Cancel", on_click=lambda e: self.page.pop_dialog()),
@@ -1543,6 +1706,11 @@ class ChatSession:
             parts.append(f"{cost} credit{'' if cost == 1 else 's'}")
         if turn.get("model"):
             parts.append(str(turn["model"]))
+        # Exact token count from the stream's usage trailer (plan B1);
+        # falls back to the local count of the answer we showed.
+        tok = turn.get("tokens") or {}
+        if tok.get("out"):
+            parts.append(f"{int(tok['out']) + int(tok.get('in') or 0)} tok")
         if not parts:
             return None
         if turn.get("served_by") == "gateway":
@@ -1611,8 +1779,8 @@ class ChatSession:
 
         if (turn.get("thought") or "").strip():
             still_thinking = bool(turn.get("partial")) and not turn.get("text")
-            # Open while the model is thinking (LM Router's rule: you watch
-            # the reasoning live), closed from the first answer word on.
+            # Open while the model is thinking (you watch the reasoning
+            # live), closed from the first answer word on.
             # An explicit user toggle always wins over the default.
             thinking_open = bool(turn.get("thought_open", still_thinking))
             elapsed = _thought_seconds(turn)
@@ -1668,8 +1836,8 @@ class ChatSession:
                     tooltip="Tap to expand or collapse",
                     # on_click, not on_tap_down: with ink=True the InkWell
                     # claims the gesture, so on_tap_down never fires and the
-                    # toggle dead-ends. LM Router's ThinkingBlock uses the
-                    # same Container + on_click contract.
+                    # toggle dead-ends. The ThinkingBlock must keep a plain
+                    # Container + on_click contract.
                     on_click=lambda e, t=turn: self._toggle_thought(t),
                 )
             )
@@ -2063,7 +2231,9 @@ class ChatSession:
         """Open a link the DDGS way: in-app extracted preview (browser inside)."""
 
         async def _go() -> None:
-            if not url:
+            if not is_launchable_url(url):
+                # Untrusted scheme (scraped/model markdown): no fetch, no
+                # launch. mailto: still reaches launch_url below.
                 return
             from components.results.content_fetcher import _fetch_and_show
 
