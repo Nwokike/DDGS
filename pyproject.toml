@@ -1,6 +1,6 @@
 [project]
 name = "ddgs-app"
-version = "2.1.1"
+version = "2.1.0"
 description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 10 engines."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -41,7 +41,7 @@ dependencies = [
 org = "ng.kiri"
 product = "DDGS"
 company = "Kiri Research Labs"
-build_number = 10
+build_number = 9
 
 [tool.flet.android.gradle_properties]
 # flet's default is -Xmx8G + 4G metaspace - MORE than a GitHub runner

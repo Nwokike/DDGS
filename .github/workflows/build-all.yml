@@ -9,11 +9,11 @@ on:
       build_version:
         description: "Build version"
         required: true
-        default: "2.1.1"
+        default: "2.1.0"
       build_number:
         description: "Build number"
         required: true
-        default: "10"
+        default: "9"
 
 permissions:
   contents: write
@@ -22,8 +22,8 @@ env:
   PYTHONUTF8: "1"
   FLET_CLI_NO_RICH_OUTPUT: "1"
   UV_PYTHON: "3.12"
-  BUILD_VERSION: ${{ inputs.build_version || '2.1.1' }}
-  BUILD_NUMBER: ${{ inputs.build_number || '10' }}
+  BUILD_VERSION: ${{ inputs.build_version || '2.1.0' }}
+  BUILD_NUMBER: ${{ inputs.build_number || '9' }}
 
 jobs:
   # ─── 0. Quality gate: nothing builds or publishes until this passes ────
@@ -174,6 +174,7 @@ jobs:
             - **A real agent engine**: the chat loop is now [kani](https://github.com/zhudotexe/kani)'s `full_round` - our own wrapper builds the engine, the tools and the error mapping. Reasoning capture rides kani's own SSE surface, so the Thinking block shows real reasoning again.
             - **The router is the only source**: the api.kiri.ng gateway fallback and all hand-rolled SSE parsing are gone. Requests go to the embedded Kiri router, the model string is passed through untouched, and a 429/5xx/connection break keeps its exact honest words.
             - **Exact token receipts**: every paid reply reports the real token count the stream returned, beside its steps and credits.
+            - **Thinking depth**: Auto / Fast / Deep in Settings, with a warm prompt cache for the system prompt and tools.
             - **Exports and imports**: any chat writes a `.kani` archive from the chat list, and `.kani`/JSON archives import back as a new conversation.
 
             ## The rest of the grind
@@ -184,7 +185,7 @@ jobs:
             - **Every network path honors your proxy**: downloads, YouTube, updates, license checks and the engine fetch, not just search.
             - **Crawl schedules you can edit**: a six-preset interval picker in Settings, and finished saves buzz and share on mobile.
             - **Desktop polish**: Esc closes dialogs, Ctrl+K jumps to search, and the Android splash matches the app's own surfaces.
-            - **Correctness**: foreign URL schemes never reach a fetch or the OS, punycode hosts read as real names, YouTube's JS parser has backtracking circuit-breakers, and the Android CI job can no longer run out of memory.
+            - **Correctness**: notification bars can no longer stay on screen and block every tap, foreign URL schemes never reach a fetch or the OS, punycode hosts read as real names, YouTube's JS parser has backtracking circuit-breakers, and the Android CI job can no longer run out of memory.
 
             ## The core, still the point
 
