@@ -37,12 +37,61 @@ def test_scheme_helpers():
 
 
 def test_urljoin_preserves_foreign_schemes_so_the_guard_is_post_resolve():
-    from components.results.content_fetcher import _resolve_url
+    from core.utils import resolve_url
 
-    resolved = _resolve_url("javascript:alert(1)", "https://host/page")
-    assert resolved == "javascript:alert(1)", (
-        "documents why the http(s) check must run after resolution"
-    )
+    assert (
+        resolve_url("https://host/page", "javascript:alert(1)") is None
+    ), "urljoin alone would keep the scheme; the guard must run after"
+
+
+def test_resolve_url_is_the_one_resolver_for_every_surface():
+    from core.utils import resolve_url
+
+    base = "https://host/dir/page"
+    assert resolve_url(base, "https://other.example/x") == "https://other.example/x"
+    assert resolve_url(base, "other") == "https://host/dir/other"
+    assert resolve_url(base, "../up") == "https://host/up"
+    assert resolve_url(base, "?q=1") == "https://host/dir/page?q=1"
+    assert resolve_url(base, "/root") == "https://host/root"
+    # Never-fetchable inputs resolve to None instead of raising.
+    assert resolve_url(base, "#section") is None
+    assert resolve_url(base, "mailto:hi@kiri.ng") is None
+    assert resolve_url(base, "javascript:alert(1)") is None
+    assert resolve_url(base, "") is None
+    assert resolve_url("", "relative") is None
+
+
+def test_fetch_nav_debounces_and_keeps_its_own_stack():
+    from core.utils import FetchNav
+
+    nav = FetchNav(debounce=60.0)  # a huge window: the next tap is always too soon
+    assert nav.allow_tap(), "the first tap passes"
+    assert not nav.allow_tap(), "a rapid second tap is swallowed"
+
+    stack_nav = FetchNav(debounce=0.0)
+    assert not stack_nav.can_back
+    stack_nav.push("https://a.example")
+    stack_nav.push("https://a.example")  # consecutive duplicate: ignored
+    assert stack_nav.can_back
+    stack_nav.push("https://b.example")
+    assert stack_nav.pop() == "https://b.example"
+    assert stack_nav.pop() == "https://a.example"
+    assert stack_nav.pop() is None
+
+    capped = FetchNav(max_depth=2, debounce=0.0)
+    for u in ("https://1.example", "https://2.example", "https://3.example"):
+        capped.push(u)
+    assert capped.pop() == "https://3.example"
+    assert capped.pop() == "https://2.example", "the oldest page fell off"
+    assert capped.pop() is None
+
+
+class _Page:
+    def __init__(self) -> None:
+        self.tasks: list = []
+
+    def run_task(self, fn, *args):
+        self.tasks.append((fn, args))
 
 
 def test_launcher_never_opens_foreign_schemes(monkeypatch):
@@ -59,22 +108,3 @@ def test_launcher_never_opens_foreign_schemes(monkeypatch):
     asyncio.run(launch_url("https://kiri.ng"))
     asyncio.run(launch_url("mailto:hi@kiri.ng"))
     assert opened == ["https://kiri.ng", "mailto:hi@kiri.ng"], opened
-
-
-class _Page:
-    def __init__(self) -> None:
-        self.tasks: list = []
-
-    def run_task(self, fn, *args):
-        self.tasks.append((fn, args))
-
-
-def test_fetcher_link_tap_refuses_unresolved_foreign_schemes():
-    from components.results.content_fetcher import _on_link_tap
-
-    page = _Page()
-    _on_link_tap(page, "javascript:alert(1)", "https://host/page")
-    assert page.tasks == [], "a foreign scheme must never start a fetch"
-
-    _on_link_tap(page, "https://ok.example/x")
-    assert len(page.tasks) == 1, "http(s) links still fetch in-app"

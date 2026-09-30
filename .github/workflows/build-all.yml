@@ -34,6 +34,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Assert playstore divergence (two files only)
+        run: |
+          # The branches agree everywhere except the AAB job and the
+          # YouTube policy block. Anything else in the diff means one
+          # branch drifted; fail loudly instead of shipping the drift.
+          git fetch --depth=1 origin main playstore || true
+          diff_files="$(git diff --name-only origin/main origin/playstore 2>/dev/null || true)"
+          extra="$(printf '%s\n' "$diff_files" | sort -u | grep -v -x \
+            -e '.github/workflows/build-all.yml' \
+            -e 'src/components/results/downloader.py' || true)"
+          if [ -n "$extra" ]; then
+            echo "::error::playstore diverges beyond the two allowed files:"
+            echo "$extra"
+            exit 1
+          fi
+          echo "playstore divergence is exactly the two allowed files"
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-python@v5
         with:

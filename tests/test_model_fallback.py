@@ -496,3 +496,175 @@ def test_passive_summary_walks_when_a_candidate_answers_with_nothing(monkeypatch
     assert built == ["fast-one", "steady-two"], "empty is a miss, not an answer"
     assert out["text"].strip() == "summary", "the next candidate answers"
     assert "".join(tokens).strip() == "summary"
+
+
+@pytest.fixture(autouse=True)
+def _reset_circuit_breaker(monkeypatch):
+    """Every test gets a cold breaker: walks must not leak across tests."""
+    from services import ai_service
+
+    monkeypatch.setattr(ai_service, "_model_failed_until", {})
+
+
+def test_turn_candidates_rank_the_pool_and_keep_auto_last(monkeypatch):
+    """`auto` in the picker means "ranked best now", not "send literal
+    auto": the tier-then-latency pool leads and the router's `auto` only
+    rides last - it used to get the first 1-3s of every turn to return
+    an empty 200 (live-probed Nvidia 502 body)."""
+    from services import ai_service
+
+    _catalog(monkeypatch)
+    assert ai_service.turn_candidates("auto") == [
+        "fast-one",
+        "steady-two",
+        "auto",
+    ]
+    assert ai_service.turn_candidates("steady-two") == [
+        "steady-two",
+        "fast-one",
+    ], "an explicit pick goes first verbatim; no auto tail unless asked"
+
+
+def test_circuit_breaker_skips_a_recently_failed_model(monkeypatch):
+    """One dead model must not be re-tried on every turn: after a walk-
+    worthy failure the breaker keeps it out of the pool for TTL seconds,
+    then it returns."""
+    import time as _time
+
+    from services import ai_service
+
+    _catalog(monkeypatch)
+    ai_service.mark_model_failed("fast-one")
+    assert ai_service.model_circuit_open("fast-one")
+    assert ai_service.candidate_models() == ["steady-two"], "open circuit skipped"
+    assert "auto" not in ai_service.candidate_models()
+
+    # An explicit pick is never breaker-blocked: the user asked for it.
+    assert ai_service.turn_candidates("fast-one")[0] == "fast-one"
+    # The router's own auto is never breaker-blocked either.
+    ai_service.mark_model_failed("auto")
+    assert ai_service.turn_candidates("auto")[-1] == "auto"
+
+    # TTL expiry (simulated) re-opens the circuit.
+    ai_service._model_failed_until["fast-one"] = _time.monotonic() - 1
+    assert not ai_service.model_circuit_open("fast-one")
+    assert ai_service.candidate_models() == ["fast-one", "steady-two"]
+
+
+def test_empty_output_walk_opens_the_breaker(monkeypatch):
+    """The empty-200 (embedded upstream error, zero chunks) is the exact
+    signature the breaker exists for: the walked model must be marked so
+    the NEXT turn does not pay for it again."""
+    from kani.engines.base import BaseEngine, Completion
+    from kani.models import ChatMessage, ChatRole
+
+    from services import ai_service, kani_backend
+    from services.reasoning import ThoughtTap
+
+    _catalog(monkeypatch)
+
+    class _Script(BaseEngine):
+        disable_function_calling_kwargs = {}
+
+        def __init__(self, script):
+            self.script = script
+            self.max_context_size = 131072
+
+        async def prompt_len(self, messages, functions=None, **kwargs):
+            return 10
+
+        async def predict(self, messages, functions=None, **kwargs):
+            raise AssertionError("streaming only")
+
+        async def stream(self, messages, functions=None, **kwargs):
+            for item in self.script:
+                yield item
+
+    scripts = {
+        "fast-one": [Completion(ChatMessage(role=ChatRole.ASSISTANT, content=""))],
+        "steady-two": [
+            "ok",
+            Completion(ChatMessage(role=ChatRole.ASSISTANT, content="ok")),
+        ],
+    }
+
+    async def fake_build(model, on_thought):
+        return _Script(scripts[model]), ThoughtTap(on_thought)
+
+    monkeypatch.setattr(kani_backend, "_build_engine", fake_build)
+
+    out = asyncio.run(
+        kani_backend.run_turn(
+            "hello",
+            [],
+            system_prompt="SYS",
+            specs=[],
+            cancel=asyncio.Event(),
+            on_token=lambda _t: None,
+            model="auto",
+        )
+    )
+    assert out["text"].strip() == "ok"
+    assert ai_service.model_circuit_open(
+        "fast-one"
+    ), "the empty candidate is breakered for the next turn"
+
+
+def test_ttfb_deadline_walks_a_hung_first_token(monkeypatch):
+    """A candidate that cannot produce its first token inside the TTFB
+    budget loses its slot: two hung models can no longer eat the whole
+    turn's wall-clock before a third is tried."""
+    from kani.engines.base import BaseEngine, Completion
+    from kani.models import ChatRole
+    from services import ai_service, kani_backend as kb
+    from services.reasoning import ThoughtTap
+
+    _catalog(monkeypatch)
+
+    built: list[str] = []
+
+    class _Hung(BaseEngine):
+        disable_function_calling_kwargs = {}
+
+        def __init__(self, model):
+            self.model = model
+            self.max_context_size = 131072
+
+        async def prompt_len(self, messages, functions=None, **kwargs):
+            return 10
+
+        async def predict(self, messages, functions=None, **kwargs):
+            raise AssertionError("streaming only")
+
+        async def stream(self, messages, functions=None, **kwargs):
+            if self.model == "fast-one":
+                import asyncio as _aio
+
+                await _aio.sleep(10 * kb.CANDIDATE_TTFB_S)
+            yield "done"
+            from kani.models import ChatMessage as _CM
+
+            yield Completion(_CM(role=ChatRole.ASSISTANT, content="done"))
+
+    async def fake_build(model, on_thought):
+        built.append(model)
+        return _Hung(model), ThoughtTap(on_thought)
+
+    monkeypatch.setattr(kb, "_build_engine", fake_build)
+    # Shrink the deadline: the walk must be proven, not wall-clock timed.
+    monkeypatch.setattr(kb, "CANDIDATE_TTFB_S", 0.05)
+
+    out = asyncio.run(
+        kb.run_turn(
+            "hello",
+            [],
+            system_prompt="SYS",
+            specs=[],
+            cancel=asyncio.Event(),
+            on_token=lambda _t: None,
+            model="fast-one",
+        )
+    )
+    assert built[0] == "fast-one" and "steady-two" in built
+    assert out["text"].strip() == "done", "the next candidate answers"
+    assert ai_service.model_circuit_open("fast-one")

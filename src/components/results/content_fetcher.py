@@ -8,67 +8,15 @@ from components.results.downloader import (
     launch_url,
 )
 from core import theme, tokens
-from core.constants import EXTRACT_FORMATS
+from core.constants import EXTRACT_FORMATS, EXTRACT_FORMAT_SHORT
 from core.state import state
 from core.styles import build_banner_ad
 from core.theme import AppColors
-from core.utils import classify_error, is_web_url
+from core.utils import FetchNav, classify_error, resolve_url, set_extract_format
 from services.search_service import SearchService
 from core.snack import show_snack
 
 _search_service = SearchService()
-_url_history: list[str] = []
-
-
-def _resolve_url(link: str, base_url: str = "") -> str:
-    """Resolve a potentially relative URL against a base URL."""
-    import urllib.parse
-
-    if not link:
-        return ""
-    if link.startswith(("http://", "https://")):
-        return link
-    if base_url:
-        return urllib.parse.urljoin(base_url, link)
-    return link
-
-
-def _on_link_tap(
-    page: ft.Page, url: str, base_url: str = "", from_dialog: bool = False
-):
-    """Directly fetch the tapped link and update the current view - like browser navigation."""
-    if not url or url.startswith(("#", "mailto:")):
-        return
-    resolved = _resolve_url(url, base_url)
-    if not is_web_url(resolved):
-        # urljoin keeps foreign schemes (javascript:alert(1) survives it),
-        # so the http(s) guard has to run AFTER resolution.
-        return
-    page.run_task(_fetch_and_show_link, page, resolved, from_dialog)
-
-
-async def _fetch_and_show_link(page: ft.Page, url: str, from_dialog: bool = False):
-    """Wrapper that safely fetches a link tapped inside fetched content."""
-    try:
-        await _fetch_and_show(page, url, pop_current=from_dialog)
-    except (
-        ValueError,
-        TypeError,
-        OSError,
-        RuntimeError,
-        ConnectionError,
-        ImportError,
-        KeyError,
-        IndexError,
-        AttributeError,
-        TimeoutError,
-    ):
-        snack_tmp = ft.SnackBar(
-            ft.Text(f"Could not fetch: {url}"),
-            bgcolor=AppColors.ERROR,
-        )
-        show_snack(page, snack_tmp)
-        page.update()
 
 
 async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
@@ -86,91 +34,27 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     url = sanitized
 
     if pop_current:
-        page.pop_dialog()
-
-    loading_dialog = ft.AlertDialog(
-        modal=True,
-        content=ft.Container(
-            content=ft.Row(
-                [
-                    ft.ProgressRing(
-                        width=24,
-                        height=24,
-                        stroke_width=3,
-                        color=AppColors.PRIMARY,
-                    ),
-                    ft.Text(
-                        f"Fetching {url[:50]}...",
-                        size=tokens.FONT_SM,
-                        weight=ft.FontWeight.W_500,
-                        font_family="Outfit",
-                    ),
-                ],
-                spacing=12,
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
-            padding=ft.Padding(24, 20, 24, 20),
-        ),
-    )
-    page.show_dialog(loading_dialog)
-
-    try:
-        result, error_msg = await _search_service.extract_url(
-            url, fmt=state.extract_format
-        )
-    except (
-        ValueError,
-        TypeError,
-        OSError,
-        RuntimeError,
-        ConnectionError,
-        ImportError,
-        KeyError,
-        IndexError,
-        AttributeError,
-        TimeoutError,
-    ) as ex:
-        result, error_msg = None, str(ex)
-
-    page.pop_dialog()
-
-    if not result:
-        if classify_error(error_msg) == "offline":
-            snack_tmp = ft.SnackBar(
-                ft.Text("No internet connection. Check your network and try again."),
-                action=ft.SnackBarAction(
-                    "Retry",
-                    on_click=lambda e: page.run_task(_fetch_and_show, page, url, False),
-                ),
-                bgcolor=AppColors.ERROR,
-            )
-        else:
-            snack_tmp = ft.SnackBar(
-                ft.Text(
-                    f"Could not extract page content ({error_msg or 'Unavailable'})"
-                ),
-                action=ft.SnackBarAction(
-                    "Open Browser",
-                    on_click=lambda e: page.run_task(launch_url, url),
-                ),
-                bgcolor=AppColors.ERROR,
-            )
-        show_snack(page, snack_tmp)
-        page.update()
-        return
+        # Close the sheet this fetch came from (detail sheet, overview).
+        # A no-op when nothing is open; the loading state below is inline,
+        # so there is no second dialog to interleave on fast taps.
+        try:
+            page.pop_dialog()
+        except Exception:
+            pass
 
     # One mutable view for the whole sheet: format switches and link taps
     # re-extract INTO this sheet. A subsequent page from a fetch continues
     # right here - it never pops this sheet to open a second modal over
-    # the results (owner's call).
+    # the results (owner's call). History and tap pacing live on this
+    # call's own nav, never in module state.
+    nav = FetchNav()
     view = {
         "url": url,
-        "content": result.get("content", ""),
-        "raw": result.get("content", b""),
-        "is_bytes": isinstance(result.get("content", ""), bytes),
+        "content": "",
+        "raw": b"",
+        "is_bytes": False,
+        "loaded": False,
     }
-    if view["is_bytes"]:
-        view["content"] = f"[Binary data extracted: {len(view['raw'])} bytes]"
 
     async def save_extract(e=None):
         if view["is_bytes"]:
@@ -203,7 +87,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
 
     def _expand_to_reader():
         """Close this preview and open the full-screen content reader."""
-        _url_history.clear()
+        nav.clear()
         page.pop_dialog()
         ctrl = getattr(page, "_ddgs_controller", None)
         if ctrl:
@@ -213,7 +97,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
             )
 
     def _close_preview(_):
-        _url_history.clear()
+        nav.clear()
         page.pop_dialog()
 
     def _body_control():
@@ -247,6 +131,94 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         )
 
+    def _error_control(message: str):
+        return ft.Column(
+            [
+                ft.Icon(
+                    ft.Icons.ERROR_OUTLINE_ROUNDED,
+                    size=32,
+                    color=AppColors.ERROR,
+                ),
+                ft.Text(
+                    message,
+                    size=tokens.FONT_SM,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                ft.Row(
+                    [
+                        ft.OutlinedButton(
+                            "Retry",
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            on_click=lambda _: page.run_task(
+                                _load, view["url"], False
+                            ),
+                        ),
+                        ft.OutlinedButton(
+                            "Open in browser",
+                            icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                            on_click=lambda _: page.run_task(
+                                launch_url, view["url"]
+                            ),
+                        ),
+                    ],
+                    spacing=tokens.SPACE_SM,
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+            ],
+            spacing=tokens.SPACE_SM,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
+        )
+
+    def _paint_error(err: str | None) -> None:
+        """Failure inline: the sheet stays up and says why (with Retry).
+
+        A page that already has content keeps it on screen; the entry
+        fetch shows the error body instead of an empty sheet.
+        """
+        if view["loaded"]:
+            body_col.controls = [_body_control()]
+        else:
+            message = (
+                "No internet connection. Check your network and try again."
+                if classify_error(err) == "offline"
+                else f"Could not load this page ({err or 'Unavailable'})"
+            )
+            body_col.controls = [_error_control(message)]
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def _apply(fresh: dict, new_url: str | None = None) -> None:
+        """Fill the sheet from an extract result (entry and navigation)."""
+        raw = fresh.get("content", "")
+        if new_url:
+            view["url"] = new_url
+        view["raw"] = raw
+        view["is_bytes"] = isinstance(raw, bytes)
+        view["content"] = (
+            f"[Binary data extracted: {len(raw)} bytes]"
+            if view["is_bytes"]
+            else raw
+        )
+        view["loaded"] = True
+        shown = view["url"]
+        header_text.value = shown[:60] + ("..." if len(shown) > 60 else "")
+        back_btn.visible = nav.can_back
+        open_btn.action = ft.OpenUrl(shown)
+        body_col.controls = [_body_control()]
+        if view["is_bytes"]:
+            summary_card.visible = False
+        else:
+            summary_card.visible = True
+            start_summary(force=True)
+        try:
+            page.update()
+        except Exception:
+            pass
+
     async def _load(new_url: str, push_history: bool = False) -> None:
         """Re-extract into THIS sheet: no pop, no second modal."""
         body_col.controls = [_loading_control()]
@@ -261,58 +233,21 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         except Exception as ex:
             fresh, err = None, str(ex)
         if not fresh:
-            body_col.controls = [_body_control()]
-            show_snack(
-                page,
-                ft.SnackBar(
-                    ft.Text(
-                        f"Could not load {new_url[:60]} ({err or 'Unavailable'})"
-                    ),
-                    bgcolor=AppColors.ERROR,
-                ),
-            )
-            try:
-                page.update()
-            except Exception:
-                pass
+            _paint_error(err)
             return
-        if push_history and view["url"] != new_url:
-            _url_history.append(view["url"])
-        raw = fresh.get("content", "")
-        view["url"] = new_url
-        view["raw"] = raw
-        view["is_bytes"] = isinstance(raw, bytes)
-        view["content"] = (
-            f"[Binary data extracted: {len(raw)} bytes]" if view["is_bytes"] else raw
-        )
-        header_text.value = new_url[:60] + ("..." if len(new_url) > 60 else "")
-        back_btn.visible = bool(_url_history)
-        open_btn.action = ft.OpenUrl(new_url)
-        body_col.controls = [_body_control()]
-        if summary_card is not None:
-            if view["is_bytes"]:
-                summary_card.visible = False
-            else:
-                summary_card.visible = True
-                start_summary(force=True)
-        try:
-            page.update()
-        except Exception:
-            pass
+        if push_history and view["loaded"] and view["url"] != new_url:
+            nav.push(view["url"])
+        _apply(fresh, new_url)
 
     def _nav_to(link: str) -> None:
-        if not link or link.startswith(("#", "mailto:")):
-            return
-        resolved = _resolve_url(link, view["url"])
-        if not is_web_url(resolved):
-            # urljoin keeps foreign schemes (javascript:alert(1) survives
-            # it), so the http(s) guard runs AFTER resolution.
+        resolved = resolve_url(view["url"], link)
+        if resolved is None or not nav.allow_tap():
             return
         page.run_task(_load, resolved, True)
 
     def _go_back(_):
-        if _url_history:
-            prev_url = _url_history.pop()
+        prev_url = nav.pop()
+        if prev_url:
             page.run_task(_load, prev_url, False)
 
     back_btn = ft.IconButton(
@@ -320,7 +255,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         icon_size=tokens.ICON_MD,
         tooltip="Back to previous page",
         on_click=_go_back,
-        visible=bool(_url_history),
+        visible=False,
     )
     header_text = ft.Text(
         view["url"][:60] + ("..." if len(view["url"]) > 60 else ""),
@@ -371,16 +306,9 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     )
 
     async def _change_preview_format(new_fmt: str):
-        state.extract_format = new_fmt
-        # Persist through the controller; never let a persistence failure
-        # block the in-place re-extract below (page._ddgs_controller
-        # exposes save_setting, not save_async).
-        ctrl = getattr(page, "_ddgs_controller", None)
-        try:
-            if ctrl and ctrl.storage:
-                await ctrl.save_setting("extract_format", new_fmt)
-        except Exception:
-            pass
+        # One writer for observable state + persistence, shared with the
+        # extract card and the reader, so the surfaces cannot diverge.
+        await set_extract_format(page, new_fmt)
         # In place: the sheet stays up and its content re-renders in the
         # newly chosen format. The old pop-and-reopen read as "the switch
         # opens something else" instead of "the content changed".
@@ -400,20 +328,27 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                 font_family="Outfit",
                 weight=ft.FontWeight.W_500,
             ),
-            ft.Dropdown(
-                value=state.extract_format,
-                options=[
-                    ft.dropdown.Option(f["key"], f["label"]) for f in EXTRACT_FORMATS
+            # All five formats visible at once (same as the extract card)
+            # beats a dropdown that hid four of them behind a tap.
+            ft.SegmentedButton(
+                segments=[
+                    ft.Segment(
+                        value=f["key"],
+                        label=ft.Text(
+                            EXTRACT_FORMAT_SHORT.get(f["key"], f["label"]),
+                            size=tokens.FONT_XS,
+                            font_family="Outfit",
+                            tooltip=f["label"],
+                        ),
+                    )
+                    for f in EXTRACT_FORMATS
                 ],
-                on_select=lambda e: page.run_task(
-                    _change_preview_format, e.control.value
+                selected=[state.extract_format],
+                allow_multiple_selection=False,
+                on_change=lambda e: page.run_task(
+                    _change_preview_format,
+                    (e.control.selected or [state.extract_format])[0],
                 ),
-                filled=True,
-                text_size=tokens.FONT_XS,
-                content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
-                border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_MD),
-                width=150,
-                height=36,
             ),
         ],
         spacing=6,
@@ -422,7 +357,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
 
     is_dark = theme.is_dark_mode(page)
     # Fetch sheet gets the same passive top card as search overviews: it
-    # starts itself once the sheet is up, no button, no modal - and a
+    # starts itself once content lands, no button, no modal - and a
     # navigation inside the sheet restarts it for the new page.
     from components.ai_summary import build_auto_summary
 
@@ -436,8 +371,10 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         ),
         get_url=lambda: view["url"],
     )
+    # The sheet opens immediately with an inline loading body: no
+    # modal loading dialog, no flicker, nothing to interleave.
     body_col = ft.Column(
-        [_body_control()],
+        [_loading_control()],
         expand=True,
         scroll=ft.ScrollMode.AUTO,
     )
@@ -466,5 +403,14 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         elevation=8,
     )
     page.show_dialog(preview_sheet)
-    if not view["is_bytes"]:
-        start_summary()
+
+    try:
+        fresh, err = await _search_service.extract_url(
+            url, fmt=state.extract_format
+        )
+    except Exception as ex:
+        fresh, err = None, str(ex)
+    if not fresh:
+        _paint_error(err)
+        return
+    _apply(fresh, url)

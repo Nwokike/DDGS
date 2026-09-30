@@ -288,6 +288,92 @@ def is_web_url(url: str) -> bool:
     return isinstance(url, str) and url.lower().startswith(("http://", "https://"))
 
 
+def resolve_url(base_url: str, link: str) -> str | None:
+    """Resolve a tapped link against the page it came from.
+
+    Returns the absolute http(s) URL to fetch, or None for anything that
+    must never be fetched (empty, fragment, mailto, `javascript:`). The
+    scheme guard runs AFTER urljoin: urljoin keeps foreign schemes
+    (`javascript:alert(1)` survives it), so resolving first is what makes
+    relative links (`../`, `?q`, `./path`) work and guarding second is
+    what keeps them safe. One resolver for every surface - extract card,
+    preview sheet, reader - so they can never disagree again.
+    """
+    import urllib.parse
+
+    if not link or link.startswith(("#", "mailto:")):
+        return None
+    resolved = link
+    if not is_web_url(link):
+        if not base_url:
+            return None
+        resolved = urllib.parse.urljoin(base_url, link)
+    if not is_web_url(resolved):
+        return None
+    return resolved
+
+
+class FetchNav:
+    """Per-surface back stack + tap pacing for fetched pages.
+
+    One instance per surface (Reader view, preview sheet) instead of the
+    old module-global list, so two open surfaces can never bleed history
+    into each other. Rapid taps are debounced: a second link press inside
+    `debounce` seconds is ignored instead of stacking duplicate fetches.
+    """
+
+    __slots__ = ("_stack", "_last_tap", "_depth", "_debounce")
+
+    def __init__(self, max_depth: int = 25, debounce: float = 0.3) -> None:
+        self._stack: list[str] = []
+        self._last_tap = 0.0
+        self._depth = max_depth
+        self._debounce = debounce
+
+    def push(self, url: str) -> None:
+        """Remember the page we are leaving (no consecutive duplicates)."""
+        if url and (not self._stack or self._stack[-1] != url):
+            self._stack.append(url)
+            if len(self._stack) > self._depth:
+                self._stack.pop(0)
+
+    def pop(self) -> str | None:
+        return self._stack.pop() if self._stack else None
+
+    @property
+    def can_back(self) -> bool:
+        return bool(self._stack)
+
+    def clear(self) -> None:
+        self._stack.clear()
+
+    def allow_tap(self) -> bool:
+        """Debounce gate: True at most once per `debounce` seconds."""
+        now = time.monotonic()
+        if now - self._last_tap < self._debounce:
+            return False
+        self._last_tap = now
+        return True
+
+
+async def set_extract_format(page, fmt: str) -> None:
+    """One writer for the extract format: observable state + persistence.
+
+    Every format switcher (extract card, preview sheet, reader) calls
+    this instead of hand-rolling state assignment and storage writes, so
+    the setting can never diverge between surfaces again.
+    """
+    from core.state import state
+
+    state.extract_format = fmt
+    ctrl = getattr(page, "_ddgs_controller", None)
+    try:
+        if ctrl and ctrl.storage:
+            await ctrl.save_setting("extract_format", fmt)
+    except Exception:
+        pass
+
+
 def is_launchable_url(url: str) -> bool:
     """True for schemes the system browser/mail handler may be opened with."""
     return is_web_url(url) or (

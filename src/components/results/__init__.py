@@ -9,12 +9,7 @@ from components.results.cards_media import (
     _news_card,
     _video_card,
 )
-from components.results.content_fetcher import (
-    _fetch_and_show,
-    _fetch_and_show_link,
-    _on_link_tap,
-    _resolve_url,
-)
+from components.results.content_fetcher import _fetch_and_show
 from components.results.detail_sheet import _show_result_sheet
 from components.results.downloader import (
     _download_media,
@@ -31,13 +26,10 @@ __all__ = [
     "_download_media",
     "_extract_card",
     "_fetch_and_show",
-    "_fetch_and_show_link",
     "_human_bytes",
     "_image_card",
     "_news_card",
-    "_on_link_tap",
     "_resolve_save_path",
-    "_resolve_url",
     "_save_bytes_content",
     "_save_text_content",
     "_show_result_sheet",

@@ -11,8 +11,11 @@ full_round iteration.
 Design rules for this backend (our own):
 - the thought-tap SSE tee (services.reasoning) so the Thinking block
   still sees the reasoning deltas kani itself throws away;
-- the model string passed to the engine verbatim - `auto` is the
-  router's to resolve, nothing here substitutes it;
+- the candidate order is client-ranked (ai_service.turn_candidates):
+  an explicit pick goes verbatim, `auto` expands to the tier-then-
+  latency pool with the router's `auto` itself last - its in-request
+  failover is invisible here (dead upstreams return HTTP 200 with an
+  empty stream), so the app walks observably instead;
 - cancellation at manager boundaries: on_token raising stops a stream
   mid-flight, and a boundary check runs before every model round.
   Never abandon kani's async-for from outside mid-chunk;
@@ -75,6 +78,16 @@ _CACHE_WIRE = {"prompt_cache_key": "ddgs-agent-system-v1"}
 # attribute: kani runs a tool batch with asyncio.gather, and each child
 # task reads its own context.
 _call_id: ContextVar[str] = ContextVar("ddgs_tool_call_id", default="")
+
+# Per-candidate patience. The walk only works if every candidate has to
+# prove it is alive fast: 12s to the first token, and 20s of dead air
+# mid-stream (the httpx read timeout in _build_engine). The outer turn
+# wall-clock (AGENT_TIMEOUT_S) stays the boss; a healthy model answers
+# its first token in 1-2s (live-probed), so these caps only ever trip
+# on hung upstreams - and two of them can no longer eat the whole
+# 240s budget before the third model is tried.
+CANDIDATE_TTFB_S = 12.0
+CANDIDATE_READ_S = 20.0
 
 
 class DDGSKani(Kani):
@@ -176,17 +189,19 @@ async def _build_engine(
     """One engine per turn: router base, thought tap, bounded timeouts.
 
     Same wire the old hand-rolled client built: `Bearer any`, the DDGS
-    UA (router.kiri.ng answers 403 to default library agents), 180s
-    read / 4s connect, two retries. api_type is explicit because `auto`
-    and the free catalog match no known model prefix.
+    UA (router.kiri.ng answers 403 to default library agents), 20s
+    dead-air / 4s connect, no SDK retries (the candidate walk IS the
+    retry). api_type is explicit because `auto` and the free catalog
+    match no known model prefix.
     """
     base = await ai_service._router_base()
     if base is None:
         raise AIUnavailable("The Assistant is reconnecting. Try again shortly.")
     tap = ThoughtTap(on_thought)
-    # 90s of dead air between chunks: enough for a slow-but-alive model,
-    # short enough that a hung one is walked away from quickly.
-    timeout = httpx.Timeout(90.0, connect=4.0)
+    # 20s of dead air between chunks: a healthy model streams steadily;
+    # a hung one is walked away from in 20s instead of 90, so two bad
+    # candidates cannot consume the turn's whole wall-clock budget.
+    timeout = httpx.Timeout(CANDIDATE_READ_S, connect=4.0)
     raw = build_thought_client(timeout=timeout, max_retries=2, tap=tap)
     client = openai.AsyncOpenAI(
         api_key="any",
@@ -355,7 +370,7 @@ async def run_turn(
     final_text = ""
     last_model_failed: str | None = None
 
-    candidates = [chosen, *[m for m in ai_service.candidate_models() if m != chosen]]
+    candidates = ai_service.turn_candidates(chosen)
 
     def _history_has_query(items: list[ChatMessage]) -> bool:
         return any(m.role.value == "user" and (m.text or "") == query for m in items)
@@ -447,9 +462,31 @@ async def run_turn(
                 if steps and on_model_step is not None:
                     await on_model_step()
                 delivered = False
+                t_first = time.monotonic()
+                stream = manager.__aiter__()
                 try:
-                    async for chunk in manager:
+                    while True:
+                        try:
+                            if delivered:
+                                chunk = await stream.__anext__()
+                            else:
+                                # First token or walk: a candidate that cannot
+                                # produce anything in CANDIDATE_TTFB_S is hung -
+                                # prove life fast or lose the turn's slot.
+                                chunk = await asyncio.wait_for(
+                                    stream.__anext__(), CANDIDATE_TTFB_S
+                                )
+                        except StopAsyncIteration:
+                            break
+                        except TimeoutError as exc:
+                            raise RouterModelFailed(
+                                f"No first token within {CANDIDATE_TTFB_S:.0f}s."
+                            ) from exc
                         if chunk:
+                            if not delivered:
+                                ttfb = time.monotonic() - t_first
+                                log = logger.info if ttfb > 3 else logger.debug
+                                log("TTFB %s: %.2fs", attempt_model, ttfb)
                             delivered = True
                             round_parts.append(chunk)
                             on_token(chunk)
@@ -520,6 +557,7 @@ async def run_turn(
             except RouterModelFailed as mapped:
                 # This candidate is done; the loop below walks to the next.
                 last_model_failed = attempt_model
+                ai_service.mark_model_failed(attempt_model)
                 logger.info(
                     "candidate model %s failed: %s", attempt_model, mapped
                 )
@@ -535,6 +573,14 @@ async def run_turn(
         # candidate: the caller's settle-0 not-charged branch only fires
         # when every model stayed silent.
         last_model_failed = attempt_model
+        ai_service.mark_model_failed(attempt_model)
+        upstream = getattr(tap, "last_error", None)
+        if upstream:
+            logger.info(
+                "candidate model %s returned an embedded upstream error: %s",
+                attempt_model,
+                upstream.get("message") or upstream,
+            )
         logger.info("candidate model %s said nothing; trying the next", attempt_model)
 
     if cancel.is_set():
@@ -578,7 +624,7 @@ async def complete(
     # used to surface as a bare 'Assistant unavailable' because this path
     # was single-shot. Restarting mid-stream is the one case we refuse -
     # the caller's buffer cannot be rewound, so two answers would glue.
-    candidates = [chosen, *[m for m in ai_service.candidate_models() if m != chosen]]
+    candidates = ai_service.turn_candidates(chosen)
     last_err: Exception | None = None
     for attempt_model in candidates:
         engine, tap = await _build_engine(attempt_model, None)
@@ -603,6 +649,15 @@ async def complete(
                 # run_turn: the router answers 200 with an embedded error
                 # for a dead upstream, so walking is the only recovery.
                 last_err = AIUnavailable("candidate produced no answer")
+                ai_service.mark_model_failed(attempt_model)
+                upstream = getattr(tap, "last_error", None)
+                if upstream:
+                    logger.info(
+                        "passive candidate %s returned an embedded upstream "
+                        "error: %s",
+                        attempt_model,
+                        upstream.get("message") or upstream,
+                    )
                 logger.info(
                     "passive candidate %s produced no answer; trying the next",
                     attempt_model,
@@ -624,6 +679,7 @@ async def complete(
                         "The Assistant was interrupted. Try again shortly."
                     ) from mapped
                 last_err = mapped
+                ai_service.mark_model_failed(attempt_model)
                 logger.info(
                     "passive candidate %s failed: %s", attempt_model, mapped
                 )

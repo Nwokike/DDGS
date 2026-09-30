@@ -100,6 +100,10 @@ class ThoughtTap:
         # The router rewrites `auto` to the served model on every frame;
         # the receipt row shows this id (today's `response.model` parity).
         self.last_model = ""
+        # A dead upstream arrives as HTTP 200 with an error object inside
+        # an SSE frame and no content at all - the tap records it so the
+        # candidate walk logs the real cause instead of "said nothing".
+        self.last_error: dict | None = None
 
     def feed(self, text: str) -> None:
         if not text or self.callback is None:
@@ -147,6 +151,9 @@ class _TeeStream(httpx.AsyncByteStream):
             model = payload.get("model")
             if isinstance(model, str) and model:
                 self._tap.last_model = model
+            error = payload.get("error")
+            if isinstance(error, dict):
+                self._tap.last_error = error
             self._tap.feed(_reasoning_from_frame(payload))
 
     async def aclose(self) -> None:

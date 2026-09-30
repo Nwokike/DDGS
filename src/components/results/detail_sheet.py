@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import flet as ft
 
-from components.results.content_fetcher import _fetch_and_show, _url_history
+from components.results.content_fetcher import _fetch_and_show
 from components.results.downloader import _download_media
 from core import theme, tokens
 from core.state import SearchResult
@@ -171,7 +171,8 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         if is_media:
             page.run_task(_download_media, page, r, search_type)
         else:
-            _url_history.clear()
+            # The preview owns its navigation now; no shared history to
+            # clear before it opens.
             page.run_task(_fetch_and_show, page, r.url, pop_current=True)
 
     def _close(_):
