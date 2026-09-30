@@ -37,7 +37,9 @@ def test_load_more_appends_deduped_page():
 
     state.current_query = "trains"
     state.page = 1
-    state.last_results = {"text": [_result("https://a.example"), _result("https://b.example")]}
+    state.last_results = {
+        "text": [_result("https://a.example"), _result("https://b.example")]
+    }
     from core.state import SearchProgress
 
     state.search_progress = SearchProgress(

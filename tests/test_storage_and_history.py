@@ -99,7 +99,9 @@ def test_page_cache_is_scoped_by_format():
         cache = CacheService()
         await cache.put_page("https://x.test", "text_markdown", "markdown body")
         await cache.put_page("https://x.test", "html", "<html>")
-        assert await cache.get_page("https://x.test", "text_markdown") == "markdown body"
+        assert (
+            await cache.get_page("https://x.test", "text_markdown") == "markdown body"
+        )
         assert await cache.get_page("https://x.test", "html") == "<html>"
 
     run(scenario())

@@ -10,6 +10,7 @@ from __future__ import annotations
 import flet as ft
 from flet import Control
 
+from components.app_header import _build_version_chip
 from components.results.empty_states import (
     build_empty_results_box,
     build_error_box,
@@ -98,6 +99,7 @@ def ResultsScreen() -> Control:
             spacing=2,
         ),
         actions=[
+            _build_version_chip(page),
             ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,
                 icon_size=tokens.ICON_MD,
@@ -226,9 +228,9 @@ def ResultsScreen() -> Control:
                         and (
                             is_running
                             or bool(
-                                getattr(controller, "is_search_running", lambda _: False)(
-                                    search_type
-                                )
+                                getattr(
+                                    controller, "is_search_running", lambda _: False
+                                )(search_type)
                             )
                         )
                     ),

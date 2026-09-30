@@ -155,7 +155,8 @@ def test_tapping_a_plan_opens_the_checkout_dialog(monkeypatch):
     buy = next(
         c
         for c in controls
-        if isinstance(c, ft.FilledButton) and str(getattr(c, "content", "")) == "$3.99 USD"
+        if isinstance(c, ft.FilledButton)
+        and str(getattr(c, "content", "")) == "$3.99 USD"
     )
     buy.on_click(None)
     assert page.dialogs, "the plan button must open something"
@@ -177,7 +178,8 @@ def test_tapping_a_plan_opens_the_checkout_dialog(monkeypatch):
     cont = next(
         a
         for a in dialog.actions
-        if isinstance(a, ft.FilledButton) and str(getattr(a, "content", "")) == "Continue"
+        if isinstance(a, ft.FilledButton)
+        and str(getattr(a, "content", "")) == "Continue"
     )
     assert cont.on_click is not None
     cont.on_click(None)
@@ -242,7 +244,8 @@ def test_the_restore_row_opens_a_dialog_prefilled_with_the_saved_id(monkeypatch)
     restore = next(
         c
         for c in controls
-        if isinstance(c, ft.OutlinedButton) and str(getattr(c, "content", "")) == "Restore"
+        if isinstance(c, ft.OutlinedButton)
+        and str(getattr(c, "content", "")) == "Restore"
     )
     restore.on_click(None)
     dialog = page.dialogs[-1]
@@ -299,6 +302,7 @@ def test_a_premium_holder_sees_no_price_rows(monkeypatch):
     rendered = " ".join(texts)
     assert "DDGS Premium" in rendered, "the paid row keeps KTV's title"
     from core.constants import PREMIUM_DAILY_CREDITS
+
     assert f"{PREMIUM_DAILY_CREDITS} credits a day" in rendered, (
         "the paid row states the benefit"
     )

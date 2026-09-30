@@ -137,9 +137,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     if not result:
         if classify_error(error_msg) == "offline":
             snack_tmp = ft.SnackBar(
-                ft.Text(
-                    "No internet connection. Check your network and try again."
-                ),
+                ft.Text("No internet connection. Check your network and try again."),
                 action=ft.SnackBarAction(
                     "Retry",
                     on_click=lambda e: page.run_task(_fetch_and_show, page, url, False),

@@ -175,9 +175,7 @@ def _retry_prices(page: ft.Page, premium) -> None:
         except Exception:
             _prices_attempted = False  # let a later build try again
             return
-        prices = {
-            p.id: p.price_label for p in products if p.id and p.amount
-        }
+        prices = {p.id: p.price_label for p in products if p.id and p.amount}
         if prices:
             state.license_prices = prices
 
@@ -293,9 +291,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                     padding=ft.Padding(4, 8, 4, 4),
                 ),
                 actions=[
-                    ft.TextButton(
-                        "Cancel", on_click=lambda e: page.pop_dialog()
-                    ),
+                    ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
                     ft.FilledButton(
                         "Continue",
                         on_click=lambda e: page.run_task(
@@ -389,9 +385,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                     padding=ft.Padding(4, 8, 4, 4),
                 ),
                 actions=[
-                    ft.TextButton(
-                        "Cancel", on_click=lambda e: page.pop_dialog()
-                    ),
+                    ft.TextButton("Cancel", on_click=lambda e: page.pop_dialog()),
                     ft.FilledButton(
                         "Restore",
                         on_click=lambda e: page.run_task(
@@ -430,9 +424,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
             getattr(status, "recovery_id", "") or recovery_id
         )
         if controller is not None:
-            await controller._grant_premium_benefits(
-                first_time=not was_premium
-            )
+            await controller._grant_premium_benefits(first_time=not was_premium)
         # Branch on the verdict, not on the endpoint's own status word: the
         # arbiter ORs in the Play channel, so `status.unlocks` alone could
         # announce success while the app-wide flag is still False.
@@ -548,8 +540,7 @@ def build_premium_section(page: ft.Page) -> ft.Container:
                 _setting_row(
                     ft.Icons.CLOUD_OFF_ROUNDED,
                     "Unlock options unavailable",
-                    "Could not reach the license service. Check your "
-                    "connection",
+                    "Could not reach the license service. Check your connection",
                     ft.Icon(
                         ft.Icons.CLOUD_OFF_ROUNDED,
                         size=ICON_SM,

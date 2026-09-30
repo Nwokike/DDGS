@@ -410,7 +410,10 @@ def test_kani_archive_roundtrip_preserves_the_transcript(tmp_path):
 
 
 def test_json_archive_roundtrip_too(tmp_path):
-    messages = [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}]
+    messages = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+    ]
     path = tmp_path / "chat.json"
     kani_backend.export_archive(messages, str(path))
     assert kani_backend.import_archive(str(path)) == messages

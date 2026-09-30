@@ -21,6 +21,7 @@ import time
 
 import flet as ft
 
+from components.app_header import _build_version_chip
 from components.model_picker import build_model_pill
 from components.results.downloader import launch_url
 from components.wallet import show_wallet_dialog
@@ -70,6 +71,7 @@ def _exchange_bounds(turns: list[dict], index: int) -> tuple[int, int]:
         # regenerate leaves the old question in the transcript.
         start -= 1
     return start, end
+
 
 # One row per ability, covering every tool the Assistant has (owner:
 # "a sample cover every single ability") plus plain chat. The welcome
@@ -267,6 +269,8 @@ class ChatSession:
         # Live pill: its label tracks the router lifecycle (starting /
         # ready / stopped) and the selected model, rebuilt on every render.
         self.model_chip = build_model_pill(page)
+        # KTV/Sherlock live version chip: flips to Update Available when new build exists
+        self.version_chip = _build_version_chip(page)
 
         # Sherlock's header shape (the owner's sample): ONE row with a
         # left group and a right group, SPACE_BETWEEN, and scroll on the
@@ -309,12 +313,11 @@ class ChatSession:
                                 icon_size=18,
                                 icon_color=AppColors.PRIMARY,
                                 tooltip="New chat",
-                                style=ft.ButtonStyle(
-                                    padding=ft.Padding(2, 6, 2, 6)
-                                ),
+                                style=ft.ButtonStyle(padding=ft.Padding(2, 6, 2, 6)),
                                 on_click=lambda e: self.new_conversation(),
                             ),
                             self._history_button_control(),
+                            self.version_chip,
                             self.credits_chip,
                             self.model_chip,
                         ],
@@ -651,7 +654,9 @@ class ChatSession:
         except Exception:
             logger.exception("conversation save failed")
 
-    def _snack(self, message: str, *, action: str | None = None, on_action=None) -> None:
+    def _snack(
+        self, message: str, *, action: str | None = None, on_action=None
+    ) -> None:
         snack = ft.SnackBar(ft.Text(message))
         if action:
             snack.action = action
@@ -795,6 +800,7 @@ class ChatSession:
                 title=(payload or {}).get("title"),
             )
             conversations.refresh_state()
+
         conversations.refresh_state()
         if was_active:
             rows = conversations.list_conversations()
@@ -836,9 +842,7 @@ class ChatSession:
             conversations.refresh_state()
 
         if failed:
-            self._snack(
-                f"Deleted {deleted} chats, {failed} could not be removed"
-            )
+            self._snack(f"Deleted {deleted} chats, {failed} could not be removed")
         else:
             self._snack("All chats deleted", action="Undo", on_action=_undo)
 
@@ -901,9 +905,12 @@ class ChatSession:
             if not messages:
                 self._snack("That chat has nothing to export")
                 return
-            safe = "".join(
-                c for c in (title or conversation_id) if c.isalnum() or c in "-_"
-            )[:32] or "chat"
+            safe = (
+                "".join(
+                    c for c in (title or conversation_id) if c.isalnum() or c in "-_"
+                )[:32]
+                or "chat"
+            )
             path = await _resolve_save_path(self.page, f"ddgs-{safe}.kani")
             if not path:
                 return  # the user cancelled the dialog
@@ -1459,9 +1466,8 @@ class ChatSession:
                 # the newest reply gets its banner with the next turn.
                 # Positional, so streaming re-reenders regenerate the
                 # identical layout instead of stacking duplicates.
-                if (
-                    assistant_replies % BANNER_AD_EVERY_N_REPLIES == 0
-                    and idx + 1 < len(self.turns)
+                if assistant_replies % BANNER_AD_EVERY_N_REPLIES == 0 and idx + 1 < len(
+                    self.turns
                 ):
                     ad = self._pooled_ad(assistant_replies - 1)
                     if ad is not None:
@@ -1531,9 +1537,7 @@ class ChatSession:
             )
         )
         return ft.Container(
-            content=ft.Column(
-                kids, horizontal_alignment=ft.CrossAxisAlignment.STRETCH
-            ),
+            content=ft.Column(kids, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
             expand=True,
         )
 
@@ -1555,9 +1559,7 @@ class ChatSession:
     def _copy_turn(self, index: int) -> None:
         if not (0 <= index < len(self.turns)):
             return
-        self.page.run_task(
-            self._copy_text, str(self.turns[index].get("text") or "")
-        )
+        self.page.run_task(self._copy_text, str(self.turns[index].get("text") or ""))
 
     def _edit_turn(self, index: int) -> None:
         """Prefill the composer with a sent message so it can be changed.
@@ -2056,9 +2058,7 @@ class ChatSession:
             if meta is not None:
                 kids.append(meta)
         elif turn.get("receipt"):
-            kids.append(
-                ui.notice(str(turn["receipt"]), level="warning")
-            )
+            kids.append(ui.notice(str(turn["receipt"]), level="warning"))
 
         return ft.Container(
             content=ft.Column(kids, spacing=6, tight=True),
@@ -2266,7 +2266,7 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         existing.restore()
         if ctx and ctx.get("auto"):
             if ctx.get("url"):
-                existing.send(_describe_prompt(ctx['url']))
+                existing.send(_describe_prompt(ctx["url"]))
             elif ctx.get("question"):
                 existing.send(ctx["question"])
         return
@@ -2281,6 +2281,6 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         pass
     if ctx and ctx.get("auto"):
         if ctx.get("url"):
-            session.send(_describe_prompt(ctx['url']))
+            session.send(_describe_prompt(ctx["url"]))
         elif ctx.get("question"):
             session.send(ctx["question"])

@@ -18,7 +18,7 @@ fetches /v1/models to fill the model picker.
   own.
 
 Manual search/scraping never imports this module, so it can never spend
-credits. """
+credits."""
 
 from __future__ import annotations
 
@@ -48,6 +48,7 @@ PROBE_MISS_TTL = 30.0
 
 ANSWER_MAX_TOKENS = 1400
 TEMPERATURE = 0.4
+
 
 class AIUnavailable(Exception):
     """No AI source could answer - callers degrade silently."""
@@ -171,9 +172,7 @@ async def probe_router() -> tuple[str, int | None]:
         return ("ready", found)
     try:
         async with httpx.AsyncClient(http2=False) as client:
-            resp = await client.get(
-                f"http://{ROUTER_HOST}:{port}/health", timeout=2.0
-            )
+            resp = await client.get(f"http://{ROUTER_HOST}:{port}/health", timeout=2.0)
         if resp.status_code == 200:
             return ("ready", port)
     except Exception as exc:
@@ -352,9 +351,7 @@ async def _fetch_catalog(client: httpx.AsyncClient, base: str) -> list[dict]:
     _catalog.sort(
         key=lambda m: (
             0 if str(m.get("id")).lower() == "auto" else 1,
-            m.get("latency_ms")
-            if isinstance(m.get("latency_ms"), int)
-            else 10**9,
+            m.get("latency_ms") if isinstance(m.get("latency_ms"), int) else 10**9,
         )
     )
     return _catalog

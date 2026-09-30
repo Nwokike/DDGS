@@ -8,6 +8,7 @@ from __future__ import annotations
 import flet as ft
 from flet import Control
 
+from components.app_header import AppHeader
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
@@ -64,9 +65,7 @@ def HistoryScreen() -> Control:
     def _on_clear():
         page = _get_page()
 
-        saved = [
-            dict(entry) for entry in state.search_history
-        ]
+        saved = [dict(entry) for entry in state.search_history]
 
         async def _do_clear():
             page.pop_dialog()
@@ -138,59 +137,65 @@ def HistoryScreen() -> Control:
                         padding=ft.Padding(0, 0, tokens.SPACE_LG, 0),
                     ),
                     content=ft.Container(
-                    content=ft.Row(
-                        [
-                            ft.Container(
-                                content=ft.Icon(
-                                    icon, size=tokens.ICON_MD, color=AppColors.PRIMARY
+                        content=ft.Row(
+                            [
+                                ft.Container(
+                                    content=ft.Icon(
+                                        icon,
+                                        size=tokens.ICON_MD,
+                                        color=AppColors.PRIMARY,
+                                    ),
+                                    padding=10,
+                                    bgcolor=ft.Colors.with_opacity(
+                                        0.12, AppColors.PRIMARY
+                                    ),
+                                    border_radius=tokens.BORDER_RADIUS_MD,
                                 ),
-                                padding=10,
-                                bgcolor=ft.Colors.with_opacity(0.12, AppColors.PRIMARY),
-                                border_radius=tokens.BORDER_RADIUS_MD,
-                            ),
-                            ft.Column(
-                                [
-                                    ft.Text(
-                                        q,
-                                        size=tokens.FONT_MD,
-                                        weight=ft.FontWeight.W_600,
-                                        max_lines=1,
-                                        overflow=ft.TextOverflow.ELLIPSIS,
-                                        font_family="Outfit",
+                                ft.Column(
+                                    [
+                                        ft.Text(
+                                            q,
+                                            size=tokens.FONT_MD,
+                                            weight=ft.FontWeight.W_600,
+                                            max_lines=1,
+                                            overflow=ft.TextOverflow.ELLIPSIS,
+                                            font_family="Outfit",
+                                        ),
+                                        ft.Text(
+                                            f"{label} \u00b7 {rc} results \u00b7 {ts}",
+                                            size=tokens.FONT_XS,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                            font_family="Outfit",
+                                        ),
+                                    ],
+                                    spacing=2,
+                                    expand=True,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.ARROW_FORWARD_ROUNDED,
+                                    icon_size=tokens.ICON_SM,
+                                    on_click=lambda _, qq=q, stt=st: _on_research(
+                                        qq, stt
                                     ),
-                                    ft.Text(
-                                        f"{label} \u00b7 {rc} results \u00b7 {ts}",
-                                        size=tokens.FONT_XS,
-                                        color=ft.Colors.ON_SURFACE_VARIANT,
-                                        font_family="Outfit",
-                                    ),
-                                ],
-                                spacing=2,
-                                expand=True,
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.ARROW_FORWARD_ROUNDED,
-                                icon_size=tokens.ICON_SM,
-                                on_click=lambda _, qq=q, stt=st: _on_research(qq, stt),
-                            ),
-                        ],
-                        spacing=tokens.SPACE_MD,
-                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
+                            ],
+                            spacing=tokens.SPACE_MD,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        ),
+                        padding=ft.Padding(
+                            tokens.SPACE_MD,
+                            tokens.SPACE_SM,
+                            tokens.SPACE_SM,
+                            tokens.SPACE_SM,
+                        ),
+                        border_radius=tokens.BORDER_RADIUS_LG,
+                        bgcolor=theme.adaptive_glass_bg(flet_context.page),
+                        border=ft.Border.all(
+                            1, theme.adaptive_glass_border(flet_context.page)
+                        ),
+                        ink=True,
+                        on_click=lambda _, qq=q, stt=st: _on_research(qq, stt),
                     ),
-                    padding=ft.Padding(
-                        tokens.SPACE_MD,
-                        tokens.SPACE_SM,
-                        tokens.SPACE_SM,
-                        tokens.SPACE_SM,
-                    ),
-                    border_radius=tokens.BORDER_RADIUS_LG,
-                    bgcolor=theme.adaptive_glass_bg(flet_context.page),
-                    border=ft.Border.all(
-                        1, theme.adaptive_glass_border(flet_context.page)
-                    ),
-                    ink=True,
-                    on_click=lambda _, qq=q, stt=st: _on_research(qq, stt),
-                    )
                 )
             )
 
@@ -231,35 +236,28 @@ def HistoryScreen() -> Control:
             alignment=ft.Alignment.CENTER,
         )
 
-    # ── Header ──
-    header = ft.Container(
-        content=ft.Row(
-            [
-                ft.IconButton(
-                    icon=ft.Icons.ARROW_BACK_ROUNDED,
-                    icon_size=tokens.ICON_MD,
-                    on_click=lambda _: _go_home(),
-                ),
-                ft.Text(
-                    "History",
-                    size=tokens.FONT_LG,
-                    weight=ft.FontWeight.BOLD,
-                    expand=True,
-                    font_family="Outfit",
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.DELETE_SWEEP_ROUNDED,
-                    icon_size=tokens.ICON_MD,
-                    on_click=lambda _: _on_clear(),
-                    visible=bool(history),
-                    icon_color=AppColors.ERROR,
-                ),
-            ],
-            spacing=4,
-        ),
-        padding=ft.Padding(
-            tokens.SPACE_MD, tokens.SPACE_SM, tokens.SPACE_MD, tokens.SPACE_SM
-        ),
+    # ── Header with KTV/Sherlock live version chip ──
+    header_actions = []
+    if history:
+        header_actions.append(
+            ft.IconButton(
+                icon=ft.Icons.DELETE_SWEEP_ROUNDED,
+                icon_size=tokens.ICON_MD,
+                on_click=lambda _: _on_clear(),
+                icon_color=AppColors.ERROR,
+                tooltip="Clear history",
+            )
+        )
+
+    header = AppHeader(
+        _get_page(),
+        title="History",
+        subtitle="Search & extraction history",
+        show_back=True,
+        on_back=lambda _: _go_home(),
+        extra_actions=header_actions,
+        show_settings=False,
+        show_theme=False,
     )
 
     return ft.Container(

@@ -74,6 +74,7 @@ def unlock_message(page) -> str:
         return "Premium unlocked. Ads removed."
     return f"Premium unlocked. {PREMIUM_DAILY_CREDITS} credits a day."
 
+
 # Cadence, deliberately asymmetric (KTV Player):
 # - checkout: seconds, because the user is holding the phone waiting for
 #   the money to land. Flutterwave's hosted session is ~15 minutes.
@@ -184,8 +185,8 @@ class PremiumService:
             # here is what made the grace copy in the Premium card dead
             # code: grace is an unlocked state, so it always fell through
             # to the active wording.
-            state.license_status = (
-                str(getattr(claims, "status", "") or recorded or "active")
+            state.license_status = str(
+                getattr(claims, "status", "") or recorded or "active"
             )
             state.premium_source = (
                 f"license:{getattr(claims, 'product', '') or ''}"

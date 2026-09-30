@@ -57,9 +57,7 @@ async def _download(url: str) -> bytes:
     last: Exception | None = None
     for attempt in range(2):
         try:
-            async with httpx.AsyncClient(
-                http2=False, proxy=httpx_proxy()
-            ) as client:
+            async with httpx.AsyncClient(http2=False, proxy=httpx_proxy()) as client:
                 resp = await client.get(
                     url,
                     headers={"User-Agent": USER_AGENT},

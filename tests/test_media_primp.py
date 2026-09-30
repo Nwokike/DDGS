@@ -77,7 +77,9 @@ def _install(monkeypatch, plans: list) -> list:
     return _FakeClient.built
 
 
-def test_403_retries_once_on_a_fresh_profile_then_maps_the_status(monkeypatch, tmp_path):
+def test_403_retries_once_on_a_fresh_profile_then_maps_the_status(
+    monkeypatch, tmp_path
+):
     from services import media_downloader as md
 
     built = _install(monkeypatch, [_FakeStatus(403), _FakeStatus(404)])

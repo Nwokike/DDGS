@@ -10,6 +10,7 @@ from __future__ import annotations
 import flet as ft
 from flet import Control
 
+from components.app_header import AppHeader
 from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme
 from core.state import state
@@ -18,7 +19,6 @@ from core.theme import AppColors
 from core.tokens import (
     FONT_LG,
     FONT_XS,
-    ICON_MD,
 )
 
 
@@ -133,25 +133,15 @@ def SettingsScreen() -> Control:
 
     page = _get_page()
 
-    # ── Header ──
-    header = ft.Container(
-        content=ft.Row(
-            [
-                ft.IconButton(
-                    icon=ft.Icons.ARROW_BACK_ROUNDED,
-                    icon_size=ICON_MD,
-                    on_click=lambda e: controller.navigate_tab(0),
-                ),
-                ft.Text(
-                    "Settings",
-                    size=FONT_LG,
-                    weight=ft.FontWeight.BOLD,
-                    font_family="Outfit",
-                ),
-            ],
-            spacing=4,
-        ),
-        padding=ft.Padding(4, 8, 16, 8),
+    # ── Header with KTV/Sherlock live version chip ──
+    header = AppHeader(
+        page,
+        title="Settings",
+        subtitle="Preferences & network rules",
+        show_back=True,
+        on_back=lambda e: controller.navigate_tab(0),
+        show_settings=False,
+        show_theme=False,
     )
 
     # ── Sections ──

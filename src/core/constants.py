@@ -199,6 +199,7 @@ def credit_word(count: int) -> str:
     """
     return f"{count} credit" if count == 1 else f"{count} credits"
 
+
 STORAGE_AI_MODE = "ai_mode_enabled"
 STORAGE_IS_PREMIUM = "is_premium"
 STORAGE_CREDITS = "ddgs_credits"

@@ -773,9 +773,7 @@ def test_stale_backend_is_corrected_in_state_and_at_the_send_site():
     assert "ENGINES.get(search_type" in search, (
         "the send site must validate against the runtime registry"
     )
-    reader = (SRC / "screens" / "content_reader_screen.py").read_text(
-        encoding="utf-8"
-    )
+    reader = (SRC / "screens" / "content_reader_screen.py").read_text(encoding="utf-8")
     assert reader.count("run_task(_fetch, _current_url, True)") == 2, (
         "Refresh and Retry must bypass the 24h page cache"
     )
@@ -829,9 +827,7 @@ def test_pick_format_never_returns_a_dead_or_silent_stream():
     assert picked and picked["itag"] == 22, picked
 
     # A muxed entry with no url and no cipher is dead weight: never return it.
-    assert (
-        _pick_format({"streamingData": {"formats": [dead_muxed]}}, "best") is None
-    )
+    assert _pick_format({"streamingData": {"formats": [dead_muxed]}}, "best") is None
 
     # Adaptive-only response: nothing with audio exists - fail rather than
     # save a silent file.

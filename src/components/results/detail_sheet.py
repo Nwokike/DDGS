@@ -97,7 +97,9 @@ def _result_actions_sheet(page: ft.Page, r: SearchResult) -> None:
                             ft.Icons.SHARE_ROUNDED,
                             "Share",
                             _shared,
-                            action=ft.ShareText(f"{r.title}{chr(10)}{r.url}", title=r.title),
+                            action=ft.ShareText(
+                                f"{r.title}{chr(10)}{r.url}", title=r.title
+                            ),
                         ),
                     ],
                     spacing=tokens.SPACE_SM,
@@ -476,7 +478,9 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             ft.OutlinedButton(
                 content=ft.Row(
                     [
-                        ft.Icon(ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=tokens.ICON_SM),
+                        ft.Icon(
+                            ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED, size=tokens.ICON_SM
+                        ),
                         ft.Text(
                             "Summarize with Assistant",
                             size=tokens.FONT_SM,

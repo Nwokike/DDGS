@@ -970,7 +970,14 @@ class AppController:
         ]
         overview = AiOverview(
             query=query,
-            sources=[{"title": s["title"], "url": s["url"], "thumb": getattr(r, "thumbnail", "") or ""} for r, s in zip(results[:8], sources, strict=False)],
+            sources=[
+                {
+                    "title": s["title"],
+                    "url": s["url"],
+                    "thumb": getattr(r, "thumbnail", "") or "",
+                }
+                for r, s in zip(results[:8], sources, strict=False)
+            ],
             is_running=True,
         )
         state.ai_overview = overview
@@ -1078,10 +1085,7 @@ class AppController:
         """
         if not first_time or not state.is_premium:
             return False
-        if (
-            state.credit_service
-            and state.credits_remaining < PREMIUM_DAILY_CREDITS
-        ):
+        if state.credit_service and state.credits_remaining < PREMIUM_DAILY_CREDITS:
             await state.credit_service.add_credits(
                 PREMIUM_DAILY_CREDITS - state.credits_remaining
             )
@@ -1099,7 +1103,6 @@ class AppController:
                     pass
         return True
 
-
     async def activate_premium(self, product_id: str) -> None:
         """Play Billing purchase: grant through the entitlement arbiter.
 
@@ -1113,9 +1116,7 @@ class AppController:
             return
         was_premium = state.is_premium
         self.premium.set_play_entitlement(True, product_id=product_id)
-        first_time = await self._grant_premium_benefits(
-            first_time=not was_premium
-        )
+        first_time = await self._grant_premium_benefits(first_time=not was_premium)
         if first_time and not was_premium:
             # "Ads off" only where ads exist (native mobile); on desktop
             # and web there were never ads to switch off.
@@ -1125,8 +1126,7 @@ class AppController:
                 f"Premium active. Ads off, {PREMIUM_DAILY_CREDITS} "
                 "assistant credits/day."
                 if ads_exist
-                else f"Premium active. {PREMIUM_DAILY_CREDITS} assistant "
-                "credits/day.",
+                else f"Premium active. {PREMIUM_DAILY_CREDITS} assistant credits/day.",
                 "success",
             )
 
@@ -1155,8 +1155,7 @@ class AppController:
             try:
                 status, port = await ai_service.probe_router()
                 changed = (
-                    state.ai_router_status != status
-                    or state.ai_router_port != port
+                    state.ai_router_status != status or state.ai_router_port != port
                 )
                 if changed:
                     state.ai_router_status = status
@@ -1216,7 +1215,9 @@ class AppController:
             try:
                 now = time.time()
                 due = [
-                    t for t in state.scheduled_scrapes if (t.get("next_run") or 0) <= now
+                    t
+                    for t in state.scheduled_scrapes
+                    if (t.get("next_run") or 0) <= now
                 ]
                 for task in due:
                     url = task.get("url") or ""
@@ -1229,9 +1230,9 @@ class AppController:
                         logger.warning("scheduled crawl failed for %s: %r", url, exc)
                         task["pages_saved"] = 0
                     task["last_run"] = now
-                    task["next_run"] = now + max(
-                        15, int(task.get("interval_minutes") or 60)
-                    ) * 60
+                    task["next_run"] = (
+                        now + max(15, int(task.get("interval_minutes") or 60)) * 60
+                    )
                 if due:
                     await _persist_schedule()
                     logger.info("scheduled crawls completed: %d", len(due))

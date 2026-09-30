@@ -50,7 +50,9 @@ def test_exchange_bounds_cover_whole_exchanges():
 def test_delete_flows_carry_the_undo_words():
     root = Path(__file__).resolve().parents[1]
     chat = (root / "src" / "screens" / "chat_screen.py").read_text(encoding="utf-8")
-    history = (root / "src" / "screens" / "history_screen.py").read_text(encoding="utf-8")
+    history = (root / "src" / "screens" / "history_screen.py").read_text(
+        encoding="utf-8"
+    )
     for source in (chat, history):
         assert "This cannot be undone." not in source, (
             "every destructive dialog now promises an Undo instead"

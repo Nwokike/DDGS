@@ -111,9 +111,17 @@ def _show_up_to_date(page: ft.Page) -> None:
     page.show_dialog(dlg)
 
 
-def show_update_dialog(page: ft.Page, update_data: dict | None) -> None:
+def show_update_dialog(page: ft.Page, update_data: dict | None = None) -> None:
     if not page:
         return
+    if update_data is None:
+        from core.state import state
+
+        if state.update_available and state.update_data:
+            update_data = state.update_data
+        else:
+            _show_up_to_date(page)
+            return
     if not update_data:
         _show_up_to_date(page)
         return
@@ -219,9 +227,7 @@ def show_update_dialog(page: ft.Page, update_data: dict | None) -> None:
                 release_notes,
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                on_tap_link=lambda e: asyncio.create_task(
-                    launch_url(e.data, page)
-                ),
+                on_tap_link=lambda e: asyncio.create_task(launch_url(e.data, page)),
             )
         )
     icon_data = (

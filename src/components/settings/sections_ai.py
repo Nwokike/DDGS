@@ -72,7 +72,9 @@ def _edit_schedule_dialog(page: ft.Page, controller, task: dict) -> None:
                         ),
                         ft.SegmentedButton(
                             segments=[
-                                ft.Segment(value=v, label=ft.Text(lbl, font_family="Outfit"))
+                                ft.Segment(
+                                    value=v, label=ft.Text(lbl, font_family="Outfit")
+                                )
                                 for v, lbl in _INTERVALS
                             ],
                             selected=[current],
@@ -101,6 +103,7 @@ def _edit_schedule_dialog(page: ft.Page, controller, task: dict) -> None:
             actions_alignment=ft.MainAxisAlignment.END,
         )
     )
+
 
 _OPACITY_DIM = 0.6
 
@@ -137,6 +140,7 @@ def build_ai_section(page: ft.Page, save_fn) -> ft.Container:
         model_status_subtitle,
         show_model_picker,
     )
+
     rows: list[ft.Control] = []
 
     # ── Assistant mode ──────────────────────────────────────────────────

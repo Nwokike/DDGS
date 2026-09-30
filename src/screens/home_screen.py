@@ -9,6 +9,7 @@ from __future__ import annotations
 import flet as ft
 from flet import Control
 
+from components.app_header import AppHeader
 from components.offline_banner import build_offline_banner
 from components.wallet import CreditPill
 from contexts.app_state_ctx import AppStateCtx
@@ -399,27 +400,6 @@ def HomeScreen() -> Control:
         set_active_tab(search_type)
         _get_page().run_task(controller.start_search, query, search_type)
 
-    # ── Theme toggle ──
-
-    def _toggle_theme(e):
-        page = _get_page()
-        if page.theme_mode == ft.ThemeMode.DARK:
-            page.theme_mode = ft.ThemeMode.LIGHT
-        elif page.theme_mode == ft.ThemeMode.LIGHT:
-            page.theme_mode = ft.ThemeMode.SYSTEM
-        else:
-            page.theme_mode = ft.ThemeMode.DARK
-        state.theme_mode = page.theme_mode
-        controller.save("theme", page.theme_mode.value)
-
-    def _get_theme_icon():
-        page = _get_page()
-        if page.theme_mode == ft.ThemeMode.DARK:
-            return ft.Icons.DARK_MODE_ROUNDED
-        elif page.theme_mode == ft.ThemeMode.LIGHT:
-            return ft.Icons.LIGHT_MODE_ROUNDED
-        return ft.Icons.SETTINGS_SYSTEM_DAYDREAM_ROUNDED
-
     # ── Build UI ──
 
     is_dark = _is_dark()
@@ -625,100 +605,68 @@ def HomeScreen() -> Control:
         controls=[
             # Persistent offline notice (visible=not state.is_online)
             build_offline_banner(visible=not state.is_online),
-            # Compact header
-            ft.Container(
-                content=ft.Row(
-                    [
-                        ft.Row(
-                            [
-                                ft.Image(
-                                    src="icon.png",
-                                    width=28,
-                                    height=28,
-                                    color=AppColors.PRIMARY,
-                                ),
-                                ft.Text(
-                                    "DDGS",
-                                    size=tokens.FONT_LG,
-                                    weight=ft.FontWeight.BOLD,
-                                    font_family="Outfit",
-                                ),
-                            ],
-                            spacing=8,
-                            tight=True,
-                        ),
-                        ft.Row(
-                            [
-                                CreditPill(),
-                                ft.IconButton(
-                                    icon=_get_theme_icon(),
-                                    icon_size=20,
-                                    on_click=_toggle_theme,
-                                    tooltip="Toggle Theme",
-                                ),
-                                ft.IconButton(
-                                    icon=ft.Icons.SETTINGS_ROUNDED,
-                                    icon_size=20,
-                                    on_click=lambda e: controller.navigate_tab(2),
-                                    tooltip="Settings",
-                                ),
-                            ],
-                            spacing=0,
-                        ),
-                    ],
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                ),
-                padding=ft.Padding(
-                    tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
-                ),
+            # Compact header with KTV/Sherlock live version chip
+            AppHeader(
+                _get_page(),
+                title="DDGS",
+                extra_actions=[CreditPill()],
+                on_settings=lambda e: controller.navigate_tab(2),
             ),
             # Search field - modern SearchBar
             ft.Container(
                 alignment=ft.Alignment.CENTER,
-                content=(search_bar := ft.SearchBar(
-                    value=search_query,
-                    bar_hint_text=_HINT_MAP.get(active_tab, "Search the web..."),
-                    bar_leading=ft.Icon(
-                        prefix_icon,
-                        color=AppColors.PRIMARY,
-                    ),
-                    bar_trailing=[
-                        ft.IconButton(
-                            icon=ft.Icons.PASTE_ROUNDED,
-                            icon_size=18,
-                            icon_color=AppColors.PRIMARY,
-                            tooltip="Paste from clipboard",
-                            on_click=_on_paste,
+                content=(
+                    search_bar := ft.SearchBar(
+                        value=search_query,
+                        bar_hint_text=_HINT_MAP.get(active_tab, "Search the web..."),
+                        bar_leading=ft.Icon(
+                            prefix_icon,
+                            color=AppColors.PRIMARY,
                         ),
-                    ],
-                    bar_bgcolor=(
-                        AppColors.DARK_SURFACE if is_dark else AppColors.LIGHT_SURFACE
-                    ),
-                    bar_border_side=ft.BorderSide(
-                        1,
-                        ft.Colors.with_opacity(
-                            0.12,
-                            AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
+                        bar_trailing=[
+                            ft.IconButton(
+                                icon=ft.Icons.PASTE_ROUNDED,
+                                icon_size=18,
+                                icon_color=AppColors.PRIMARY,
+                                tooltip="Paste from clipboard",
+                                on_click=_on_paste,
+                            ),
+                        ],
+                        bar_bgcolor=(
+                            AppColors.DARK_SURFACE
+                            if is_dark
+                            else AppColors.LIGHT_SURFACE
                         ),
-                    ),
-                    bar_shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
-                    bar_text_style=ft.TextStyle(
-                        size=tokens.FONT_MD,
-                        weight=ft.FontWeight.W_500,
-                    ),
-                    bar_hint_text_style=ft.TextStyle(
-                        size=tokens.FONT_MD,
-                        weight=ft.FontWeight.W_400,
-                        color=ft.Colors.with_opacity(
-                            0.4,
-                            AppColors.DARK_TEXT if is_dark else AppColors.LIGHT_TEXT,
+                        bar_border_side=ft.BorderSide(
+                            1,
+                            ft.Colors.with_opacity(
+                                0.12,
+                                AppColors.DARK_TEXT
+                                if is_dark
+                                else AppColors.LIGHT_TEXT,
+                            ),
                         ),
-                    ),
-                    full_screen=True,
-                    on_submit=lambda e: _on_search(),
-                    on_change=lambda e: set_search_query(e.control.value),
-                    autofocus=False,
-                )),
+                        bar_shape=ft.RoundedRectangleBorder(radius=tokens.RADIUS_MD),
+                        bar_text_style=ft.TextStyle(
+                            size=tokens.FONT_MD,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                        bar_hint_text_style=ft.TextStyle(
+                            size=tokens.FONT_MD,
+                            weight=ft.FontWeight.W_400,
+                            color=ft.Colors.with_opacity(
+                                0.4,
+                                AppColors.DARK_TEXT
+                                if is_dark
+                                else AppColors.LIGHT_TEXT,
+                            ),
+                        ),
+                        full_screen=True,
+                        on_submit=lambda e: _on_search(),
+                        on_change=lambda e: set_search_query(e.control.value),
+                        autofocus=False,
+                    )
+                ),
                 padding=ft.Padding(
                     tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
                 ),

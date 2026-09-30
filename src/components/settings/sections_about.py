@@ -239,9 +239,7 @@ def build_about_section(
                     [
                         ft.Row(
                             [
-                                ft.Text(
-                                    "Edition", size=FONT_SM, font_family="Outfit"
-                                ),
+                                ft.Text("Edition", size=FONT_SM, font_family="Outfit"),
                                 ft.TextButton(
                                     content=ft.Text(
                                         "Google Play Edition · Full edition on GitHub",
@@ -249,9 +247,7 @@ def build_about_section(
                                         weight=ft.FontWeight.W_600,
                                         color=AppColors.PRIMARY,
                                     ),
-                                    on_click=lambda e: _launch(
-                                        page, GITHUB_REPO_URL
-                                    ),
+                                    on_click=lambda e: _launch(page, GITHUB_REPO_URL),
                                     style=ft.ButtonStyle(
                                         padding=ft.Padding(0, 0, 0, 0)
                                     ),

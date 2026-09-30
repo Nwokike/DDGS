@@ -217,7 +217,9 @@ def _usage_of(message: Any, text: str, model: str) -> dict | None:
     """
     extra = getattr(message, "extra", None) or {}
     raw = extra.get("openai_usage")
-    if isinstance(raw, dict) and (raw.get("total_tokens") or raw.get("completion_tokens")):
+    if isinstance(raw, dict) and (
+        raw.get("total_tokens") or raw.get("completion_tokens")
+    ):
         return {
             "in": int(raw.get("prompt_tokens") or 0),
             "out": int(raw.get("completion_tokens") or 0),
@@ -391,11 +393,7 @@ async def run_turn(
             if not final_text.strip():
                 # message already bound; usage rides below
                 finish = _finish_of(await manager.completion())
-                if (
-                    finish == "length"
-                    and not empty_retried
-                    and steps < max_iters
-                ):
+                if finish == "length" and not empty_retried and steps < max_iters:
                     # A reasoning model can burn the whole budget before
                     # any text appears: retry once with double, same cap.
                     empty_retried = True

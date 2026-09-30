@@ -242,9 +242,7 @@ class KiriLicenseService:
             # Expired and revoked are known states worth showing; anything
             # else (bad signature, wrong app, malformed) tells the card
             # nothing about the licence, so it must not invent one.
-            self.status = (
-                ex.reason if ex.reason in ("expired", "revoked") else ""
-            )
+            self.status = ex.reason if ex.reason in ("expired", "revoked") else ""
             self._notify_change()
             return False
         self.claims = claims

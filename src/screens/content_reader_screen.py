@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import flet as ft
 
+from components.app_header import _build_version_chip
 from core import theme, tokens
 from core.state import state
 from core.styles import build_banner_ad
@@ -278,6 +279,7 @@ def build_content_reader(
                 tooltip="Open in Browser",
                 action=ft.OpenUrl(url or ""),
             ),
+            _build_version_chip(page),
             ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,
                 icon_size=tokens.ICON_MD,

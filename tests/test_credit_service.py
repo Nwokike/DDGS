@@ -87,6 +87,7 @@ def test_spend_direct_and_add(svc):
 def test_daily_reset_returns_to_the_cap(svc):
     """No ad-credit rollover (owner's call): the reset goes back to the
     cap exactly, so yesterday's surplus cannot linger."""
+
     async def go():
         await svc._storage.set(STORAGE_CREDITS, "70")
         await svc._storage.set(STORAGE_LAST_RESET, "1970-01-01")
@@ -130,10 +131,9 @@ def test_reservations_block_double_spend(svc):
 def test_concurrent_reserves_cannot_oversell(svc):
     """The lock serializes reserve: six 10-credit holds on a 50 balance
     must admit exactly five."""
+
     async def go():
-        results = await asyncio.gather(
-            *[svc.reserve(10) for _ in range(6)]
-        )
+        results = await asyncio.gather(*[svc.reserve(10) for _ in range(6)])
         granted = [r for r in results if r is not None]
         assert len(granted) == 5, f"oversell: {len(granted)} holds on 50 credits"
         assert sum(svc._reservations.values()) == 50
@@ -144,6 +144,7 @@ def test_concurrent_reserves_cannot_oversell(svc):
 def test_commit_bills_the_full_hold_under_lock(svc):
     """commit() must read the hold inside commit_amount's lock (the old
     read-outside raced the rollback timer into a free turn)."""
+
     async def go():
         balance = await svc.get_balance()
         tx = await svc.reserve(7)
@@ -158,6 +159,7 @@ def test_commit_bills_the_full_hold_under_lock(svc):
 
 def test_settlement_is_idempotent(svc):
     """A retried settlement cannot bill twice for one turn."""
+
     async def go():
         balance = await svc.get_balance()
         tx = await svc.reserve(5)

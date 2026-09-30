@@ -176,7 +176,9 @@ class ReasoningEngine(OpenAIEngine):
     without rebuilding the HTTP client.
     """
 
-    def __init__(self, *args: Any, tap: ThoughtTap | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self, *args: Any, tap: ThoughtTap | None = None, **kwargs: Any
+    ) -> None:
         super().__init__(*args, **kwargs)
         self.tap = tap if tap is not None else ThoughtTap()
 

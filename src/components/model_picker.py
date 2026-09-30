@@ -144,7 +144,7 @@ def build_model_pill(
     return ft.Container(
         content=ft.Row(
             [
-                *( [icon] if icon is not None else [] ),
+                *([icon] if icon is not None else []),
                 ft.Text(
                     label,
                     size=tokens.FONT_XS,
@@ -173,7 +173,9 @@ def build_model_pill(
         else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
         ink=True,
         tooltip="Assistant model",
-        on_click=(lambda e: on_open()) if on_open else (lambda e: show_model_picker(page)),
+        on_click=(lambda e: on_open())
+        if on_open
+        else (lambda e: show_model_picker(page)),
     )
 
 
@@ -239,7 +241,9 @@ def show_model_picker(page: ft.Page) -> None:
                     content=ft.Row(
                         [
                             ft.Icon(
-                                _CHAT if model_id == "auto" else ft.Icons.MEMORY_ROUNDED,
+                                _CHAT
+                                if model_id == "auto"
+                                else ft.Icons.MEMORY_ROUNDED,
                                 size=tokens.ICON_SM,
                                 color=ft.Colors.ON_SURFACE_VARIANT,
                             ),
