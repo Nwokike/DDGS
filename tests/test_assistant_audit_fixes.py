@@ -376,7 +376,9 @@ def test_minimize_does_not_cancel_the_turn():
     stop_block = source.split("    def stop(self) -> None:")[1].split("    async def")[
         0
     ]
-    assert "self.cancel.set()" in stop_block, "Stop must still signal the agent"
+    assert 'thread["cancel"].set()' in stop_block or 'cancel"].set()' in stop_block, (
+        "Stop must still signal the agent"
+    )
     assert "task.cancel()" in stop_block, "Stop must also cancel the task"
     assert ChatSession and Page  # import guard
 

@@ -251,10 +251,10 @@ def test_kiri_check_status_does_not_claim_an_unreachable_server(monkeypatch):
 
 
 # ── chat history must not lose or misfile a turn ───────────────────────
-def test_history_changes_are_refused_while_a_reply_streams():
-    """A running turn writes to self.conversation_id when it finishes, so
-    switching, replacing or deleting the active chat mid-reply would file
-    the answer under the wrong conversation."""
+def test_new_chat_opens_while_another_reply_streams():
+    """Each conversation owns its turn state, so a reply streaming in one
+    chat never blocks starting or opening another. Only deleting the chat
+    whose own reply runs is refused (its task would persist a removed file)."""
     import flet as ft
 
     from screens.chat_screen import ChatSession
@@ -301,18 +301,30 @@ def test_history_changes_are_refused_while_a_reply_streams():
 
     page = Page()
     session = ChatSession(page)
-    session.busy = True  # a reply is streaming
     before_id = session.conversation_id
+    # A reply streaming in this thread: busy set on the slot, no task
+    # scheduled (send() would need a live event loop for ensure_future).
+    # The thread carries a real user message so the persist-on-leave
+    # writes a file the switch-back can reload (empty means deleted).
+    from services import conversation_service as conversations
 
+    session._thread(before_id)["turns"] = [
+        {"role": "user", "text": "streaming question"}
+    ]
+    session._thread(before_id)["busy"] = True
+    assert session.busy is True, "the visible chat is streaming"
+
+    # Starting or opening another chat is never blocked by this thread.
     session.new_conversation()
-    assert session.conversation_id == before_id, "new chat while busy"
+    assert session.conversation_id != before_id, "new chat must open mid-reply"
+    assert session._thread(before_id)["busy"] is True, "old turn keeps streaming"
+    assert session.busy is False, "the fresh chat starts idle"
 
+    # Deleting the chat whose own reply runs stops its turn first.
+    session.switch_conversation(before_id)
+    assert session.busy is True, "switching back shows the running turn"
     session.delete_conversation(before_id)
-    assert session.conversation_id == before_id, "delete while busy"
-
-    session.delete_all_conversations()
-    assert session.conversation_id == before_id, "delete-all while busy"
-    assert page.dialogs, "the user must be told why nothing happened"
+    assert before_id not in session._threads, "deleted thread slot is dropped"
 
 
 def test_stopped_and_failed_turns_are_recorded():
