@@ -1,9 +1,9 @@
 {
-  "build_number": 8,
-  "version": "2.0.2",
+  "build_number": 9,
+  "version": "2.1.0",
   "type": "update",
-  "title": "DDGS 2.0.2",
-  "release_notes": "- Settings: live version header, “Update available · tap to view” when a new build exists\n- Update notes bullet every change, like KTV Player and LM Router",
+  "title": "DDGS 2.1.0",
+  "release_notes": "- Smarter Assistant that finishes the job and shows its thinking again, with a clear receipt on every answer\n- Every page question starts its own chat; replies keep streaming while you start another\n- Format switches keep the summary without a fresh charge; proxy now covers everything\n- Undo on every delete, Load more results, pinch-zoom images with share and copy link\n- Fixed: the app starts reliably on Android; alerts always dismiss; unsafe links stay blocked",
   "mandatory": false,
   "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
   "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"
