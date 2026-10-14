@@ -46,8 +46,30 @@ SETTING_TOKEN = "kiri_token"  # noqa: S105 - storage key name, not a secret
 SETTING_PRODUCT = "kiri_product"
 
 
+# Hard refusals where the checkout watcher should stop polling: the license
+# will never turn active. 404 is NOT here - right after payment the record
+# may not exist yet (webhook lag), so the watcher keeps its window.
+WATCHER_ABORT_CODES = frozenset({402, 403})
+
+
 class LicenseUnavailable(Exception):
-    """The license service could not be reached or refused the request."""
+    """The license service could not be reached or refused the request.
+
+    `status_code` is the HTTP status when one exists (None for transport /
+    parse failures); `is_refusal` is True only when the server answered that
+    the entitlement itself is invalid. Callers branch on it: refusal aborts
+    retry loops fast, transients back off and retry.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int | None = None,
+        is_refusal: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.is_refusal = is_refusal
 
 
 def status_refusal(code: int) -> bool:
@@ -297,7 +319,11 @@ class KiriLicenseService:
                 f"Could not reach the license service: {ex}"
             ) from ex
         if response.status_code >= 400:
-            raise LicenseUnavailable(self._error_message(response, "Checkout failed"))
+            raise LicenseUnavailable(
+                self._error_message(response, "Checkout failed"),
+                status_code=response.status_code,
+                is_refusal=status_refusal(response.status_code),
+            )
         try:
             payload = response.json()
         except Exception as ex:
@@ -365,7 +391,11 @@ class KiriLicenseService:
                 self._unlocked = False
                 self.claims = None
                 self._notify_change()
-            raise LicenseUnavailable(self._error_message(response, "Restore failed"))
+            raise LicenseUnavailable(
+                self._error_message(response, "Restore failed"),
+                status_code=response.status_code,
+                is_refusal=status_refusal(response.status_code),
+            )
 
         try:
             payload = response.json()

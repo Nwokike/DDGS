@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 from collections.abc import Callable
 
@@ -42,7 +43,11 @@ from core.constants import PREMIUM_DAILY_CREDITS
 from core.state import state
 from core.snack import show_snack
 from services import license_service
-from services.license_service import KiriLicenseService, LicenseUnavailable
+from services.license_service import (
+    WATCHER_ABORT_CODES,
+    KiriLicenseService,
+    LicenseUnavailable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +88,11 @@ def unlock_message(page) -> str:
 #   would burn battery and drain the Worker's shared 20 req/60s budget for
 #   nothing. The signed token's own `exp` enforces expiry offline anyway;
 #   these checks exist to refresh renewals and catch revokes while running.
+#
+# The Worker runs on the free tier of Workers KV (1,000 writes per day), so
+# a poll is not free: the watcher therefore backs off and stops on a hard
+# refusal instead of running at a fixed interval for the whole window, and
+# the reconcile loop stays hourly. See kiri-license/docs/kv-free-tier-budget.md.
 CHECKOUT_WATCH_INTERVAL = 5.0
 CHECKOUT_WATCH_TIMEOUT = 15 * 60.0
 RECONCILE_INTERVAL = 60 * 60.0
@@ -336,13 +346,37 @@ class PremiumService:
 
     async def _checkout_watch_loop(self, recovery_id: str) -> None:
         deadline = time.monotonic() + CHECKOUT_WATCH_TIMEOUT
+        failures = 0
         while time.monotonic() < deadline:
-            await asyncio.sleep(CHECKOUT_WATCH_INTERVAL)
+            # One sleep per iteration: base interval + proportional jitter
+            # + backoff after consecutive transient failures. (A second
+            # sleep inside the failure branch once blew past the deadline
+            # and starved the remaining window.)
+            backoff = min(30.0, CHECKOUT_WATCH_INTERVAL * failures)
+            await asyncio.sleep(
+                CHECKOUT_WATCH_INTERVAL
+                + random.uniform(0, CHECKOUT_WATCH_INTERVAL)
+                + backoff
+            )
             try:
                 status = await self.license.restore(recovery_id)
+                failures = 0
             except LicenseUnavailable as ex:
-                # Pending (202), not verified yet (404/402), throttled (429)
-                # or offline - the money is still moving; keep waiting.
+                if ex.is_refusal and ex.status_code in WATCHER_ABORT_CODES:
+                    # Hard refusal (payment invalid / app not entitled):
+                    # the license will never turn active - stop polling now
+                    # instead of burning the budget for the full window.
+                    # 404 is NOT abortive: right after payment the record
+                    # may not exist yet (webhook lag) - keep waiting.
+                    logger.info("Checkout watcher aborted: %s", ex)
+                    return
+                failures += 1
+                logger.info("Checkout watcher waiting: %s", ex)
+                continue
+            except asyncio.CancelledError:
+                raise
+            except Exception as ex:
+                failures += 1
                 logger.info("Checkout watcher waiting: %s", ex)
                 continue
             if status.status in ("active", "grace") and self.license.unlocked:
