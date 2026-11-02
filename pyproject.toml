@@ -3,7 +3,7 @@ name = "ddgs-app"
 version = "2.1.0"
 description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 10 engines."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 dependencies = [
     "ddgs>=9.16.0",
     "flet>=1.0.3",
@@ -66,6 +66,9 @@ color = "#FFFFFF"
 dark_color = "#1A1D22"
 
 [tool.flet.android]
+# Compress native libs in the APK (pre-0.86 behaviour): since 0.86 flet stores
+# them uncompressed by default, which doubled APK download size.
+legacy_packaging = true
 bundle_id = "ng.kiri.ddgs"
 # Loopback hop to the embedded Kiri router (127.0.0.1) — KTV Player precedent.
 usesCleartextTraffic = "true"
