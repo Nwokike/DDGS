@@ -1153,6 +1153,15 @@ class AppController:
             await ai_service.refresh_catalog()
         except Exception:
             logger.exception("AI catalog snapshot failed")
+        # The header pill is an imperative control: a fresh catalog must nudge
+        # it, or it stays on "Loading models…" until a router status change.
+        session = getattr(self.page, "_chat_session", None)
+        refresh = getattr(session, "refresh_model_chip", None)
+        if callable(refresh):
+            try:
+                refresh()
+            except Exception:
+                logger.debug("model chip nudge failed", exc_info=True)
 
     async def _router_watchdog(self) -> None:
         """Poll router health so the model picker can report the truth.
