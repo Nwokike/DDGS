@@ -184,9 +184,14 @@ COST_OVERVIEW = 0  # passive search overview is free
 COST_SUMMARY = 0  # passive page summary is free
 AD_TOPUP_CREDITS = 2
 AD_TOPUP_COOLDOWN_SEC = 30.0
-AGENT_MAX_ITERS = 6  # model calls per turn (worst case AGENT_MAX_ITERS * COST_STEP)
+AGENT_MAX_ITERS = 30  # model calls per turn — was 6, which cut the model off
+                      # mid-task; the owner watched real work die at the
+                      # boundary. 30 still ends a confused retry loop before
+                      # it can bill unbounded steps.
 AGENT_MAX_TOOLS = 10  # tool calls per turn
-AGENT_TIMEOUT_S = 240  # wall-clock per turn
+AGENT_TIMEOUT_S = 900  # wall-clock per turn — was 240, which ended turns
+                       # that were mid-work (multi-tool rounds legitimately
+                       # need minutes); 240 only guarded a wedged socket.
 # chars of tool output re-sent per loop. Raised 2000 -> 8000: kani's
 # paragraph-aware truncation was firing on EVERY search_news/search_web
 # result (2.4k-3.4k chars), so the model never saw full result sets.
