@@ -326,7 +326,11 @@ class FetchNav:
 
     def __init__(self, max_depth: int = 25, debounce: float = 0.3) -> None:
         self._stack: list[str] = []
-        self._last_tap = 0.0
+        # -inf, not 0.0: monotonic() is seconds since BOOT on Linux/Android,
+        # so a 0.0 seed made the gate swallow the first tap on any machine
+        # younger than the debounce (a fresh runner VM, a just-rebooted
+        # phone). The first tap must always pass.
+        self._last_tap = float("-inf")
         self._depth = max_depth
         self._debounce = debounce
 
