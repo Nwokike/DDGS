@@ -23,7 +23,7 @@ env:
   FLET_CLI_NO_RICH_OUTPUT: "1"
   # uv's interpreter pin must track pyproject's requires-python (>=3.15):
   # a stale 3.12 here overrides setup-python and kills uv sync --frozen.
-  UV_PYTHON: "3.15"
+  UV_PYTHON: "3.14"
   BUILD_VERSION: ${{ inputs.build_version || '2.2.0' }}
   BUILD_NUMBER: ${{ inputs.build_number || '10' }}
 
@@ -38,7 +38,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.15"
+          python-version: "3.14"
       - name: Install dependencies (frozen lockfile, includes dev group)
         run: uv sync --frozen
       - name: Version consistency (pyproject is the source; version.json may be held back)
@@ -223,7 +223,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.15'
+          python-version: '3.14'
       # Flutter 3.24.3 is what flet_cli hardcodes; without this every job
       # re-downloads the SDK + engine artifacts (~1-2 GB, minutes each).
       - name: Cache Flutter SDK
@@ -283,7 +283,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.15'
+          python-version: '3.14'
       - name: Cache Flutter SDK
         uses: actions/cache@v4
         with:

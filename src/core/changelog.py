@@ -31,7 +31,7 @@ CHANGELOG: dict[str, str] = {
         "- One branch: the Play edition is built from main by stamping the "
         "channel, which also blocks YouTube downloads there while the "
         "Assistant's own downloader stays unrestricted\n"
-        "- Runs on Python 3.15 with flet 1.1.2; the Google scraper engine "
+        "- Built on flet 1.1.2; the Google scraper engine "
         "(upstream removed it) is gone from the source picker; broken "
         "text searches no longer blame a DNS failure twice"
     ),
