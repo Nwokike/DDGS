@@ -21,7 +21,9 @@ permissions:
 env:
   PYTHONUTF8: "1"
   FLET_CLI_NO_RICH_OUTPUT: "1"
-  UV_PYTHON: "3.12"
+  # uv's interpreter pin must track pyproject's requires-python (>=3.15):
+  # a stale 3.12 here overrides setup-python and kills uv sync --frozen.
+  UV_PYTHON: "3.15"
   BUILD_VERSION: ${{ inputs.build_version || '2.2.0' }}
   BUILD_NUMBER: ${{ inputs.build_number || '10' }}
 
