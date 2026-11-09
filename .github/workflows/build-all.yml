@@ -99,30 +99,39 @@ jobs:
 
           # version.json: behind = the owner's hold (expected until the Play
           # AAB ships); synced must match the build; ahead is impossible.
-          vj = json.load(open("version.json"))
-          def vt(s):
-              return tuple(int(x) for x in s.split("."))
-
-          vj_v = vj["version"]
-          if vj_v == py:
-              if str(vj["build_number"]) != felb:
-                  errs.append(
-                      f"version.json synced to {vj_v} but build_number "
-                      f"{vj['build_number']} != {felb}"
-                  )
-              else:
-                  print(f"versions synced: {py} (build {felb})")
-          elif vt(vj_v) < vt(py):
+          # Since cde9572 the feed is git-ignored, so a checkout without it
+          # is the normal hold, not an error.
+          if not os.path.exists("version.json"):
               print(
-                  f"NOTICE: version.json held back at {vj_v} "
-                  f"(build {vj['build_number']}) while app is {py} - "
+                  f"NOTICE: version.json held back (absent from the repo) "
+                  f"while app is {py} - "
                   "expected until the Play Store AAB upload, then commit version.json."
               )
           else:
-              errs.append(
-                  f"version.json {vj_v} is AHEAD of pyproject {py} - update notes "
-                  "point at an app version that does not exist"
-              )
+              vj = json.load(open("version.json"))
+              def vt(s):
+                  return tuple(int(x) for x in s.split("."))
+
+              vj_v = vj["version"]
+              if vj_v == py:
+                  if str(vj["build_number"]) != felb:
+                      errs.append(
+                          f"version.json synced to {vj_v} but build_number "
+                          f"{vj['build_number']} != {felb}"
+                      )
+                  else:
+                      print(f"versions synced: {py} (build {felb})")
+              elif vt(vj_v) < vt(py):
+                  print(
+                      f"NOTICE: version.json held back at {vj_v} "
+                      f"(build {vj['build_number']}) while app is {py} - "
+                      "expected until the Play Store AAB upload, then commit version.json."
+                  )
+              else:
+                  errs.append(
+                      f"version.json {vj_v} is AHEAD of pyproject {py} - update notes "
+                      "point at an app version that does not exist"
+                  )
 
           if errs:
               print("Version drift:", file=sys.stderr)

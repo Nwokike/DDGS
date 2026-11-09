@@ -64,13 +64,18 @@ def test_user_agent_carries_the_app_version():
 
 def test_version_json_is_never_ahead():
     """The feed may lag (the owner's hold until the Play AAB ships) but can
-    never point at an app version that does not exist."""
+    never point at an app version that does not exist. Since cde9572 the
+    feed is git-ignored, so an absent file is the hold itself - not a
+    failure (CI mirrors this)."""
     version, _ = _pyproject()
 
     def vt(s: str):
         return tuple(int(x) for x in s.split("."))
 
-    with open(ROOT / "version.json", encoding="utf-8") as fh:
+    feed_path = ROOT / "version.json"
+    if not feed_path.exists():
+        return  # absent feed = the hold; nothing to compare
+    with open(feed_path, encoding="utf-8") as fh:
         feed = json.load(fh)
     assert vt(feed["version"]) <= vt(version), (
         f"version.json {feed['version']} is ahead of pyproject {version}"
