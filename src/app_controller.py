@@ -184,6 +184,7 @@ class AppController:
             save=self.save,
             save_async=self.save_setting,
             show_snack=self.show_snack,
+            load_more_results=self.load_more_results,
         )
         self.page.render(lambda: ControllerMethodsCtx(methods, lambda: AppShell()))
         # Store controller reference on page for access from plain functions

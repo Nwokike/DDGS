@@ -79,6 +79,7 @@ class ControllerMethods:
         _noop_setting  # async version
     )
     show_snack: Callable[[str, str], Awaitable[None]] = _noop_snack
+    load_more_results: Callable[[], Awaitable[None]] = _noop_async
 
 
 ControllerMethodsCtx = ft.create_context(ControllerMethods())

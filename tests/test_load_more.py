@@ -59,3 +59,33 @@ def test_load_more_appends_deduped_page():
     # untouched keys survive
     state.last_results = {}
     state.search_progress = None
+
+
+def test_load_more_button_reaches_a_real_method_through_the_facade():
+    """The 2.1.0 runtime bug: the button called controller.load_more_results
+    but the ControllerMethods facade never exposed it, so every click was a
+    guaranteed AttributeError. Source inspection missed it because the name
+    exists on AppController - the wire between facade field, mount and
+    caller must be asserted, not assumed."""
+    facade_src = (SRC / "contexts" / "controller_ctx.py").read_text(encoding="utf-8")
+    assert "load_more_results" in facade_src, "the facade must expose the method"
+
+    from contexts.controller_ctx import ControllerMethods
+
+    instance = ControllerMethods()
+    assert callable(instance.load_more_results), (
+        "the facade must carry the field with a callable default"
+    )
+
+    from app_controller import AppController
+
+    assert callable(getattr(AppController, "load_more_results", None))
+
+    mount_src = (SRC / "app_controller.py").read_text(encoding="utf-8")
+    assert "load_more_results=self.load_more_results" in mount_src, (
+        "the mount must hand the real method to the facade"
+    )
+    screen_src = (SRC / "screens" / "results_screen.py").read_text(encoding="utf-8")
+    assert "controller.load_more_results" in screen_src, (
+        "the button must call the facade attribute the mount actually wires"
+    )
