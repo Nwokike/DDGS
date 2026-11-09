@@ -17,7 +17,6 @@ from components.results.downloader import (
     _save_text_content,
 )
 from core import theme, tokens
-from core.constants import EXTRACT_FORMATS, EXTRACT_FORMAT_SHORT
 from core.snack import show_snack
 from core.state import SearchResult, state
 from core.styles import build_banner_ad
@@ -171,44 +170,15 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
                 ft.SnackBar(ft.Text(f"Could not re-extract ({err or 'Unavailable'})")),
             )
 
-    format_row = ft.Row(
-        [
-            ft.Icon(
-                ft.Icons.CODE_ROUNDED,
-                size=14,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-            ),
-            ft.Text(
-                "Format:",
-                size=tokens.FONT_XS,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-                font_family="Outfit",
-                weight=ft.FontWeight.W_500,
-            ),
-            # Plan C4: all five formats visible at once beats a dropdown
-            # that hid four of them behind a tap.
-            ft.SegmentedButton(
-                segments=[
-                    ft.Segment(
-                        value=f["key"],
-                        label=ft.Text(
-                            EXTRACT_FORMAT_SHORT.get(f["key"], f["label"]),
-                            size=tokens.FONT_XS,
-                            font_family="Outfit",
-                            tooltip=f["label"],
-                        ),
-                    )
-                    for f in EXTRACT_FORMATS
-                ],
-                selected=[state.extract_format],
-                allow_multiple_selection=False,
-                on_change=lambda e: page.run_task(
-                    _change_format, (e.control.selected or [state.extract_format])[0]
-                ),
-            ),
-        ],
-        spacing=6,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    # One design for every format surface: the swipeable chip bar (the
+    # fetch sheet and the full reader use the same builder), so a narrow
+    # screen swipes horizontally instead of clipping after "HTML" - the
+    # old SegmentedButton row had no scroll at all.
+    from components.results.content_fetcher import build_format_chip_bar
+
+    format_row = build_format_chip_bar(
+        state.extract_format,
+        lambda k: page.run_task(_change_format, k),
     )
 
     def _open_reader():

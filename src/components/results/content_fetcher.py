@@ -23,7 +23,13 @@ def build_format_chip_bar(
     selected_format: str,
     on_select,
 ) -> ft.Control:
-    """Swipeable format selector chip bar (home-screen category style)."""
+    """Swipeable format selector chip bar.
+
+    The chips row is the home screen's category-chip pattern verbatim
+    (wrap=False + ScrollMode.AUTO on a width-bound Row): on a narrow screen
+    the options swipe horizontally instead of clipping. The label sits
+    OUTSIDE the scroll area, so the swipe starts on the chips themselves.
+    """
     chips = []
     for f in EXTRACT_FORMATS:
         key = f["key"]
@@ -31,18 +37,12 @@ def build_format_chip_bar(
         is_active = key == selected_format
         chips.append(
             ft.Container(
-                content=ft.Row(
-                    [
-                        ft.Text(
-                            label,
-                            size=tokens.FONT_XS,
-                            weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_400,
-                            color=AppColors.PRIMARY if is_active else ft.Colors.ON_SURFACE,
-                            font_family="Outfit",
-                        ),
-                    ],
-                    spacing=2,
-                    tight=True,
+                content=ft.Text(
+                    label,
+                    size=tokens.FONT_XS,
+                    weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_400,
+                    color=AppColors.PRIMARY if is_active else ft.Colors.ON_SURFACE,
+                    font_family="Outfit",
                 ),
                 padding=ft.Padding(10, 5, 10, 5),
                 border_radius=tokens.RADIUS_PILL,
@@ -73,10 +73,18 @@ def build_format_chip_bar(
                 font_family="Outfit",
                 weight=ft.FontWeight.W_500,
             ),
-            *chips,
+            # The scrollable part gets the remaining width and swipes the
+            # chips; wrap=False keeps it one row (home screen's rule).
+            ft.Row(
+                chips,
+                wrap=False,
+                scroll=ft.ScrollMode.AUTO,
+                spacing=6,
+                expand=True,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
         ],
         spacing=6,
-        scroll=ft.ScrollMode.AUTO,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
