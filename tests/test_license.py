@@ -10,10 +10,11 @@ Two things are guarded here that nothing else would catch:
   - the offline rule. A network failure must never take Premium away, and
     only an authoritative answer from the server may remove it.
 
-These run on both branches. The playstore branch ships a stub
-`license_service`, so the tests that need the real client skip there
-instead of failing, and the policy test asserts the opposite: that the Play
-build has no payment endpoint at all.
+These run against the real client. The Play-channel behavior is a build
+property (the AAB job stamps `CHANNEL = "play"` in build_channel.py), so
+channel tests monkeypatch the flag instead of needing a second branch, and
+the policy test asserts the opposite: that the Play build has no payment
+endpoint at all.
 """
 
 from __future__ import annotations

@@ -7,6 +7,7 @@ import time
 import flet as ft
 
 from core import tokens
+from core.build_channel import CHANNEL
 from core.state import SearchResult, state
 from core.theme import AppColors
 from core.utils import is_launchable_url
@@ -232,6 +233,53 @@ async def _download_media(page: ft.Page, result: SearchResult, search_type: str)
         media_url = result.image_url or result.url
         ext = ext_from_url(media_url, "jpg")
     elif is_video:
+        # Play policy is a build property, exactly like the premium gate:
+        # the AAB job stamps CHANNEL = "play" before flet build aab, so the
+        # block is baked into the artifact. The direct APK, desktop and web
+        # builds keep CHANNEL = "direct" and resolve YouTube normally.
+        if CHANNEL == "play" and is_youtube_url(result.url):
+            page.show_dialog(
+                ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text(
+                        "YouTube Downloading Restricted",
+                        font_family="Outfit",
+                        weight=ft.FontWeight.BOLD,
+                    ),
+                    content=ft.Text(
+                        "Downloading from YouTube is disabled in the Google Play Store version "
+                        "of DDGS to comply with Google Play Developer Policies and YouTube's Terms of Service. "
+                        "Open the video in YouTube instead.\n\n"
+                        "Other video sources (Vimeo, Dailymotion, etc.) can still be downloaded normally.\n\n"
+                        "The full edition is available on Windows, Linux, and on GitHub.",
+                        size=tokens.FONT_SM,
+                        style=ft.TextStyle(height=1.4),
+                    ),
+                    actions=[
+                        ft.TextButton(
+                            "Full Edition on GitHub",
+                            action=ft.OpenUrl("https://github.com/Nwokike/DDGS"),
+                        ),
+                        ft.TextButton(
+                            "Cancel", on_click=lambda e: page.pop_dialog()
+                        ),
+                        ft.FilledButton(
+                            "Open in YouTube",
+                            icon=ft.Icons.OPEN_IN_NEW_ROUNDED,
+                            on_click=lambda e: (
+                                page.pop_dialog(),
+                                page.run_task(launch_url, result.url),
+                            ),
+                            style=ft.ButtonStyle(
+                                bgcolor=AppColors.PRIMARY, color=ft.Colors.WHITE
+                            ),
+                        ),
+                    ],
+                    actions_alignment=ft.MainAxisAlignment.END,
+                )
+            )
+            page.update()
+            return
         media_url = result.url
         ext = "mp4"
         if is_youtube_url(media_url):

@@ -11,12 +11,15 @@ Two values exist:
   sell in-app digital goods, and no account available to us has one yet,
   so the Play build is free-only: 50 credits a day and ads, exactly as
   before Premium existed. Nothing is declared to Google, and no request
-  ever reaches the licence Worker.
+  ever reaches the licence Worker. The same channel also blocks YouTube
+  downloads (Play Developer Policy): the video downloader shows the
+  restriction dialog instead of resolving a stream. The Assistant's own
+  downloader is NOT gated - it downloads what the user asked it to.
 
 The workflow's AAB job rewrites this one line before building, so the
-policy is baked into the artifact and nothing is decided at runtime. The
-playstore branch differs from main only by blocking Android downloads; it
-does not carry a second copy of this policy.
+policy is baked into the artifact and nothing is decided at runtime.
+There is no second branch carrying a copy of this policy: both Play
+gates (premium and YouTube) live in main and switch on this one value.
 """
 
 CHANNEL = "direct"

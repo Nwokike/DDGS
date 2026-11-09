@@ -462,12 +462,12 @@ def test_desktop_gets_no_ads(monkeypatch):
 
 # ── nothing ships without the tests running first ────────────────────────
 def test_ci_gates_every_build_on_lint_and_tests():
-    """DDGS ran neither ruff nor pytest in CI on any branch.
+    """DDGS ran neither ruff nor pytest in CI before the gate existed.
 
     KTV Player's `quality` job blocks every other job, which is what makes
-    its channel assertions real. Without it, 173 local tests guarded
-    nothing — including the Play-policy assertions that only execute on the
-    playstore branch.
+    the build-channel policy real. Without it, 173 local tests guarded
+    nothing - including the Play-policy assertions, which now run on main
+    against the stamped channel rather than on a second branch.
     """
     workflow = (SRC.parent / ".github" / "workflows" / "build-all.yml").read_text(
         encoding="utf-8"
@@ -560,3 +560,109 @@ def test_page_cache_round_trips_bytes_instead_of_warning(tmp_path, monkeypatch):
         assert "binary" in back["content"]
 
     asyncio.run(scenario())
+
+
+# ── the Play YouTube gate is a build property, not a branch ─────────────
+def test_play_channel_blocks_youtube_in_the_video_downloader(monkeypatch):
+    """CHANNEL = "play" (stamped by the AAB job) must stop the UI video
+    downloader before any YouTube resolve: the policy is baked into the
+    artifact, the same one-line switch that gates premium."""
+    from components.results import downloader
+    from core.state import SearchResult
+
+    import flet as ft
+
+    calls: list = []
+    monkeypatch.setattr(downloader, "CHANNEL", "play")
+    monkeypatch.setattr(
+        downloader, "resolve_youtube", lambda *a, **k: calls.append(a)
+    )
+    # flet 1.1.x binds OpenUrl to the live session; the dialog body here is
+    # built outside one, so the action is stubbed for the assertion.
+    monkeypatch.setattr(ft, "OpenUrl", lambda url: ("open-url", url))
+
+    class _PlayPage:
+        def __init__(self):
+            self.dialogs = []
+            self.file_picker = object()  # pre-set: skips the picker bootstrap
+
+        def show_dialog(self, dlg):
+            self.dialogs.append(dlg)
+
+        def update(self):
+            pass
+
+    result = SearchResult(
+        title="A YouTube video",
+        url="https://www.youtube.com/watch?v=abc",
+        snippet="",
+        search_type="videos",
+    )
+    page = _PlayPage()
+    asyncio.run(downloader._download_media(page, result, "videos"))
+    assert len(page.dialogs) == 1, "the restriction dialog is shown"
+    assert calls == [], "no YouTube resolve may run on the play channel"
+
+
+def test_direct_channel_still_resolves_youtube(monkeypatch):
+    """The GitHub APK, Windows and Linux builds keep CHANNEL = "direct" and
+    must resolve YouTube exactly as before - the gate is play-only."""
+    from components.results import downloader
+    from core.state import SearchResult
+
+    resolved: list = []
+
+    def _fake_resolve(url, preferred_quality="best"):
+        resolved.append(url)
+        return None  # unresolved -> the honest "could not fetch" dialog
+
+    import flet as ft
+
+    monkeypatch.setattr(downloader, "CHANNEL", "direct")
+    monkeypatch.setattr(downloader, "resolve_youtube", _fake_resolve)
+    monkeypatch.setattr(ft, "OpenUrl", lambda url: ("open-url", url))
+
+    class _DirectPage:
+        def __init__(self):
+            self.dialogs = []
+            self.file_picker = object()  # pre-set: skips the picker bootstrap
+
+        def show_dialog(self, dlg):
+            self.dialogs.append(dlg)
+
+        def update(self):
+            pass
+
+    result = SearchResult(
+        title="A YouTube video",
+        url="https://www.youtube.com/watch?v=abc",
+        snippet="",
+        search_type="videos",
+    )
+    page = _DirectPage()
+    asyncio.run(downloader._download_media(page, result, "videos"))
+    assert resolved == ["https://www.youtube.com/watch?v=abc"], (
+        "direct builds walk the normal resolve path"
+    )
+
+
+def test_agent_downloader_is_never_channel_gated():
+    """Owner rule: the Assistant downloads what the user asked it to. The
+    agent's own download path must not read CHANNEL anywhere - the gate
+    lives only in the UI video downloader."""
+    source = (SRC / "services" / "agent_files.py").read_text(encoding="utf-8")
+    assert "CHANNEL" not in source, "the agent downloader is never gated"
+
+
+def test_workflow_stamps_the_play_channel_and_dropped_the_branch_assertion():
+    """The AAB job lives on main now: it stamps CHANNEL = "play" before
+    flet build aab, and the playstore-divergence assertion is gone with
+    the branch it guarded."""
+    workflow = (SRC.parent / ".github" / "workflows" / "build-all.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "\n  build-aab:" in workflow, "the Play AAB job is on main"
+    assert "CHANNEL = \"play\"" in workflow, "the AAB job stamps the channel"
+    assert "Assert playstore divergence" not in workflow, (
+        "the branch is deleted; its divergence assertion goes with it"
+    )

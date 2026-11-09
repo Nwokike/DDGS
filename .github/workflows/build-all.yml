@@ -28,32 +28,15 @@ env:
 jobs:
   # ─── 0. Quality gate: nothing builds or publishes until this passes ────
   # KTV Player gates every job behind ruff + pytest; DDGS ran neither in CI
-  # on any branch, so local tests guarded exactly nothing — including
-  # the Play-channel assertions that only run on the playstore branch.
+  # before this gate existed, so local tests guarded exactly nothing.
   quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Assert playstore divergence (two files only)
-        run: |
-          # The branches agree everywhere except the AAB job and the
-          # YouTube policy block. Anything else in the diff means one
-          # branch drifted; fail loudly instead of shipping the drift.
-          git fetch --depth=1 origin main playstore || true
-          diff_files="$(git diff --name-only origin/main origin/playstore 2>/dev/null || true)"
-          extra="$(printf '%s\n' "$diff_files" | sort -u | grep -v -x \
-            -e '.github/workflows/build-all.yml' \
-            -e 'src/components/results/downloader.py' || true)"
-          if [ -n "$extra" ]; then
-            echo "::error::playstore diverges beyond the two allowed files:"
-            echo "$extra"
-            exit 1
-          fi
-          echo "playstore divergence is exactly the two allowed files"
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.15"
       - name: Install dependencies (frozen lockfile, includes dev group)
         run: uv sync --frozen
       - name: Version consistency (pyproject is the source; version.json may be held back)
@@ -229,7 +212,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.15'
       # Flutter 3.24.3 is what flet_cli hardcodes; without this every job
       # re-downloads the SDK + engine artifacts (~1-2 GB, minutes each).
       - name: Cache Flutter SDK
@@ -277,6 +260,83 @@ jobs:
         with:
           tag_name: ${{ needs.prepare-release.outputs.TAG_NAME }}
           files: build/apk/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── Android AAB (Play Store) ──────────────────────────
+  build-aab:
+    needs: [prepare-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.15'
+      - name: Cache Flutter SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/flutter
+          key: flutter-3.24.3-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: flutter-3.24.3-${{ runner.os }}-
+      - name: Cache flet templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.flet/cache
+          key: flet-tpl-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: flet-tpl-${{ runner.os }}-
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle
+          key: gradle-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: gradle-${{ runner.os }}-
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Pre-compile binary wheels (primp, ddgs)
+        run: |
+          mkdir -p ${{ github.workspace }}/wheels
+          pip install wheel
+          uv export --no-dev --format requirements-txt | pip wheel -r /dev/stdin --no-deps -w ${{ github.workspace }}/wheels 2>/dev/null || true
+      - name: Decode Keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 --decode > kiri_keystore.jks
+      - name: Stamp the Play channel (free-only build)
+        # The AAB uploaded to Google Play carries CHANNEL = "play": it sells
+        # nothing, shows no premium purchase UI, makes no request to the
+        # licence Worker, and blocks YouTube downloads in the video
+        # downloader. One line, decided before the build, so the policy is
+        # baked into the artifact rather than decided at runtime. The
+        # direct APK, desktop and web builds keep CHANNEL = "direct".
+        run: |
+          python - <<'PYEOF'
+          from pathlib import Path
+          p = Path("src/core/build_channel.py")
+          p.write_text(p.read_text(encoding="utf-8").replace(
+              'CHANNEL = "direct"', 'CHANNEL = "play"'), encoding="utf-8")
+          print(p.read_text(encoding="utf-8"))
+          PYEOF
+      - name: Build AAB (Play Store)
+        env:
+          PIP_FIND_LINKS: ${{ github.workspace }}/wheels
+          FLET_ANDROID_SIGNING_KEY_STORE: ${{ github.workspace }}/kiri_keystore.jks
+          FLET_ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          FLET_ANDROID_SIGNING_KEY_STORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          FLET_ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: uv run flet build aab --yes --project ddgs --product "DDGS" --org ng.kiri --company "Kiri Research Labs" --build-version ${{ env.BUILD_VERSION }} --build-number ${{ env.BUILD_NUMBER }} -v
+      - name: Upload directly to GitHub Release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.TAG_NAME }}
+          # flet outputs the bundle as build/aab/ddgs.aab. A wrong glob must
+          # be a hard error, not a silent no-op (the old AAB job uploaded
+          # nothing while reporting success).
+          files: build/aab/*.aab
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
