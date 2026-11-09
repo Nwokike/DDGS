@@ -3,7 +3,7 @@ name = "ddgs-app"
 version = "2.2.0"
 description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 10 engines."
 readme = "README.md"
-requires-python = ">=3.15"
+requires-python = ">=3.14"
 dependencies = [
     "ddgs>=9.16.0",
     "flet>=1.1.2",
