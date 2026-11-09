@@ -58,7 +58,7 @@ def test_version_chip_default_state():
     text_controls = [c for c in _texts(chip) if isinstance(c, ft.Text)]
     assert len(text_controls) == 1
     assert text_controls[0].value == f"v{_APP_VERSION}"
-    assert text_controls[0].value == "v2.1.0"
+    assert text_controls[0].value == "v2.2.0"
 
 
 def test_version_chip_update_available_state():
