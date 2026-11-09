@@ -1,11 +1,15 @@
 <p align="center">
-  <img src="src/assets/icon.png" alt="DDGS" width="160" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="src/assets/icon_white.png">
+    <source media="(prefers-color-scheme: light)" srcset="src/assets/icon.png">
+    <img src="src/assets/icon.png" alt="DDGS" width="160" />
+  </picture>
 </p>
 
 <h1 align="center">Search everything. Download anything.</h1>
 
 <p align="center">
-  Automated private search across 10 engines: download videos &amp; images,<br>
+  Automated private search across 9 engines: download videos &amp; images,<br>
   scrape any page as Markdown, HTML or text, and let the Assistant do the work.
 </p>
 
@@ -13,8 +17,8 @@
   <a href="https://play.google.com/store/apps/details?id=ng.kiri.ddgs"><img src="https://img.shields.io/badge/Google_Play-3DDC84?style=for-the-badge&logo=google-play&logoColor=white" alt="Google Play Store" /></a>
   <a href="#download"><img src="https://img.shields.io/badge/Download_Windows_EXE-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows EXE" /></a>
   <a href="#download"><img src="https://img.shields.io/badge/Download_Linux_DEB-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux DEB" /></a>
-  <img src="https://img.shields.io/badge/Built_with-Flet_1.0.1-00B0FF?style=for-the-badge&logo=flutter&logoColor=white" alt="Flet 1.0.1" />
-  <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" />
+  <img src="https://img.shields.io/badge/Built_with-Flet_1.1.2-00B0FF?style=for-the-badge&logo=flutter&logoColor=white" alt="Flet 1.1.2" />
+  <img src="https://img.shields.io/badge/Python-3.15-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.15" />
 </p>
 
 ---
@@ -26,7 +30,7 @@
 | **Video downloads** | Quality picker (best / 1080p / 720p / 480p / 360p), live progress, cancel-safe. YouTube resolves to the direct file in the GitHub edition |
 | **Image downloads** | One tap from any image result, filenames cleaned automatically |
 | **Any-format scraping** | Extract a page as Markdown, HTML, rich text, plain text or raw source and save it to a file |
-| **10 search engines** | DuckDuckGo, Google, Brave, Yahoo, Startpage, Mojeek, Wikipedia, Grokipedia (web), Bing (images/news), Anna's Archive (books) |
+| **9 search engines** | DuckDuckGo, Brave, Yahoo, Startpage, Mojeek, Wikipedia, Grokipedia (web), Bing (images/news), Anna's Archive (books) |
 | **Pro filters** | Image size/color/type, video resolution/duration, 13 regions, safe search, time filters, up to 100 results |
 | **The Assistant** | An agent that searches, fetches, saves and schedules for you, with an approve gate before anything is written |
 | **Credits** | 50/day free, 500/day with Premium; a receipt on every answer; low balance never blocks work mid-turn |
@@ -176,14 +180,9 @@ DDGS is a metasearch and content-extraction tool for public search engines and p
 ```bash
 uv sync --frozen     # install exactly what uv.lock pins (includes dev tools)
 uv run ruff check src tests
-uv run pytest -q     # 274 tests
+uv run pytest -q     # 361 tests
 uv run flet run      # desktop app
 ```
-
-CI builds every platform on a `v*` tag: quality gate (frozen sync, version
-consistency, ruff, pytest) then Android split APKs, Windows installer and
-Linux DEB/RPM/TAR. The Play AAB builds from the `playstore` branch with the
-build channel stamped in.
 
 **Version policy:** `pyproject.toml` is the single source of truth; CI fails
 on any drift. `version.json` (the in-app update feed) tracks the published
@@ -192,8 +191,8 @@ ever runs ahead of the app.
 
 | Layer | Technology |
 | :--- | :--- |
-| Frontend | Flet 1.0.1 (Flutter engine) |
-| Search core | `ddgs` 9.16.0 across 10 providers |
+| Frontend | Flet 1.1.2 (Flutter engine) |
+| Search core | `ddgs` 9.16.1 across 9 providers |
 | HTTP | `primp` (Rust, HTTP/2 with browser emulation) |
 | Assistant | kani agent loop over the in-app Kiri router |
 | Storage | on-device JSON (settings, history, conversations) |

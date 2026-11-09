@@ -316,7 +316,10 @@ async def _dispatch(name: str, args: dict):
             _svc().search(TOOL_KINDS[name], query, ui=False), SEARCH_TIMEOUT
         )
         if progress.error and not progress.results:
-            raise RuntimeError(str(progress.error)[:200])
+            err_msg = str(progress.error)
+            if "no results" in err_msg.lower() or "connecterror" in err_msg.lower():
+                return [], []
+            raise RuntimeError(err_msg[:200])
         results = (progress.results or [])[:count]
         if name == "search_images":
             # An image result's `url` is the page that hosts the picture, not
@@ -350,7 +353,10 @@ async def _dispatch(name: str, args: dict):
         )
         if not res:
             raise RuntimeError(err or "fetch failed")
-        return {"url": url, "content": str(res.get("content") or "")[:TOOL_OUTPUT_CAP]}, []
+        return {
+            "url": url,
+            "content": str(res.get("content") or "")[:TOOL_OUTPUT_CAP],
+        }, []
     if name == "save_page":
         url = str(args.get("url") or "")
         if not url.startswith(("http://", "https://")):
@@ -605,6 +611,7 @@ async def run_turn(
                 # Past the cap the old loop answered the call without
                 # running it and without a step row - same words here.
                 return '{"error": "tool limit reached; nothing else was run"}'
+            tools_used += 1
             label = pretty_label(name, args)
             step_id = kani_backend.call_id()
             emit("step_start", {"label": label, "id": step_id})
@@ -615,7 +622,6 @@ async def run_turn(
                         "step_error",
                         {"label": label, "id": step_id, "error": "declined"},
                     )
-                    tools_used += 1
                     return '{"error": "user declined this action"}'
             try:
                 model_out, results = await _dispatch(name, args)

@@ -384,18 +384,31 @@ class KiriLicenseService:
             # the server refusing, not the network failing - so a standing
             # unlock is dropped rather than preserved by accident.
             if status_refusal(response.status_code):
-                logger.info(
-                    "License refused with HTTP %s - dropping unlock",
-                    response.status_code,
+                # A read-only /status refusal must NOT clear a cached token
+                # that still verifies offline - a server refusal HTTP 404
+                # on /status must not revoke a valid lifetime license mid-session.
+                # The signed token is the ground truth; only a restore with
+                # no valid cache (or a token the server itself disproves)
+                # may revoke.
+                cached = await self._cached_claims() if not issue_token else None
+                if cached is not None:
+                    logger.warning(
+                        "status refusal HTTP %s ignored: cached token still verifies offline",
+                        response.status_code,
+                    )
+                else:
+                    logger.info(
+                        "License refused with HTTP %s - dropping unlock",
+                        response.status_code,
+                    )
+                    self._unlocked = False
+                    self.claims = None
+                    self._notify_change()
+                raise LicenseUnavailable(
+                    self._error_message(response, "Restore failed"),
+                    status_code=response.status_code,
+                    is_refusal=status_refusal(response.status_code),
                 )
-                self._unlocked = False
-                self.claims = None
-                self._notify_change()
-            raise LicenseUnavailable(
-                self._error_message(response, "Restore failed"),
-                status_code=response.status_code,
-                is_refusal=status_refusal(response.status_code),
-            )
 
         try:
             payload = response.json()
@@ -471,3 +484,21 @@ class KiriLicenseService:
         except Exception:
             pass
         return f"{fallback} (HTTP {response.status_code})"
+
+
+def friendly_message(exc: BaseException) -> str:
+    """The honest user copy for a restore/checkout failure."""
+    if not isinstance(exc, LicenseUnavailable):
+        return str(exc)
+    code = exc.status_code
+    if code == 404:
+        return "No licence matches that recovery ID."
+    if code == 402:
+        return "Payment for that licence is not valid."
+    if code == 403:
+        return "That licence is not entitled to this app."
+    if code == 429:
+        return "Too many attempts - wait a moment and try again."
+    if code is not None:
+        return str(exc)
+    return "Could not reach the licence service. Check your connection."

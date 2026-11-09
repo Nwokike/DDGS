@@ -157,7 +157,9 @@ def test_save_page_format_mapping_and_result(monkeypatch):
         return "/dl/DDGS/page.md"
 
     monkeypatch.setattr(chat_agent.agent_files, "save_page", fake_save)
-    out, _ = asyncio.run(chat_agent._dispatch("save_page", {"url": "https://a.example"}))
+    out, _ = asyncio.run(
+        chat_agent._dispatch("save_page", {"url": "https://a.example"})
+    )
     assert seen == {"url": "https://a.example", "fmt": "text_markdown"}
     assert out["saved_to"] == "/dl/DDGS/page.md"
 
@@ -181,7 +183,9 @@ def test_download_media_flows_quality(monkeypatch):
 
     monkeypatch.setattr(chat_agent.agent_files, "download_media", fake_dl)
     out, _ = asyncio.run(
-        chat_agent._dispatch("download_media", {"url": "https://v.example/x", "quality": "720p"})
+        chat_agent._dispatch(
+            "download_media", {"url": "https://v.example/x", "quality": "720p"}
+        )
     )
     assert seen == {"url": "https://v.example/x", "quality": "720p"}
     assert out["saved_to"] == "/dl/DDGS/clip.mp4"
@@ -198,7 +202,9 @@ def test_scrape_site_flows_max_pages_and_format(monkeypatch):
 
     monkeypatch.setattr(chat_agent.agent_files, "scrape_site", fake_scrape)
     out, _ = asyncio.run(
-        chat_agent._dispatch("scrape_site", {"url": "https://a.example", "max_pages": 3})
+        chat_agent._dispatch(
+            "scrape_site", {"url": "https://a.example", "max_pages": 3}
+        )
     )
     assert seen == {
         "url": "https://a.example",
@@ -220,7 +226,9 @@ def test_schedule_scrape_clamps_and_replaces(monkeypatch):
     monkeypatch.setattr(state, "scheduled_scrapes", [])
 
     out, _ = asyncio.run(
-        chat_agent._dispatch("schedule_scrape", {"url": "https://a.example/feed", "interval_minutes": 5})
+        chat_agent._dispatch(
+            "schedule_scrape", {"url": "https://a.example/feed", "interval_minutes": 5}
+        )
     )
     entry = out["scheduled"]
     assert entry["interval_minutes"] == 15, "clamped to the schema floor"
@@ -229,7 +237,8 @@ def test_schedule_scrape_clamps_and_replaces(monkeypatch):
     # a huge interval clamps down, and the same URL replaces, not stacks
     out, _ = asyncio.run(
         chat_agent._dispatch(
-            "schedule_scrape", {"url": "https://a.example/feed", "interval_minutes": 99999}
+            "schedule_scrape",
+            {"url": "https://a.example/feed", "interval_minutes": 99999},
         )
     )
     assert out["scheduled"]["interval_minutes"] == 1440
@@ -237,7 +246,12 @@ def test_schedule_scrape_clamps_and_replaces(monkeypatch):
 
     # non-http is refused before any state change
     try:
-        asyncio.run(chat_agent._dispatch("schedule_scrape", {"url": "javascript:alert(1)", "interval_minutes": 60}))
+        asyncio.run(
+            chat_agent._dispatch(
+                "schedule_scrape",
+                {"url": "javascript:alert(1)", "interval_minutes": 60},
+            )
+        )
         raise AssertionError("non-http must be rejected")
     except ValueError:
         pass
@@ -254,11 +268,15 @@ def test_cancel_scrape_removes_and_reports(monkeypatch):
         [{"url": "https://a.example/feed", "interval_minutes": 60}],
     )
 
-    out, _ = asyncio.run(chat_agent._dispatch("cancel_scrape", {"url": "https://a.example/feed"}))
+    out, _ = asyncio.run(
+        chat_agent._dispatch("cancel_scrape", {"url": "https://a.example/feed"})
+    )
     assert out["removed"] == 1
     assert state.scheduled_scrapes == []
 
-    out, _ = asyncio.run(chat_agent._dispatch("cancel_scrape", {"url": "https://a.example/nope"}))
+    out, _ = asyncio.run(
+        chat_agent._dispatch("cancel_scrape", {"url": "https://a.example/nope"})
+    )
     assert out["removed"] == 0, "cancelling nothing says so"
 
 

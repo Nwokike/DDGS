@@ -49,6 +49,8 @@ from typing import Any, override
 import httpx
 import openai
 from kani import AIFunction, ChatMessage, Kani
+from kani.exceptions import FunctionCallException
+from kani.internal import FunctionCallResult
 
 from core.constants import (
     AGENT_HISTORY_MESSAGES,
@@ -102,7 +104,47 @@ class DDGSKani(Kani):
     async def do_function_call(self, call, tool_call_id: str | None = None):
         token = _call_id.set(str(tool_call_id or ""))
         try:
+            # Models sometimes emit raw backslashes inside string arguments
+            # (regex, Windows paths) - invalid JSON escapes that make kani fail
+            # the whole call and burn every candidate on the same parse error.
+            # Repair the escapes in place and let the call through;
+            # FunctionCall is a mutable pydantic model and kwargs is a
+            # cached_property, so drop the cached failed parse after rewriting.
+            try:
+                _ = call.kwargs  # force the cached parse
+            except Exception:
+                import json as _json
+                import re as _re
+
+                repaired = _re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", call.arguments or "")
+                try:
+                    _json.loads(repaired)
+                    call.arguments = repaired
+                    call.__dict__.pop("kwargs", None)
+                except Exception:
+                    pass  # unrecoverable - the error path below handles it
             return await super().do_function_call(call, tool_call_id)
+        except asyncio.CancelledError:
+            raise
+        except FunctionCallException:
+            # kani's own retry path already turns these into a FUNCTION message + one re-ask. Let it.
+            raise
+        except Exception as exc:
+            # Anything else (an unexpected tool-body failure) must not kill the
+            # round: kani's loop dereferences .message/.is_model_turn on the
+            # result, so a bare str would AttributeError and burn the candidate
+            # walk. Return a proper FunctionCallResult carrying a FUNCTION
+            # message - the model reads it, corrects the call, round continues.
+            name = getattr(call, "name", "?")
+            logger.warning("AI tool %s call failed: %s", name, exc)
+            return FunctionCallResult(
+                is_model_turn=True,
+                message=ChatMessage.function(
+                    name,
+                    f"(tool call '{name}' failed: {exc}) - fix the arguments and call again.",
+                    tool_call_id=tool_call_id,
+                ),
+            )
         finally:
             _call_id.reset(token)
 
@@ -300,9 +342,7 @@ def _raise_mapped(exc: BaseException, *, delivered: bool) -> None:
     if isinstance(exc, openai.APITimeoutError):
         # The router answered; one of its upstream models hung. The router
         # itself is healthy - walk to the next candidate, no blackout.
-        raise RouterModelFailed(
-            "A model timed out. Trying another model."
-        ) from exc
+        raise RouterModelFailed("A model timed out. Trying another model.") from exc
     if isinstance(exc, openai.APIConnectionError):
         # Refused/DNS: every candidate shares this endpoint, so switching
         # models cannot help - the router itself is gone.
@@ -424,9 +464,7 @@ async def run_turn(
         prev_kani = kani
         # One waived boundary: the rescue's single answer round.
         cap_waiver = rescue
-        round_query = (
-            None if attempt and _history_has_query(history) else query
-        )
+        round_query = None if attempt and _history_has_query(history) else query
         try:
             async for manager in kani.full_round_stream(
                 round_query,
@@ -438,17 +476,12 @@ async def run_turn(
                 **_CACHE_WIRE,
                 # Plan B9: only sent when the user picked a depth; "auto"
                 # omits the parameter entirely (owner rule).
-                **(
-                    {"reasoning_effort": reasoning_effort}
-                    if reasoning_effort
-                    else {}
-                ),
+                **({"reasoning_effort": reasoning_effort} if reasoning_effort else {}),
             ):
                 if cancel.is_set():
                     raise ChatCancelled()
-                if (
-                    time.monotonic() - t0 > timeout_s
-                    or (steps >= max_iters and not cap_waiver)
+                if time.monotonic() - t0 > timeout_s or (
+                    steps >= max_iters and not cap_waiver
                 ):
                     # Today's loop conditions, checked where a boundary
                     # exists. The yielded-but-uniterated next manager has
@@ -519,17 +552,11 @@ async def run_turn(
                 if not final_text.strip():
                     # message already bound; usage rides below
                     finish = _finish_of(await manager.completion())
-                    if (
-                        finish == "length"
-                        and not empty_retried
-                        and steps < max_iters
-                    ):
+                    if finish == "length" and not empty_retried and steps < max_iters:
                         # A reasoning model can burn the whole budget before
                         # any text appears: retry once with double, same cap.
                         empty_retried = True
-                        budget = (
-                            max_tokens or ai_service.ANSWER_MAX_TOKENS
-                        ) * 2
+                        budget = (max_tokens or ai_service.ANSWER_MAX_TOKENS) * 2
                         kani.chat_history.append(
                             ChatMessage.user(
                                 "Your previous reply hit the token limit "
@@ -558,9 +585,7 @@ async def run_turn(
                 # This candidate is done; the loop below walks to the next.
                 last_model_failed = attempt_model
                 ai_service.mark_model_failed(attempt_model)
-                logger.info(
-                    "candidate model %s failed: %s", attempt_model, mapped
-                )
+                logger.info("candidate model %s failed: %s", attempt_model, mapped)
                 if attempt + 1 >= len(candidates):
                     raise AIUnavailable(
                         "The Assistant could not answer right now. Try again shortly."
@@ -653,8 +678,7 @@ async def complete(
                 upstream = getattr(tap, "last_error", None)
                 if upstream:
                     logger.info(
-                        "passive candidate %s returned an embedded upstream "
-                        "error: %s",
+                        "passive candidate %s returned an embedded upstream error: %s",
                         attempt_model,
                         upstream.get("message") or upstream,
                     )
@@ -680,9 +704,7 @@ async def complete(
                     ) from mapped
                 last_err = mapped
                 ai_service.mark_model_failed(attempt_model)
-                logger.info(
-                    "passive candidate %s failed: %s", attempt_model, mapped
-                )
+                logger.info("passive candidate %s failed: %s", attempt_model, mapped)
                 continue
             raise
     raise AIUnavailable(

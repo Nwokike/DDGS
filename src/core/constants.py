@@ -65,7 +65,8 @@ ENGINE_URL = "https://router.kiri.ng/run.py"
 BACKEND_OPTIONS_TEXT = [
     {"key": "auto", "label": "Auto (recommended)"},
     {"key": "duckduckgo", "label": "DuckDuckGo"},
-    {"key": "google", "label": "Google"},
+    # google was removed from ddgs 9.16.1's registry: Google serves the
+    # scraper 403s, so upstream dropped the engine entirely.
     {"key": "brave", "label": "Brave"},
     {"key": "yahoo", "label": "Yahoo"},
     {"key": "startpage", "label": "Startpage"},
@@ -184,12 +185,12 @@ COST_OVERVIEW = 0  # passive search overview is free
 COST_SUMMARY = 0  # passive page summary is free
 AD_TOPUP_CREDITS = 2
 AD_TOPUP_COOLDOWN_SEC = 30.0
-AGENT_MAX_ITERS = 30  # model calls per turn — was 6, which cut the model off
+AGENT_MAX_ITERS = 30  # model calls per turn - was 6, which cut the model off
                       # mid-task; the owner watched real work die at the
                       # boundary. 30 still ends a confused retry loop before
                       # it can bill unbounded steps.
-AGENT_MAX_TOOLS = 10  # tool calls per turn
-AGENT_TIMEOUT_S = 900  # wall-clock per turn — was 240, which ended turns
+AGENT_MAX_TOOLS = 100  # tool calls per turn (was 10, which cut deep research tasks off)
+AGENT_TIMEOUT_S = 900  # wall-clock per turn - was 240, which ended turns
                        # that were mid-work (multi-tool rounds legitimately
                        # need minutes); 240 only guarded a wedged socket.
 # chars of tool output re-sent per loop. Raised 2000 -> 8000: kani's

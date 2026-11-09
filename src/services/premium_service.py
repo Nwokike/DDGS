@@ -355,7 +355,7 @@ class PremiumService:
             backoff = min(30.0, CHECKOUT_WATCH_INTERVAL * failures)
             await asyncio.sleep(
                 CHECKOUT_WATCH_INTERVAL
-                + random.uniform(0, CHECKOUT_WATCH_INTERVAL)
+                + random.uniform(0, CHECKOUT_WATCH_INTERVAL)  # noqa: S311 - poll-debounce jitter, not security
                 + backoff
             )
             try:

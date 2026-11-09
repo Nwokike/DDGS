@@ -21,6 +21,17 @@ from core.constants import COST_SUMMARY
 from core.state import state
 from core.theme import AppColors
 
+# In-memory session cache: until the app is closed, keep AI summaries per URL.
+_PAGE_SUMMARY_CACHE: dict[str, str] = {}
+
+
+def get_cached_summary(url: str) -> str | None:
+    return _PAGE_SUMMARY_CACHE.get(url)
+
+
+def clear_summary_cache() -> None:
+    _PAGE_SUMMARY_CACHE.clear()
+
 
 def build_auto_summary(
     page: ft.Page,
@@ -178,6 +189,10 @@ def build_auto_summary(
             summary_body.value = buffer["text"] or "(empty summary)"
             summary_body.color = ft.Colors.ON_SURFACE
             summary_state["expanded"] = True
+            if buffer["text"].strip():
+                p_url = _page_url()
+                if p_url:
+                    _PAGE_SUMMARY_CACHE[p_url] = buffer["text"].strip()
             summary_actions.controls = [
                 ft.TextButton(
                     "Ask Assistant about this page",
@@ -204,7 +219,9 @@ def build_auto_summary(
         except Exception:
             # AIUnavailable and anything unexpected share one honest line -
             # and a walking candidate list already retried every model.
-            summary_body.value = "Assistant unavailable. The full page text is untouched."
+            summary_body.value = (
+                "Assistant unavailable. The full page text is untouched."
+            )
             summary_body.color = ft.Colors.ON_SURFACE_VARIANT
         summary_state["running"] = False
         _sync_summary()
@@ -216,13 +233,38 @@ def build_auto_summary(
     async def _start(force: bool = False) -> None:
         if summary_state["running"] and not force:
             return
+
+        p_url = _page_url()
+        if not force and p_url and p_url in _PAGE_SUMMARY_CACHE:
+            cached_val = _PAGE_SUMMARY_CACHE[p_url]
+            summary_sub.value = (get_title() or "Page")[:120]
+            summary_card.visible = True
+            summary_state["expanded"] = True
+            summary_body.value = cached_val
+            summary_body.color = ft.Colors.ON_SURFACE
+            summary_actions.controls = [
+                ft.TextButton(
+                    "Ask Assistant about this page",
+                    icon=ft.Icons.CHAT_BUBBLE_OUTLINE_ROUNDED,
+                    on_click=_ask_summary_page,
+                    style=ft.ButtonStyle(padding=ft.Padding(4, 2, 4, 2)),
+                )
+            ]
+            summary_state["running"] = False
+            _sync_summary()
+            try:
+                page.update()
+            except Exception:
+                pass
+            return
+
         summary_state["gen"] += 1
         summary_state["running"] = True
         gen = summary_state["gen"]
         text = ""
         try:
             if get_content is not None:
-                text = (get_content() or "")
+                text = get_content() or ""
         except Exception:
             text = ""
         if not text.strip() and load_content is not None:

@@ -39,9 +39,9 @@ def test_scheme_helpers():
 def test_urljoin_preserves_foreign_schemes_so_the_guard_is_post_resolve():
     from core.utils import resolve_url
 
-    assert (
-        resolve_url("https://host/page", "javascript:alert(1)") is None
-    ), "urljoin alone would keep the scheme; the guard must run after"
+    assert resolve_url("https://host/page", "javascript:alert(1)") is None, (
+        "urljoin alone would keep the scheme; the guard must run after"
+    )
 
 
 def test_resolve_url_is_the_one_resolver_for_every_surface():

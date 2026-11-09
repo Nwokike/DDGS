@@ -34,6 +34,9 @@ from core.snack import show_snack
 
 LOG_TAG = "AppController"
 
+# In-memory session cache for AI search overviews
+_SEARCH_OVERVIEW_CACHE: dict[str, AiOverview] = {}
+
 
 class AppController:
     """Owns all services and business logic.  Mounts the declarative UI."""
@@ -980,6 +983,13 @@ class AppController:
 
         from services import ai_service
 
+        cache_key = query.strip().lower()
+        if cache_key in _SEARCH_OVERVIEW_CACHE:
+            cached_ov = _SEARCH_OVERVIEW_CACHE[cache_key]
+            if cached_ov.is_done and not cached_ov.error:
+                state.ai_overview = cached_ov
+                return
+
         sources = [
             {"title": r.title, "url": r.url, "snippet": r.snippet} for r in results[:8]
         ]
@@ -1011,13 +1021,15 @@ class AppController:
                 messages, COST_OVERVIEW, on_token, model=state.ai_model
             )
             clean, related = ai_service.parse_related(buffer["text"])
-            state.ai_overview = replace(
+            final_ov = replace(
                 overview,
                 text=ai_service.link_citations(clean, [s["url"] for s in sources]),
                 related=related,
                 is_running=False,
                 is_done=True,
             )
+            state.ai_overview = final_ov
+            _SEARCH_OVERVIEW_CACHE[cache_key] = final_ov
         except ai_service.NotEnoughCredits:
             state.ai_overview = replace(overview, is_running=False, error="credits")
         except ai_service.AIMidStream:

@@ -135,7 +135,8 @@ def snapshot_models() -> list[dict]:
 
 
 def pickable_models() -> list[dict]:
-    """Models the picker may offer: auto, plus active high/medium tiers."""
+    """Models the picker may offer: auto, plus active high/medium tiers.
+    Falls back to low/minimal if no high/medium models are available."""
     out: list[dict] = []
     for m in _catalog:
         mid = str(m.get("id") or "")
@@ -148,6 +149,17 @@ def pickable_models() -> list[dict]:
             continue
         if _tier(m) in PICKABLE_TIERS:
             out.append(m)
+    
+    # Fallback: if no high/medium models found, include active low/minimal models
+    if len(out) <= 1:  # only "auto" or empty
+        for m in _catalog:
+            mid = str(m.get("id") or "")
+            if not mid or mid.lower() == "auto":
+                continue
+            if str(m.get("status") or "active") != "active":
+                continue
+            if _tier(m) not in PICKABLE_TIERS:
+                out.append(m)
     return out
 
 
@@ -158,6 +170,8 @@ def candidate_models(*, exclude: tuple[str, ...] = ()) -> list[str]:
     explicit exclude skips models that just failed this turn, and an
     open circuit breaker (mark_model_failed) skips a model that failed
     recently - one sick upstream must not be re-tried on every turn.
+    When all high and medium candidates are exhausted or failed, falls
+    back to low and minimal tiers at the tail so turns can still succeed.
     """
     skipped = {str(e) for e in exclude}
     ranked: list[tuple[int, int, str]] = []
@@ -181,7 +195,64 @@ def candidate_models(*, exclude: tuple[str, ...] = ()) -> list[str]:
             )
         )
     ranked.sort()
-    return [mid for _, _, mid in ranked]
+    result = [mid for _, _, mid in ranked]
+
+    # LAST RESORT: when every high/medium model is rate-limited, failed, or
+    # absent, the retry walk must still have somewhere to go - append the
+    # low/minimal tier at the END (never ahead of a healthy high/medium).
+    tail: list[tuple[int, int, str]] = []
+    for m in _catalog:
+        mid = str(m.get("id") or "")
+        if not mid or mid.lower() == "auto" or mid in skipped:
+            continue
+        if str(m.get("status") or "active") != "active":
+            continue
+        if _tier(m) in PICKABLE_TIERS or mid in result:
+            continue
+        # If we have healthy high/medium models, respect circuit breaker on low models.
+        # If we have NO high/medium models at all, bypass breaker to give the turn a chance.
+        if result and model_circuit_open(mid):
+            continue
+        tier = _tier(m)
+        lat = m.get("latency_ms")
+        tail.append(
+            (
+                2 if tier == "low" else 3,
+                lat if isinstance(lat, int) else 10**9,
+                mid,
+            )
+        )
+    tail.sort()
+    result.extend(mid for _, _, mid in tail)
+    return result
+
+
+def serving_model() -> str:
+    """The model that will actually answer right now.
+
+    The user's pick when the router still offers it, otherwise the ranked
+    head of the pool - tier first, then gateway latency.
+    """
+    chosen = str(getattr(state, "ai_model", "") or "").strip()
+    if chosen.lower() == "auto":
+        chosen = ""
+    pool = candidate_models()
+    if chosen and any(m.lower() == chosen.lower() for m in pool):
+        return chosen
+    if pool:
+        return pool[0]
+    return ""
+
+
+def adopt_default_model() -> str:
+    """Make `serving_model()` the saved pick when nothing valid is saved.
+
+    Returns the id now in force.
+    """
+    model = serving_model()
+    if model and model != str(getattr(state, "ai_model", "") or ""):
+        state.ai_model = model
+    return model
 
 
 # Per-model circuit breaker: a model that just failed (429/5xx/timeout/
@@ -496,6 +567,7 @@ async def _fetch_catalog(client: httpx.AsyncClient, base: str) -> list[dict]:
             m.get("latency_ms") if isinstance(m.get("latency_ms"), int) else 10**9,
         )
     )
+    adopt_default_model()
     return _catalog
 
 
@@ -510,6 +582,14 @@ async def refresh_catalog() -> list[dict]:
     except Exception as exc:
         logger.warning("catalog refresh failed: %r", exc)
     return snapshot_models()
+
+
+def catalog_age() -> float:
+    return 0.0 if not _catalog_fetched_at else time.monotonic() - _catalog_fetched_at
+
+
+def catalog_stale() -> bool:
+    return catalog_age() >= 300.0
 
 
 # ── SSE consumption with tool_calls assembly ──────────────────────────────

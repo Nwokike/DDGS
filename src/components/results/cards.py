@@ -168,9 +168,7 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
         else:
             show_snack(
                 page,
-                ft.SnackBar(
-                    ft.Text(f"Could not re-extract ({err or 'Unavailable'})")
-                ),
+                ft.SnackBar(ft.Text(f"Could not re-extract ({err or 'Unavailable'})")),
             )
 
     format_row = ft.Row(
@@ -217,6 +215,8 @@ def _extract_card(result: dict | None, page: ft.Page) -> ft.Container:
         from flet import context as flet_context
 
         page = flet_context.page
+        if not state.is_premium and state.ad_service:
+            page.run_task(state.ad_service.show_interstitial)
         ctrl = getattr(page, "_ddgs_controller", None)
         if ctrl:
             ctrl.open_content_reader(url, str(content) if not is_bytes else None)

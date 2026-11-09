@@ -385,7 +385,16 @@ class StorageService:
         return await self.set(STORAGE_SEARCH_LICENSE, v)
 
     async def get_backend(self) -> str:
-        return str(await self.get(STORAGE_BACKEND, "auto"))
+        raw = str(await self.get(STORAGE_BACKEND, "auto"))
+        # Google was dropped from ddgs 9.16.1's registry (403s upstream), so
+        # a value saved by an older build must not survive the load: strip it
+        # here, the single chokepoint every backend read goes through, and
+        # let the persisted store be corrected on the next save.
+        from core.constants import BACKEND_OPTIONS_TEXT
+
+        valid = {b["key"] for b in BACKEND_OPTIONS_TEXT}
+        parts = [b.strip() for b in raw.split(",") if b.strip() and b.strip() in valid]
+        return ",".join(parts) if parts else "auto"
 
     async def set_backend(self, v: str) -> bool:
         return await self.set(STORAGE_BACKEND, v)

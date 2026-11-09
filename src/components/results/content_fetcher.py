@@ -19,6 +19,68 @@ from core.snack import show_snack
 _search_service = SearchService()
 
 
+def build_format_chip_bar(
+    selected_format: str,
+    on_select,
+) -> ft.Control:
+    """Swipeable format selector chip bar (home-screen category style)."""
+    chips = []
+    for f in EXTRACT_FORMATS:
+        key = f["key"]
+        label = EXTRACT_FORMAT_SHORT.get(key, f["label"])
+        is_active = key == selected_format
+        chips.append(
+            ft.Container(
+                content=ft.Row(
+                    [
+                        ft.Text(
+                            label,
+                            size=tokens.FONT_XS,
+                            weight=ft.FontWeight.W_600 if is_active else ft.FontWeight.W_400,
+                            color=AppColors.PRIMARY if is_active else ft.Colors.ON_SURFACE,
+                            font_family="Outfit",
+                        ),
+                    ],
+                    spacing=2,
+                    tight=True,
+                ),
+                padding=ft.Padding(10, 5, 10, 5),
+                border_radius=tokens.RADIUS_PILL,
+                border=ft.Border.all(
+                    1.5 if is_active else 1,
+                    AppColors.PRIMARY
+                    if is_active
+                    else ft.Colors.with_opacity(0.15, ft.Colors.ON_SURFACE),
+                ),
+                bgcolor=ft.Colors.with_opacity(0.12, AppColors.PRIMARY)
+                if is_active
+                else ft.Colors.TRANSPARENT,
+                ink=True,
+                on_click=lambda _, k=key: on_select(k),
+            )
+        )
+    return ft.Row(
+        [
+            ft.Icon(
+                ft.Icons.CODE_ROUNDED,
+                size=14,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+            ),
+            ft.Text(
+                "Format:",
+                size=tokens.FONT_XS,
+                color=ft.Colors.ON_SURFACE_VARIANT,
+                font_family="Outfit",
+                weight=ft.FontWeight.W_500,
+            ),
+            *chips,
+        ],
+        spacing=6,
+        scroll=ft.ScrollMode.AUTO,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    )
+
+
 async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     from core.utils import sanitize_url
 
@@ -89,6 +151,8 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         """Close this preview and open the full-screen content reader."""
         nav.clear()
         page.pop_dialog()
+        if not state.is_premium and state.ad_service:
+            page.run_task(state.ad_service.show_interstitial)
         ctrl = getattr(page, "_ddgs_controller", None)
         if ctrl:
             ctrl.open_content_reader(
@@ -102,9 +166,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
 
     def _body_control():
         if view["is_bytes"]:
-            return ft.Text(
-                str(view["content"]), size=tokens.FONT_SM, selectable=True
-            )
+            return ft.Text(str(view["content"]), size=tokens.FONT_SM, selectable=True)
         return ft.Markdown(
             value=str(view["content"]),
             selectable=True,
@@ -150,16 +212,12 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
                         ft.OutlinedButton(
                             "Retry",
                             icon=ft.Icons.REFRESH_ROUNDED,
-                            on_click=lambda _: page.run_task(
-                                _load, view["url"], False
-                            ),
+                            on_click=lambda _: page.run_task(_load, view["url"], False),
                         ),
                         ft.OutlinedButton(
                             "Open in browser",
                             icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
-                            on_click=lambda _: page.run_task(
-                                launch_url, view["url"]
-                            ),
+                            on_click=lambda _: page.run_task(launch_url, view["url"]),
                         ),
                     ],
                     spacing=tokens.SPACE_SM,
@@ -206,9 +264,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         view["raw"] = raw
         view["is_bytes"] = isinstance(raw, bytes)
         view["content"] = (
-            f"[Binary data extracted: {len(raw)} bytes]"
-            if view["is_bytes"]
-            else raw
+            f"[Binary data extracted: {len(raw)} bytes]" if view["is_bytes"] else raw
         )
         view["loaded"] = True
         shown = view["url"]
@@ -318,57 +374,21 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
         # One writer for observable state + persistence, shared with the
         # extract card and the reader, so the surfaces cannot diverge.
         await set_extract_format(page, new_fmt)
-        # In place: the sheet stays up and its content re-renders in the
-        # newly chosen format. The old pop-and-reopen read as "the switch
-        # opens something else" instead of "the content changed". Same
-        # page, so the summary stands - no fresh stream, no fresh charge.
-        fresh, err = await _search_service.extract_url(
-            view["url"], fmt=new_fmt
-        )
+        fresh, err = await _search_service.extract_url(view["url"], fmt=new_fmt)
         if not fresh:
             _paint_error(err)
             return
+        format_container.content = build_format_chip_bar(
+            new_fmt,
+            lambda k: page.run_task(_change_preview_format, k),
+        )
         _apply(fresh, None, same_page=True)
 
-    preview_format_row = ft.Row(
-        [
-            ft.Icon(
-                ft.Icons.CODE_ROUNDED,
-                size=14,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-            ),
-            ft.Text(
-                "Format:",
-                size=tokens.FONT_XS,
-                color=ft.Colors.ON_SURFACE_VARIANT,
-                font_family="Outfit",
-                weight=ft.FontWeight.W_500,
-            ),
-            # All five formats visible at once (same as the extract card)
-            # beats a dropdown that hid four of them behind a tap.
-            ft.SegmentedButton(
-                segments=[
-                    ft.Segment(
-                        value=f["key"],
-                        label=ft.Text(
-                            EXTRACT_FORMAT_SHORT.get(f["key"], f["label"]),
-                            size=tokens.FONT_XS,
-                            font_family="Outfit",
-                            tooltip=f["label"],
-                        ),
-                    )
-                    for f in EXTRACT_FORMATS
-                ],
-                selected=[state.extract_format],
-                allow_multiple_selection=False,
-                on_change=lambda e: page.run_task(
-                    _change_preview_format,
-                    (e.control.selected or [state.extract_format])[0],
-                ),
-            ),
-        ],
-        spacing=6,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    format_container = ft.Container(
+        content=build_format_chip_bar(
+            state.extract_format,
+            lambda k: page.run_task(_change_preview_format, k),
+        )
     )
 
     is_dark = theme.is_dark_mode(page)
@@ -399,7 +419,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
             content=ft.Column(
                 [
                     header_row,
-                    preview_format_row,
+                    format_container,
                     ft.Divider(
                         height=1,
                         color=ft.Colors.with_opacity(0.08, ft.Colors.ON_SURFACE),
@@ -421,9 +441,7 @@ async def _fetch_and_show(page: ft.Page, url: str, pop_current: bool = True):
     page.show_dialog(preview_sheet)
 
     try:
-        fresh, err = await _search_service.extract_url(
-            url, fmt=state.extract_format
-        )
+        fresh, err = await _search_service.extract_url(url, fmt=state.extract_format)
     except Exception as ex:
         fresh, err = None, str(ex)
     if not fresh:

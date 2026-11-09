@@ -76,9 +76,7 @@ def test_version_chip_update_available_state():
     assert chip.tooltip == "New update available - tap to view"
     assert chip.border is not None
 
-    text_values = [
-        c.value for c in _texts(chip) if isinstance(c, ft.Text) and c.value
-    ]
+    text_values = [c.value for c in _texts(chip) if isinstance(c, ft.Text) and c.value]
     assert any("Update: 2.2.0 Available!" in v for v in text_values)
 
     # Announcement type shows "News"
@@ -107,6 +105,7 @@ def test_version_chip_click_opens_dialog():
     chip = _build_version_chip(page)
 
     opened = []
+
     def _fake_show(p, data=None):
         opened.append(True)
 

@@ -62,10 +62,7 @@ def test_imports_all_declared():
         for mod in _imports_of(path):
             if mod in local or mod in stdlib or mod.startswith("_"):
                 continue
-            providers = {
-                d.lower().replace("-", "_")
-                for d in (dist_map.get(mod) or [])
-            }
+            providers = {d.lower().replace("-", "_") for d in (dist_map.get(mod) or [])}
             if not (providers & declared) and mod.lower() not in declared:
                 missing.add(
                     f"{path.relative_to(ROOT)}: {mod} "

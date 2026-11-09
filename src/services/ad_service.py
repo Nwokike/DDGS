@@ -117,7 +117,6 @@ class AdService:
             state.is_premium
             or not _HAS_ADS
             or not self._is_mobile()
-            or not self._can_request_ads
         ):
             return ft.Container(width=0, height=0)
         try:
@@ -150,7 +149,6 @@ class AdService:
             state.is_premium
             or not _HAS_ADS
             or not self._is_mobile()
-            or not self._can_request_ads
         ):
             return
         try:
@@ -228,7 +226,6 @@ class AdService:
             state.is_premium
             or not _HAS_ADS
             or not self._is_mobile()
-            or not self._can_request_ads
         ):
             return False
         now = time.time()
@@ -245,6 +242,7 @@ class AdService:
                 self._interstitial_shown = True
                 # The gap is spent only by an impression that really fired.
                 state.last_interstitial_ts = now
+                await self.preload_interstitial(self._on_close)
                 return True
             except (
                 ValueError,

@@ -3,11 +3,11 @@ name = "ddgs-app"
 version = "2.1.0"
 description = "DDGS — Dux Distributed Global Search. Privacy-first metasearch across 10 engines."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.15"
 dependencies = [
     "ddgs>=9.16.0",
-    "flet>=1.0.3",
-    "flet-ads>=1.0.3",
+    "flet>=1.1.2",
+    "flet-ads>=1.1.2",
     # Directly imported by src/ (ai_service, license_service, update_service).
     # httpx is also a base flet dependency, so this pins the floor without
     # adding a family.
@@ -91,7 +91,7 @@ dev = [
     # flet otherwise pip-installs into the venv at runtime. Kept OUT of
     # [project].dependencies so `flet build` never resolves desktop packages
     # for Android. Exact pin: the extras must track the flet SDK version.
-    "flet[cli,desktop]==1.0.3",
+    "flet[cli,desktop]==1.1.2",
 ]
 
 [tool.ruff]

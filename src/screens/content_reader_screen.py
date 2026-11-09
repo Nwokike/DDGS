@@ -16,6 +16,7 @@ from core.styles import build_banner_ad
 from core.theme import AppColors
 from core.utils import FetchNav, resolve_url, set_extract_format
 from core.snack import show_snack
+from components.results.content_fetcher import build_format_chip_bar
 
 
 def build_content_reader(
@@ -36,7 +37,6 @@ def build_content_reader(
     loading_col = ft.Ref[ft.Container]()
     error_col = ft.Ref[ft.Container]()
     url_text = ft.Ref[ft.Text]()
-    format_dropdown = ft.Ref[ft.Dropdown]()
     copy_btn = ft.Ref[ft.IconButton]()
     open_btn = ft.Ref[ft.IconButton]()
 
@@ -176,16 +176,20 @@ def build_content_reader(
             show_snack(page, snack)
             page.update()
 
-    def _on_format_change(e):
+    def _apply_format(new_fmt: str):
         # The reader drives the SAME global setting as the extract card
-        # and the preview sheet: one switch, persisted, reflected
-        # everywhere - it used to keep a private copy that never saved.
-
+        # and the preview sheet: one switch, persisted, reflected everywhere.
         async def _apply():
-            await set_extract_format(page, e.control.value)
+            await set_extract_format(page, new_fmt)
+            format_bar_container.content = build_format_chip_bar(new_fmt, _apply_format)
             await _fetch(_current_url, same_page=True)
 
         page.run_task(_apply)
+
+    format_bar_container = ft.Container(
+        content=build_format_chip_bar(state.extract_format, _apply_format),
+        padding=ft.Padding(tokens.SPACE_MD, tokens.SPACE_XS, tokens.SPACE_MD, tokens.SPACE_XS),
+    )
 
     def _copy_feedback(_=None):
         snack = ft.SnackBar(ft.Text("URL copied"))
@@ -238,23 +242,6 @@ def build_content_reader(
             spacing=2,
         ),
         actions=[
-            ft.Dropdown(
-                ref=format_dropdown,
-                value=state.extract_format,
-                options=[
-                    ft.dropdown.Option("text_markdown", "Markdown"),
-                    ft.dropdown.Option("text_plain", "Plain Text"),
-                    ft.dropdown.Option("text_rich", "Rich Text"),
-                    ft.dropdown.Option("text", "Raw HTML"),
-                    ft.dropdown.Option("content", "Raw Bytes"),
-                ],
-                on_select=_on_format_change,
-                dense=True,
-                text_size=tokens.FONT_XS,
-                content_padding=ft.Padding(8, 2, 8, 2),
-                width=130,
-                height=36,
-            ),
             ft.IconButton(
                 icon=ft.Icons.SAVE_ALT_ROUNDED,
                 icon_size=tokens.ICON_SM,
@@ -383,13 +370,13 @@ def build_content_reader(
         padding=ft.Padding(
             tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, tokens.SPACE_LG
         ),
-        expand=True,
     )
 
     body = ft.Column(
         [loading_indicator, error_box, markdown_view, build_banner_ad(page)],
         spacing=0,
         expand=True,
+        scroll=ft.ScrollMode.AUTO,
     )
 
     # Pre-loaded content (extract card / preview sheet path) never goes
@@ -407,7 +394,7 @@ def build_content_reader(
         controls=[
             ft.Container(
                 content=ft.Column(
-                    [appbar, summary_card, body],
+                    [appbar, format_bar_container, summary_card, body],
                     spacing=0,
                     expand=True,
                 ),

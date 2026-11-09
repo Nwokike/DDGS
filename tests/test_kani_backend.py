@@ -225,7 +225,10 @@ def test_function_round_cap_yields_a_graceful_final_answer(monkeypatch):
         ],
     )
     rec = _Recorder()
-    out = asyncio.run(_turn(engine, rec))
+    # Pin the cap this test exercises: AGENT_MAX_ITERS is now 30 (raised so
+    # deep research is not cut off), and the scripted engine only has six
+    # rounds, so the cap must come from the parameter, not the global.
+    out = asyncio.run(_turn(engine, rec, max_iters=6))
 
     # Plan B3: five tool rounds, then kani strips the tools and the model
     # answers from what it has - the old empty bubble (settle-0) is gone.
@@ -253,7 +256,7 @@ def test_tools_are_capped_paragraph_aware_by_kani():
     fn = kani_backend.build_functions([spec])[0]
     from core.constants import TOOL_OUTPUT_CAP
 
-    assert fn.auto_truncate == TOOL_OUTPUT_CAP, 'kani truncates at the cap'
+    assert fn.auto_truncate == TOOL_OUTPUT_CAP, "kani truncates at the cap"
 
 
 def test_cancel_at_the_boundary_makes_no_request(monkeypatch):

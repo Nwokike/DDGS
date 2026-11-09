@@ -25,6 +25,28 @@ try:
     from ddgs.exceptions import DDGSException, RatelimitException
 
     _DDGS_AVAILABLE = True
+    try:
+        # The `wt-wt` region (owner's locale) makes the Wikipedia engine
+        # request `wt.wikipedia.org`, which does not resolve - every text
+        # search surfaced a DNS ConnectError before other engines answered.
+        # Rewrite the language half of the region for that engine only.
+        from ddgs.engines.wikipedia import Wikipedia
+
+        _orig_wiki_build_payload = Wikipedia.build_payload
+
+        def _safe_wiki_build_payload(self, query, *args, **kwargs):
+            region = kwargs.get("region") or (args[0] if args else "us-en")
+            if isinstance(region, str) and region.lower().endswith("-wt"):
+                region = region[:-3] + "-en"
+                if args:
+                    args = (region, *args[1:])
+                else:
+                    kwargs["region"] = region
+            return _orig_wiki_build_payload(self, query, *args, **kwargs)
+
+        Wikipedia.build_payload = _safe_wiki_build_payload
+    except Exception:
+        pass
 except ImportError as e:
     DDGS = None
     _DDGSClass = None
@@ -332,11 +354,16 @@ class SearchService:
                 call_elapsed = time.perf_counter() - call_start
                 log_ddgs_call(search_type, query, params, error=e)
                 if search_type not in ("videos", "books"):
-                    raise
-                # videos/books fall through to their engine fallback below;
-                # remember the primary error so we can surface a real
-                # offline/server error if the fallback also fails.
-                primary_err = e
+                    err_str = str(e).lower()
+                    if "no results found" in err_str or "connecterror" in err_str:
+                        raw = []
+                    else:
+                        raise
+                else:
+                    # videos/books fall through to their engine fallback below;
+                    # remember the primary error so we can surface a real
+                    # offline/server error if the fallback also fails.
+                    primary_err = e
 
             parsed = []
             if raw:

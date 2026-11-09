@@ -75,18 +75,27 @@ def test_picker_only_offers_auto_plus_high_and_medium(monkeypatch):
     shown = [m["id"] for m in ai_service.snapshot_models()]
     assert shown[0] == "auto"
     assert "fast-one" in shown and "steady-two" in shown
-    assert "junk-yard" not in shown, "low tier is never offered"
+    assert "junk-yard" not in shown, (
+        "low tier stays out of the picker while high/medium exist"
+    )
     assert "sick-note" not in shown, "failed status is never offered"
 
     pool = ai_service.candidate_models()
-    assert pool == ["fast-one", "steady-two"], "high first, then medium, by latency"
+    # CollabShell-ported contract: healthy high/medium lead the walk, and
+    # low/minimal ride the tail as the last resort - never ahead of them.
+    assert pool[:2] == ["fast-one", "steady-two"], (
+        "high first, then medium, by latency"
+    )
+    assert pool[-1] == "junk-yard", "low tier is the tail, never the head"
 
 
 def test_candidate_pool_excludes_the_just_failed_model(monkeypatch):
     from services import ai_service
 
     _catalog(monkeypatch)
-    assert ai_service.candidate_models(exclude=("fast-one",)) == ["steady-two"]
+    pool = ai_service.candidate_models(exclude=("fast-one",))
+    assert pool[0] == "steady-two"
+    assert "fast-one" not in pool, "the excluded model never enters the walk"
 
 
 def test_model_picker_shows_only_pickable_models(monkeypatch):
@@ -197,9 +206,7 @@ def test_failed_model_falls_back_inside_one_turn(monkeypatch):
         "steady-two": [
             "hello ",
             "there",
-            Completion(
-                ChatMessage(role=ChatRole.ASSISTANT, content="hello there")
-            ),
+            Completion(ChatMessage(role=ChatRole.ASSISTANT, content="hello there")),
         ],
     }
 
@@ -285,9 +292,7 @@ def test_upstream_error_mid_stream_walks(monkeypatch):
     async def answer_stream(*a, **k):
         yield "hello "
         yield "there"
-        yield Completion(
-            ChatMessage(role=ChatRole.ASSISTANT, content="hello there")
-        )
+        yield Completion(ChatMessage(role=ChatRole.ASSISTANT, content="hello there"))
 
     async def fake_build(model, on_thought):
         built.append(model)
@@ -508,21 +513,23 @@ def _reset_circuit_breaker(monkeypatch):
 
 def test_turn_candidates_rank_the_pool_and_keep_auto_last(monkeypatch):
     """`auto` in the picker means "ranked best now", not "send literal
-    auto": the tier-then-latency pool leads and the router's `auto` only
-    rides last - it used to get the first 1-3s of every turn to return
-    an empty 200 (live-probed Nvidia 502 body)."""
+    auto": the tier-then-latency pool leads (with the low/minimal tail the
+    CollabShell port added) and the router's `auto` only rides last - it
+    used to get the first 1-3s of every turn to return an empty 200
+    (live-probed Nvidia 502 body)."""
     from services import ai_service
 
     _catalog(monkeypatch)
-    assert ai_service.turn_candidates("auto") == [
-        "fast-one",
-        "steady-two",
-        "auto",
-    ]
-    assert ai_service.turn_candidates("steady-two") == [
-        "steady-two",
-        "fast-one",
-    ], "an explicit pick goes first verbatim; no auto tail unless asked"
+    ordered = ai_service.turn_candidates("auto")
+    assert ordered[:2] == ["fast-one", "steady-two"]
+    assert ordered[-1] == "auto", "auto stays the final resort"
+    assert "junk-yard" in ordered, "low tier is the tail before auto"
+    assert ordered.index("junk-yard") < ordered.index("auto")
+
+    picked = ai_service.turn_candidates("steady-two")
+    assert picked[0] == "steady-two", "an explicit pick goes first verbatim"
+    assert picked[-1] != "auto", "no auto tail unless asked"
+    assert picked[1] == "fast-one"
 
 
 def test_circuit_breaker_skips_a_recently_failed_model(monkeypatch):
@@ -536,8 +543,10 @@ def test_circuit_breaker_skips_a_recently_failed_model(monkeypatch):
     _catalog(monkeypatch)
     ai_service.mark_model_failed("fast-one")
     assert ai_service.model_circuit_open("fast-one")
-    assert ai_service.candidate_models() == ["steady-two"], "open circuit skipped"
-    assert "auto" not in ai_service.candidate_models()
+    pool = ai_service.candidate_models()
+    assert pool[0] == "steady-two", "open circuit skipped, medium leads"
+    assert "fast-one" not in pool
+    assert "auto" not in pool
 
     # An explicit pick is never breaker-blocked: the user asked for it.
     assert ai_service.turn_candidates("fast-one")[0] == "fast-one"
@@ -548,7 +557,8 @@ def test_circuit_breaker_skips_a_recently_failed_model(monkeypatch):
     # TTL expiry (simulated) re-opens the circuit.
     ai_service._model_failed_until["fast-one"] = _time.monotonic() - 1
     assert not ai_service.model_circuit_open("fast-one")
-    assert ai_service.candidate_models() == ["fast-one", "steady-two"]
+    pool = ai_service.candidate_models()
+    assert pool[:2] == ["fast-one", "steady-two"], "breaker closed, high leads again"
 
 
 def test_empty_output_walk_opens_the_breaker(monkeypatch):
@@ -605,9 +615,9 @@ def test_empty_output_walk_opens_the_breaker(monkeypatch):
         )
     )
     assert out["text"].strip() == "ok"
-    assert ai_service.model_circuit_open(
-        "fast-one"
-    ), "the empty candidate is breakered for the next turn"
+    assert ai_service.model_circuit_open("fast-one"), (
+        "the empty candidate is breakered for the next turn"
+    )
 
 
 def test_ttfb_deadline_walks_a_hung_first_token(monkeypatch):

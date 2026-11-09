@@ -274,9 +274,20 @@ class ChatSession:
             tooltip="Assistant credits, tap for details",
             on_click=lambda e: show_wallet_dialog(page),
         )
+        def _pick_model(model_id: str) -> None:
+            async def _save() -> None:
+                state.ai_model = model_id
+                ctrl = getattr(page, "_ddgs_controller", None)
+                if ctrl and ctrl.storage:
+                    await ctrl.storage.set("ai_model", model_id)
+                self.refresh_model_chip()
+
+            page.run_task(_save)
+
+        self._pick_model = _pick_model
         # Live pill: its label tracks the router lifecycle (starting /
         # ready / stopped) and the selected model, rebuilt on every render.
-        self.model_chip = build_model_pill(page)
+        self.model_chip = build_model_pill(page, on_pick=self._pick_model)
 
         # Sherlock's header shape (the owner's sample): ONE row with a
         # left group and a right group, SPACE_BETWEEN, and scroll on the
@@ -1577,6 +1588,12 @@ class ChatSession:
         # chip is refreshed on every terminal event, not only on success.
         if event in ("text_final", "error", "stopped"):
             self._refresh_credits_chip()
+            if event == "text_final":
+                self._turns_since_ad = getattr(self, "_turns_since_ad", 0) + 1
+                if self._turns_since_ad >= 3:
+                    self._turns_since_ad = 0
+                    if not state.is_premium and state.ad_service:
+                        self.page.run_task(state.ad_service.show_interstitial)
         # Background threads mutate their own transcript and persist it,
         # but only the visible conversation repaints: re-rendering another
         # chat's tokens would flash its content over the chat being read.
@@ -1613,13 +1630,20 @@ class ChatSession:
                 snapshot.discovering,
                 snapshot.selected,
                 state.ai_router_status,
+                len(snapshot.models),
             )
             if signature == getattr(self, "_pill_signature", None):
                 return
             self._pill_signature = signature
-            new_chip = build_model_pill(self.page)
-            self.model_chip.content = new_chip.content
-            self.model_chip.bgcolor = new_chip.bgcolor
+            new_chip = build_model_pill(self.page, on_pick=getattr(self, "_pick_model", None))
+            if hasattr(self.model_chip, "content") and hasattr(new_chip, "content"):
+                self.model_chip.content = new_chip.content
+            if hasattr(self.model_chip, "items") and hasattr(new_chip, "items"):
+                self.model_chip.items = new_chip.items
+            if hasattr(self.model_chip, "tooltip") and hasattr(new_chip, "tooltip"):
+                self.model_chip.tooltip = new_chip.tooltip
+            if hasattr(self.model_chip, "bgcolor") and hasattr(new_chip, "bgcolor"):
+                self.model_chip.bgcolor = new_chip.bgcolor
             self.model_chip.update()
         except Exception:
             pass
@@ -2498,6 +2522,18 @@ def open_chat_view(page: ft.Page, ctx: dict | None = None) -> None:
         page.update()
     except Exception:
         pass
+
+    async def _ensure_models_loaded():
+        from services import ai_service
+        try:
+            if not ai_service.snapshot_models() or ai_service.catalog_age() > 300:
+                await ai_service.refresh_catalog()
+            session.refresh_model_chip()
+        except Exception:
+            pass
+
+    page.run_task(_ensure_models_loaded)
+
     if ctx and ctx.get("auto"):
         if ctx.get("url"):
             session.ask_about_page(ctx["url"], ctx.get("title") or "Page")

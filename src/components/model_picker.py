@@ -71,16 +71,25 @@ def model_picker_state() -> PickerState:
     discovering = status in ("starting", "ready") and not models and not fetched
 
     current = next(
-        (m for m in models if str(m.get("id") or "") == str(selected or "")),
+        (m for m in models if str(m.get("id") or "").lower() == str(selected or "").lower()),
         None,
     )
+    if current is None and models:
+        serving = ai_service.serving_model()
+        if serving:
+            current = next(
+                (m for m in models if str(m.get("id") or "").lower() == serving.lower()),
+                None,
+            )
+
     # A stopped or unavailable router outranks a stale catalog: the catalog
     # is only a snapshot, so once the router is down the pill must not keep
     # showing a model name forever.
     if status in ("stopped", "unavailable"):
         label = "Offline"
     elif current is not None:
-        label = "Auto" if str(current.get("id")) == "auto" else str(current["id"])
+        label = "Auto" if str(current.get("id")).lower() == "auto" else str(current["id"])
+        discovering = False
     elif status == "starting":
         label = "Starting router..."
     elif fetched:
@@ -146,12 +155,18 @@ def _pill_state(ps: PickerState) -> tuple[str, ft.Control | None]:
 def build_model_pill(
     page: ft.Page,
     *,
+    on_pick=None,
     on_open=None,
-) -> ft.Container:
-    """The chat-header pill. Opens the dialog; label reflects live state."""
+) -> ft.Control:
+    """The chat-header model dropdown. Label reflects live state."""
     ps = model_picker_state()
     label, icon = _pill_state(ps)
-    return ft.Container(
+
+    pill_color = AppColors.PRIMARY if ps.active else ft.Colors.ON_SURFACE_VARIANT
+    if ps.label == "Offline":
+        pill_color = AppColors.ERROR
+
+    content = ft.Container(
         content=ft.Row(
             [
                 *([icon] if icon is not None else []),
@@ -159,18 +174,14 @@ def build_model_pill(
                     label,
                     size=tokens.FONT_XS,
                     weight=ft.FontWeight.W_600,
-                    color=AppColors.PRIMARY
-                    if ps.active
-                    else ft.Colors.ON_SURFACE_VARIANT,
+                    color=pill_color,
                     max_lines=1,
                     overflow=ft.TextOverflow.ELLIPSIS,
                 ),
                 ft.Icon(
                     ft.Icons.EXPAND_MORE_ROUNDED,
                     size=12,
-                    color=AppColors.PRIMARY
-                    if ps.active
-                    else ft.Colors.ON_SURFACE_VARIANT,
+                    color=pill_color,
                 ),
             ],
             spacing=2,
@@ -178,14 +189,169 @@ def build_model_pill(
         ),
         padding=ft.Padding(7, 3, 7, 3),
         border_radius=tokens.RADIUS_PILL,
-        bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY)
-        if ps.active
-        else ft.Colors.with_opacity(0.06, ft.Colors.ON_SURFACE),
+        bgcolor=ft.Colors.with_opacity(0.1 if ps.active else 0.06, pill_color),
         ink=True,
-        tooltip="Assistant model",
-        on_click=(lambda e: on_open())
-        if on_open
-        else (lambda e: show_model_picker(page)),
+        tooltip=label or "Assistant model",
+    )
+
+    if on_open is not None:
+        content.on_click = lambda e: on_open()
+        return content
+
+    def _handle_pick(model_id: str):
+        if on_pick is not None:
+            on_pick(model_id)
+        else:
+            async def _default_save():
+                state.ai_model = model_id
+                ctrl = getattr(page, "_ddgs_controller", None)
+                if ctrl and ctrl.storage:
+                    await ctrl.storage.set("ai_model", model_id)
+                session = getattr(page, "_chat_session", None)
+                if session and hasattr(session, "refresh_model_chip"):
+                    session.refresh_model_chip()
+
+            page.run_task(_default_save)
+
+    items: list[ft.PopupMenuItem] = []
+    for m in ps.models:
+        mid = str(m.get("id") or "")
+        selected = mid.lower() == str(ps.selected or "").lower()
+        hint = m.get("hint") or ""
+        tier = m.get("tier") or ""
+        caption = " · ".join(p for p in (f"{tier} tier" if tier else "", hint) if p)
+        items.append(
+            ft.PopupMenuItem(
+                content=ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.MEMORY_ROUNDED,
+                            size=tokens.ICON_SM,
+                            color=AppColors.PRIMARY if selected else ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.Column(
+                            [
+                                ft.Text(
+                                    mid,
+                                    size=tokens.FONT_SM,
+                                    weight=ft.FontWeight.W_600 if selected else ft.FontWeight.W_400,
+                                    color=ft.Colors.ON_SURFACE,
+                                    no_wrap=True,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                *(
+                                    [
+                                        ft.Text(
+                                            caption,
+                                            size=tokens.FONT_XS,
+                                            color=ft.Colors.ON_SURFACE_VARIANT,
+                                            no_wrap=True,
+                                            overflow=ft.TextOverflow.ELLIPSIS,
+                                        )
+                                    ]
+                                    if caption
+                                    else []
+                                ),
+                            ],
+                            spacing=0,
+                            expand=True,
+                            tight=True,
+                        ),
+                        *(
+                            [
+                                ft.Icon(
+                                    ft.Icons.CHECK_ROUNDED,
+                                    size=tokens.ICON_SM,
+                                    color=AppColors.PRIMARY,
+                                )
+                            ]
+                            if selected
+                            else []
+                        ),
+                    ],
+                    spacing=tokens.SPACE_SM,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                on_click=lambda e, m_id=mid: _handle_pick(m_id),
+            )
+        )
+
+    if not items:
+        async def _start(e=None):
+            from services import ai_service
+            await ai_service.ensure_router(verify=True)
+            await ai_service.refresh_catalog()
+            session = getattr(page, "_chat_session", None)
+            if session and hasattr(session, "refresh_model_chip"):
+                session.refresh_model_chip()
+
+        async def _refresh(e=None):
+            from services import ai_service
+            await ai_service.refresh_catalog()
+            session = getattr(page, "_chat_session", None)
+            if session and hasattr(session, "refresh_model_chip"):
+                session.refresh_model_chip()
+
+        runner = _start if ps.action == "Start router" else _refresh
+        items.append(
+            ft.PopupMenuItem(
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            ps.message or "No models reported by router.",
+                            size=tokens.FONT_SM,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.Text(
+                            ps.action or "Refresh",
+                            size=tokens.FONT_XS,
+                            weight=ft.FontWeight.W_600,
+                            color=AppColors.PRIMARY,
+                        ),
+                    ],
+                    spacing=0,
+                    tight=True,
+                ),
+                on_click=lambda e: page.run_task(runner),
+            )
+        )
+    else:
+        async def _refresh_menu(e=None):
+            from services import ai_service
+            await ai_service.refresh_catalog()
+            session = getattr(page, "_chat_session", None)
+            if session and hasattr(session, "refresh_model_chip"):
+                session.refresh_model_chip()
+
+        items.append(ft.PopupMenuItem(content=ft.Divider(height=1, thickness=1)))
+        items.append(
+            ft.PopupMenuItem(
+                content=ft.Row(
+                    [
+                        ft.Icon(
+                            ft.Icons.REFRESH_ROUNDED,
+                            size=tokens.ICON_SM,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                        ft.Text(
+                            "Refresh models",
+                            size=tokens.FONT_XS,
+                            weight=ft.FontWeight.W_600,
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
+                    ],
+                    spacing=0,
+                    tight=True,
+                ),
+                on_click=lambda e: page.run_task(_refresh_menu),
+            )
+        )
+
+    return ft.PopupMenuButton(
+        content=content,
+        items=items,
+        menu_position=ft.PopupMenuPosition.UNDER,
+        tooltip=label or "Assistant model",
     )
 
 
