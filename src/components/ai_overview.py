@@ -28,15 +28,15 @@ def _domain(url: str) -> str:
 
 
 def _open_in_app(page: ft.Page, url: str) -> None:
-    async def _go() -> None:
+    def _go() -> None:
         if not is_launchable_url(url):
             return
-        from components.results.content_fetcher import _fetch_and_show
-
-        try:
-            await _fetch_and_show(page, url)
-        except Exception:
-            await launch_url(url)
+        # Straight to the full reader - no intermediate half sheet.
+        ctrl = getattr(page, "_ddgs_controller", None)
+        if ctrl:
+            ctrl.open_content_reader(url, None)
+        else:
+            page.run_task(launch_url, url)
 
     page.run_task(_go)
 

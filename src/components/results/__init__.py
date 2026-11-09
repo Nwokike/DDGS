@@ -9,7 +9,6 @@ from components.results.cards_media import (
     _news_card,
     _video_card,
 )
-from components.results.content_fetcher import _fetch_and_show
 from components.results.detail_sheet import _show_result_sheet
 from components.results.downloader import (
     _download_media,
@@ -25,7 +24,6 @@ __all__ = [
     "_books_card",
     "_download_media",
     "_extract_card",
-    "_fetch_and_show",
     "_human_bytes",
     "_image_card",
     "_news_card",

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import flet as ft
 
-from components.results.content_fetcher import _fetch_and_show
 from components.results.downloader import _download_media
 from core import theme, tokens
 from core.state import SearchResult
@@ -143,9 +142,13 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
         if is_media:
             page.run_task(_download_media, page, r, search_type)
         else:
-            # The preview owns its navigation now; no shared history to
-            # clear before it opens.
-            page.run_task(_fetch_and_show, page, r.url, pop_current=True)
+            # Owner ruling: the detail sheet IS the half screen - open/copy/
+            # share + the (cached) AI overview. Opening the site goes
+            # STRAIGHT to the full reader; there is no second half sheet.
+            page.pop_dialog()
+            ctrl = getattr(page, "_ddgs_controller", None)
+            if ctrl:
+                ctrl.open_content_reader(r.url, None)
 
     def _close(_):
         try:

@@ -11,6 +11,7 @@ begins a summary.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable
 
@@ -22,15 +23,31 @@ from core.state import state
 from core.theme import AppColors
 
 # In-memory session cache: until the app is closed, keep AI summaries per URL.
+# Keys are SANITIZED urls, so every surface (detail sheet holding the raw
+# result URL, the reader, chat links) agrees on one key per page.
 _PAGE_SUMMARY_CACHE: dict[str, str] = {}
+# url -> the asyncio.Task streaming that summary right now. A second surface
+# opening the same page attaches to the ONE stream instead of paying for a
+# parallel one - the "Open site re-ran the overview" report.
+_IN_FLIGHT: dict[str, asyncio.Task[None]] = {}
+
+
+def _cache_key(url: str) -> str:
+    from core.utils import sanitize_url
+
+    try:
+        return sanitize_url(url) or url
+    except Exception:
+        return url
 
 
 def get_cached_summary(url: str) -> str | None:
-    return _PAGE_SUMMARY_CACHE.get(url)
+    return _PAGE_SUMMARY_CACHE.get(_cache_key(url))
 
 
 def clear_summary_cache() -> None:
     _PAGE_SUMMARY_CACHE.clear()
+    _IN_FLIGHT.clear()
 
 
 def build_auto_summary(
@@ -190,7 +207,7 @@ def build_auto_summary(
             summary_body.color = ft.Colors.ON_SURFACE
             summary_state["expanded"] = True
             if buffer["text"].strip():
-                p_url = _page_url()
+                p_url = _cache_key(_page_url()) if _page_url() else ""
                 if p_url:
                     _PAGE_SUMMARY_CACHE[p_url] = buffer["text"].strip()
             summary_actions.controls = [
@@ -234,7 +251,7 @@ def build_auto_summary(
         if summary_state["running"] and not force:
             return
 
-        p_url = _page_url()
+        p_url = _cache_key(_page_url()) if _page_url() else ""
         if not force and p_url and p_url in _PAGE_SUMMARY_CACHE:
             cached_val = _PAGE_SUMMARY_CACHE[p_url]
             summary_sub.value = (get_title() or "Page")[:120]
@@ -258,23 +275,11 @@ def build_auto_summary(
                 pass
             return
 
+        # The page text is resolved INSIDE the shared task below: another
+        # surface opening the same page mid-stream joins the ONE stream.
         summary_state["gen"] += 1
         summary_state["running"] = True
         gen = summary_state["gen"]
-        text = ""
-        try:
-            if get_content is not None:
-                text = get_content() or ""
-        except Exception:
-            text = ""
-        if not text.strip() and load_content is not None:
-            try:
-                text = (await load_content()) or ""
-            except Exception:
-                text = ""
-        if not text.strip():
-            summary_state["running"] = False
-            return
         summary_sub.value = (get_title() or "Page")[:120]
         summary_card.visible = True
         summary_state["expanded"] = True
@@ -282,7 +287,46 @@ def build_auto_summary(
         summary_body.color = ft.Colors.ON_SURFACE_VARIANT
         summary_actions.controls = []
         _sync_summary()
-        await _run(text, gen)
+
+        async def _resolve_and_stream() -> None:
+            text = ""
+            try:
+                if get_content is not None:
+                    text = get_content() or ""
+            except Exception:
+                text = ""
+            if not text.strip() and load_content is not None:
+                try:
+                    text = (await load_content()) or ""
+                except Exception:
+                    text = ""
+            if not text.strip():
+                return
+            await _run(text, gen)
+
+        if force or not p_url:
+            await _resolve_and_stream()
+            return
+
+        existing = _IN_FLIGHT.get(p_url)
+        if existing is not None and not existing.done():
+            # Join the stream already running for this exact page: the
+            # second card renders the same tokens; nobody re-pays.
+            try:
+                await existing
+            except Exception:
+                pass
+            return
+
+        task = page.run_task(_resolve_and_stream)
+        _IN_FLIGHT[p_url] = task
+        try:
+            await task
+        except Exception:
+            pass
+        finally:
+            if _IN_FLIGHT.get(p_url) is task:
+                _IN_FLIGHT.pop(p_url, None)
 
     def start(force: bool = False) -> None:
         """Show the card and stream (no-op while a stream runs)."""

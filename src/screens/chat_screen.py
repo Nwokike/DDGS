@@ -2468,19 +2468,20 @@ class ChatSession:
             self.close()
 
     def _open_in_app(self, url: str) -> None:
-        """Open a link the DDGS way: in-app extracted preview (browser inside)."""
+        """Open a link the DDGS way: straight into the full reader."""
 
-        async def _go() -> None:
+        def _go() -> None:
             if not is_launchable_url(url):
                 # Untrusted scheme (scraped/model markdown): no fetch, no
                 # launch. mailto: still reaches launch_url below.
                 return
-            from components.results.content_fetcher import _fetch_and_show
-
-            try:
-                await _fetch_and_show(self.page, url)
-            except Exception:
-                await launch_url(url)
+            # No intermediate half sheet - the reader fetches on open and
+            # shares the per-URL summary cache with every other surface.
+            ctrl = getattr(self.page, "_ddgs_controller", None)
+            if ctrl:
+                ctrl.open_content_reader(url, None)
+            else:
+                self.page.run_task(launch_url, url)
 
         self.page.run_task(_go)
 

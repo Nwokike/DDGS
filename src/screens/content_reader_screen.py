@@ -71,8 +71,10 @@ def build_content_reader(
             _is_loading = False
             _update_ui()
             # A format switch re-renders the same page: the summary stands.
+            # Navigation without force lets the per-URL cache serve a page
+            # the user has already seen - only a manual Refresh re-streams.
             if not _error and _current_content and not same_page:
-                start_summary(force=True)
+                start_summary(force=force)
 
     def _update_ui():
         """Rebuild the content area based on current state."""
