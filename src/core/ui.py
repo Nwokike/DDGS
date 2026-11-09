@@ -159,3 +159,83 @@ def notice(
         tight=True,
         horizontal_alignment=ft.CrossAxisAlignment.START,
     )
+
+
+def pill_dropdown(
+    label: str,
+    icon: ft.IconData,
+    options: list[tuple[str, str]],
+    value: str,
+    on_select,
+    tooltip: str = "",
+) -> ft.Control:
+    """A tiny pill dropdown - the proot-distro/CollabShell model-pill pattern.
+
+    A PopupMenuButton whose face is a small pill (icon + elided label +
+    chevron) opening a menu UNDER itself, NOT a big rectangle dropdown.
+    `options` are (key, display) pairs; the face shows the selected option's
+    display text, and the selected row carries a check. `on_select(key)`
+    receives the chosen key directly.
+    """
+    face_value = next((t for k, t in options if k == value), value or label)
+    return ft.PopupMenuButton(
+        content=ft.Container(
+            content=ft.Row(
+                controls=[
+                    ft.Icon(icon, size=tokens.ICON_SM, color=AppColors.PRIMARY),
+                    ft.Text(
+                        face_value,
+                        size=tokens.FONT_XS,
+                        weight=ft.FontWeight.W_600,
+                        color=AppColors.PRIMARY,
+                        no_wrap=True,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    ),
+                    ft.Icon(
+                        ft.Icons.EXPAND_MORE_ROUNDED,
+                        size=tokens.ICON_MICRO
+                        if hasattr(tokens, "ICON_MICRO")
+                        else tokens.ICON_SM,
+                        color=AppColors.PRIMARY,
+                    ),
+                ],
+                spacing=tokens.SPACE_XXS,
+                tight=True,
+            ),
+            padding=ft.Padding(10, 4, 10, 4),
+            border_radius=tokens.RADIUS_PILL,
+            bgcolor=ft.Colors.with_opacity(0.1, AppColors.PRIMARY),
+        ),
+        items=[
+            ft.PopupMenuItem(
+                content=ft.Row(
+                    controls=[
+                        ft.Text(
+                            display,
+                            size=tokens.FONT_XS,
+                            weight=ft.FontWeight.W_600 if key == value else ft.FontWeight.W_400,
+                            color=ft.Colors.ON_SURFACE,
+                        ),
+                        *(
+                            [
+                                ft.Icon(
+                                    ft.Icons.CHECK_ROUNDED,
+                                    size=tokens.ICON_XS
+                                    if hasattr(tokens, "ICON_XS")
+                                    else tokens.ICON_SM,
+                                    color=AppColors.PRIMARY,
+                                )
+                            ]
+                            if key == value
+                            else []
+                        ),
+                    ],
+                    spacing=tokens.SPACE_XS,
+                ),
+                on_click=lambda _e, k=key: on_select(k),
+            )
+            for key, display in options
+        ],
+        menu_position=ft.PopupMenuPosition.UNDER,
+        tooltip=tooltip or label,
+    )

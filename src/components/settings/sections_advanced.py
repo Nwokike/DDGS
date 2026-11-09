@@ -15,6 +15,8 @@ from core.tokens import BORDER_RADIUS_MD, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
 
 
 def build_backends_section(page: ft.Page, set_fn: Callable) -> ft.Container:
+    from core.ui import pill_dropdown
+
     return AppStyles.section_card(
         "Search Sources",
         ft.Icons.TRAVEL_EXPLORE_ROUNDED,
@@ -26,17 +28,13 @@ def build_backends_section(page: ft.Page, set_fn: Callable) -> ft.Container:
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",
                 ),
-                ft.Dropdown(
-                    value=state.backend or "auto",
-                    options=[
-                        ft.dropdown.Option(b["key"], b["label"])
-                        for b in BACKEND_OPTIONS_TEXT
-                    ],
-                    on_select=lambda e: page.run_task(
-                        set_fn, "backend", e.control.value
-                    ),
-                    filled=True,
-                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
+                pill_dropdown(
+                    "Source",
+                    ft.Icons.TRAVEL_EXPLORE_ROUNDED,
+                    [(b["key"], b["label"]) for b in BACKEND_OPTIONS_TEXT],
+                    state.backend or "auto",
+                    lambda key: page.run_task(set_fn, "backend", key),
+                    tooltip="Preferred search source",
                 ),
             ],
             spacing=10,
@@ -46,6 +44,8 @@ def build_backends_section(page: ft.Page, set_fn: Callable) -> ft.Container:
 
 
 def build_extraction_section(page: ft.Page, set_fn: Callable) -> ft.Container:
+    from core.ui import pill_dropdown
+
     return AppStyles.section_card(
         "Content Extraction",
         ft.Icons.DOWNLOAD_ROUNDED,
@@ -57,17 +57,13 @@ def build_extraction_section(page: ft.Page, set_fn: Callable) -> ft.Container:
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",
                 ),
-                ft.Dropdown(
-                    value=state.extract_format,
-                    options=[
-                        ft.dropdown.Option(f["key"], f["label"])
-                        for f in EXTRACT_FORMATS
-                    ],
-                    on_select=lambda e: page.run_task(
-                        set_fn, "extract_format", e.control.value
-                    ),
-                    filled=True,
-                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
+                pill_dropdown(
+                    "Format",
+                    ft.Icons.CODE_ROUNDED,
+                    [(f["key"], f["label"]) for f in EXTRACT_FORMATS],
+                    state.extract_format,
+                    lambda key: page.run_task(set_fn, "extract_format", key),
+                    tooltip="Format used when saving extracted pages",
                 ),
             ],
             spacing=10,

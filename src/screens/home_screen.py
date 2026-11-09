@@ -310,36 +310,33 @@ def _step_row(number: str, title: str, desc: str) -> ft.Row:
 
 
 def _make_compact_dropdown(label, icon, value, options, on_change, width=140):
-    return ft.Column(
-        [
-            ft.Row(
-                [
-                    ft.Icon(icon, size=14, color=ft.Colors.ON_SURFACE_VARIANT),
-                    ft.Text(
-                        label,
-                        size=tokens.FONT_XS,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
-                        font_family="Outfit",
-                        weight=ft.FontWeight.W_500,
-                    ),
-                ],
-                spacing=4,
-                tight=True,
-            ),
-            ft.Dropdown(
-                value=value,
-                options=options,
-                on_select=on_change,
-                filled=True,
-                text_size=tokens.FONT_XS,
-                content_padding=ft.Padding(left=10, top=4, right=10, bottom=4),
-                border=ft.OutlineInputBorder(border_radius=tokens.RADIUS_MD),
-                width=width,
-                height=36,
-            ),
-        ],
-        spacing=2,
-        tight=True,
+    """One search filter as a tiny pill (proot-distro's model-filter design).
+
+    Same face pattern as the Assistant's model pill: icon + display text +
+    chevron opening a menu UNDER itself - not a big rectangle dropdown.
+    Call sites keep the old signature (label, icon, value, ft.dropdown
+    Options, on_change receiving e.control.value); the pill adapts here.
+    """
+    from core.ui import pill_dropdown
+
+    pairs = []
+    for opt in options:
+        key = str(getattr(opt, "key", "") or "")
+        text = str(getattr(opt, "text", "") or "") or key
+        pairs.append((key, text))
+
+    def _select(key: str) -> None:
+        shim = type("E", (), {})()
+        shim.control = type("C", (), {"value": key})()
+        on_change(shim)
+
+    return pill_dropdown(
+        label,
+        icon,
+        pairs,
+        str(value or ""),
+        _select,
+        tooltip=label,
     )
 
 
@@ -737,14 +734,17 @@ def HomeScreen() -> Control:
                             ],
                             alignment=ft.MainAxisAlignment.CENTER,
                         ),
-                        # Tools panel
+                        # Tools panel - proot's rule: ONE horizontal track
+                        # that scrolls on narrow screens, START-aligned so
+                        # the leading pill never clips. No wrapping.
                         ft.Container(
                             content=ft.Row(
                                 controls=tools_controls,
-                                wrap=True,
+                                wrap=False,
+                                scroll=ft.ScrollMode.AUTO,
                                 spacing=tokens.SPACE_MD,
-                                run_spacing=tokens.SPACE_SM,
-                                alignment=ft.MainAxisAlignment.CENTER,
+                                alignment=ft.MainAxisAlignment.START,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             padding=ft.Padding(8, 10, 8, 10),
                             border_radius=tokens.RADIUS_MD,
