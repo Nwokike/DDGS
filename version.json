@@ -1,0 +1,10 @@
+{
+  "build_number": 11,
+  "version": "2.2.1",
+  "type": "update",
+  "title": "DDGS 2.2.1",
+  "release_notes": "- Zero and few-result searches automatically retry once with every provider\n- Reader header restored with the page's real name, actions and format chips on their own rows\n- Pills everywhere, filter track always visible and centered; safe search defaults to off\n- Load more spinner; one half screen; cached AI summaries; instant model dropdown\n- Source picker reads the live provider registry",
+  "mandatory": false,
+  "github_url": "https://github.com/Nwokike/DDGS/releases/latest",
+  "playstore_url": "https://play.google.com/store/apps/details?id=ng.kiri.ddgs"
+}
