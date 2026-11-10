@@ -246,100 +246,93 @@ def build_content_reader(
 
     # ── Build UI ──
 
-    # Header: the chat-header pattern - ONE row that scrolls horizontally
-    # on narrow screens (Sherlock's rule), so the page's own name shows
-    # fully and every action stays reachable by swipe. No version chip
-    # here (owner ruling): a reader shows the page, not the app version.
-    header = ft.Container(
-        content=ft.Row(
-            controls=[
-                ft.Row(
-                    [
-                        ft.IconButton(
-                            icon=ft.Icons.ARROW_BACK_ROUNDED,
-                            icon_size=tokens.ICON_MD,
-                            on_click=lambda _: _go_back(),
-                            tooltip="Back",
-                        ),
-                        ft.Icon(
-                            ft.Icons.MENU_BOOK_ROUNDED,
-                            size=20,
-                            color=AppColors.PRIMARY,
-                        ),
-                        ft.Column(
-                            [
-                                ft.Text(
-                                    ref=title_text,
-                                    value=_current_title or "",
-                                    size=tokens.FONT_MD,
-                                    weight=ft.FontWeight.W_600,
-                                    font_family="Outfit",
-                                    max_lines=1,
-                                    overflow=ft.TextOverflow.ELLIPSIS,
-                                ),
-                                ft.Text(
-                                    ref=url_text,
-                                    value=_current_url or "",
-                                    size=tokens.FONT_XS,
-                                    color=ft.Colors.ON_SURFACE_VARIANT,
-                                    max_lines=1,
-                                    overflow=ft.TextOverflow.ELLIPSIS,
-                                ),
-                            ],
-                            spacing=2,
-                            tight=True,
-                        ),
-                    ],
-                    spacing=6,
-                    tight=True,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+    # Header, three rows, restored to the AppBar the owner called perfect
+    # (an ft.AppBar carries the system safe area; the custom Container it
+    # briefly replaced did not and slid under the status bar):
+    #   row 1 - the AppBar: back button + the page's own name + URL. Only
+    #           those share it, so nothing truncates and nothing scrolls.
+    #   row 2 - the action buttons, one scrollable track (format-bar style).
+    #   row 3 - the format chip bar (below).
+    # No version chip (owner ruling): a reader shows the page, not the app.
+    appbar = ft.AppBar(
+        leading=ft.IconButton(
+            icon=ft.Icons.ARROW_BACK_ROUNDED,
+            icon_size=tokens.ICON_MD,
+            on_click=lambda _: _go_back(),
+            tooltip="Back",
+        ),
+        title=ft.Column(
+            [
+                ft.Text(
+                    ref=title_text,
+                    value=_current_title or "",
+                    size=tokens.FONT_MD,
+                    weight=ft.FontWeight.W_600,
+                    font_family="Outfit",
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
-                ft.Row(
-                    [
-                        ft.IconButton(
-                            icon=ft.Icons.SAVE_ALT_ROUNDED,
-                            icon_size=tokens.ICON_SM,
-                            tooltip="Save content to file",
-                            on_click=lambda _: page.run_task(_save_content),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.REFRESH_ROUNDED,
-                            icon_size=tokens.ICON_SM,
-                            tooltip="Refresh content",
-                            on_click=lambda _: page.run_task(_fetch, _current_url, True),
-                        ),
-                        ft.IconButton(
-                            ref=copy_btn,
-                            icon=ft.Icons.CONTENT_COPY_ROUNDED,
-                            icon_size=tokens.ICON_SM,
-                            tooltip="Copy URL",
-                            action=ft.CopyToClipboard(url or ""),
-                            on_click=_copy_feedback,
-                        ),
-                        ft.IconButton(
-                            ref=open_btn,
-                            icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
-                            icon_size=tokens.ICON_SM,
-                            tooltip="Open in Browser",
-                            action=ft.OpenUrl(url or ""),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.CLOSE_ROUNDED,
-                            icon_size=tokens.ICON_MD,
-                            tooltip="Exit Reader",
-                            on_click=lambda _: _exit_reader(),
-                        ),
-                    ],
-                    spacing=2,
-                    tight=True,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ft.Text(
+                    ref=url_text,
+                    value=_current_url or "",
+                    size=tokens.FONT_XS,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    max_lines=1,
+                    overflow=ft.TextOverflow.ELLIPSIS,
                 ),
             ],
-            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            spacing=2,
+        ),
+        bgcolor=ft.Colors.TRANSPARENT,
+        elevation=0,
+        toolbar_height=64,
+    )
+
+    # Actions row - same shape as the format chip bar: one horizontal
+    # track that scrolls on narrow screens instead of clipping.
+    actions_row = ft.Container(
+        content=ft.Row(
+            [
+                ft.IconButton(
+                    icon=ft.Icons.SAVE_ALT_ROUNDED,
+                    icon_size=tokens.ICON_SM,
+                    tooltip="Save content to file",
+                    on_click=lambda _: page.run_task(_save_content),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.REFRESH_ROUNDED,
+                    icon_size=tokens.ICON_SM,
+                    tooltip="Refresh content",
+                    on_click=lambda _: page.run_task(_fetch, _current_url, True),
+                ),
+                ft.IconButton(
+                    ref=copy_btn,
+                    icon=ft.Icons.CONTENT_COPY_ROUNDED,
+                    icon_size=tokens.ICON_SM,
+                    tooltip="Copy URL",
+                    action=ft.CopyToClipboard(url or ""),
+                    on_click=_copy_feedback,
+                ),
+                ft.IconButton(
+                    ref=open_btn,
+                    icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                    icon_size=tokens.ICON_SM,
+                    tooltip="Open in Browser",
+                    action=ft.OpenUrl(url or ""),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE_ROUNDED,
+                    icon_size=tokens.ICON_MD,
+                    tooltip="Exit Reader",
+                    on_click=lambda _: _exit_reader(),
+                ),
+            ],
+            spacing=0,
+            wrap=False,
             scroll=ft.ScrollMode.AUTO,
             vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        padding=ft.Padding(6, 6, 8, 6),
+        padding=ft.Padding(4, 0, 4, 0),
     )
 
     # Loading state
@@ -455,7 +448,7 @@ def build_content_reader(
         controls=[
             ft.Container(
                 content=ft.Column(
-                    [header, format_bar_container, summary_card, body],
+                    [appbar, actions_row, format_bar_container, summary_card, body],
                     spacing=0,
                     expand=True,
                 ),
