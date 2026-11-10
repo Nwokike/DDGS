@@ -9,11 +9,11 @@ on:
       build_version:
         description: "Build version"
         required: true
-        default: "2.2.0"
+        default: "2.2.1"
       build_number:
         description: "Build number"
         required: true
-        default: "10"
+        default: "11"
 
 permissions:
   contents: write
@@ -24,8 +24,8 @@ env:
   # uv's interpreter pin must track pyproject's requires-python (>=3.15):
   # a stale 3.12 here overrides setup-python and kills uv sync --frozen.
   UV_PYTHON: "3.14"
-  BUILD_VERSION: ${{ inputs.build_version || '2.2.0' }}
-  BUILD_NUMBER: ${{ inputs.build_number || '10' }}
+  BUILD_VERSION: ${{ inputs.build_version || '2.2.1' }}
+  BUILD_NUMBER: ${{ inputs.build_number || '11' }}
 
 jobs:
   # ─── 0. Quality gate: nothing builds or publishes until this passes ────

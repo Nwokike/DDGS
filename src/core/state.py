@@ -95,7 +95,7 @@ class AppState:
         self.update_data: dict | None = None
 
         # ── Search settings ──
-        self.safe_search: str = "moderate"
+        self.safe_search: str = "off"
         self.region: str = "wt-wt"
         self.max_results: int = 20
         self.timelimit: str = ""

@@ -58,14 +58,14 @@ def test_version_chip_default_state():
     text_controls = [c for c in _texts(chip) if isinstance(c, ft.Text)]
     assert len(text_controls) == 1
     assert text_controls[0].value == f"v{_APP_VERSION}"
-    assert text_controls[0].value == "v2.2.0"
+    assert text_controls[0].value == "v2.2.1"
 
 
 def test_version_chip_update_available_state():
     """When update_available is True, morphs into 'Update: {version} Available!' with dot."""
     state.update_available = True
     state.update_data = {
-        "version": "2.2.0",
+        "version": "2.2.1",
         "build_number": 12,
         "type": "update",
     }
@@ -77,11 +77,11 @@ def test_version_chip_update_available_state():
     assert chip.border is not None
 
     text_values = [c.value for c in _texts(chip) if isinstance(c, ft.Text) and c.value]
-    assert any("Update: 2.2.0 Available!" in v for v in text_values)
+    assert any("Update: 2.2.1 Available!" in v for v in text_values)
 
     # Announcement type shows "News"
     state.update_data = {
-        "version": "2.2.0",
+        "version": "2.2.1",
         "build_number": 12,
         "type": "announcement",
     }
@@ -133,7 +133,7 @@ def test_show_update_dialog_default_args():
     # When update available, should show update dialog
     state.update_available = True
     state.update_data = {
-        "version": "2.2.0",
+        "version": "2.2.1",
         "build_number": 12,
         "type": "update",
         "release_notes": "Great features",

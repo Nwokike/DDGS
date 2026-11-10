@@ -694,7 +694,7 @@ def HomeScreen() -> Control:
                                 wrap=False,
                                 scroll=ft.ScrollMode.AUTO,
                                 spacing=tokens.SPACE_MD,
-                                alignment=ft.MainAxisAlignment.START,
+                                alignment=ft.MainAxisAlignment.CENTER,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             padding=ft.Padding(8, 10, 8, 10),

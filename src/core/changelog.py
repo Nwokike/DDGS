@@ -4,6 +4,29 @@ current app version (components.settings.version._APP_VERSION) in sync
 when bumping (guarded by tests)."""
 
 CHANGELOG: dict[str, str] = {
+    "2.2.1": (
+        "- Searches that come back with zero or few results now "
+        "automatically retry once with every provider: rate-limited and "
+        "challenge-blocked sources get a second chance instead of showing "
+        "you an empty page\n"
+        "- The content reader header is back to its original shape and no "
+        "longer slides under the status bar, with the page's real name and "
+        "URL in it, the action buttons on their own row and the format "
+        "chips on the next\n"
+        "- Search filters are tiny pills, always visible under the search "
+        "bar and centered, in Settings too - no rectangle dropdowns "
+        "anywhere\n"
+        "- Safe search defaults to off\n"
+        "- Load more shows a spinner while the next page loads and keeps "
+        "your results on screen\n"
+        "- Opening a site goes straight to the full reader: the detail "
+        "sheet stays the one half screen, and AI summaries are cached per "
+        "page so reopening never re-runs them\n"
+        "- The model picker is a real dropdown with hints and Refresh, and "
+        "the Assistant resolves its model the moment you open it\n"
+        "- The source picker reads the search library's live registry, so "
+        "it can never offer a provider that no longer exists"
+    ),
     "2.2.0": (
         "- The Assistant keeps working: the 6-call and 10-tool caps that "
         "cut deep research mid-task are gone (30 model rounds, 100 tool "

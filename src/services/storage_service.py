@@ -90,7 +90,7 @@ _WRITE_DEBOUNCE_SEC = 1.0
 DEFAULTS: dict[str, Any] = {
     STORAGE_THEME: "system",
     STORAGE_HISTORY: [],
-    STORAGE_SAFE_SEARCH: "moderate",
+    STORAGE_SAFE_SEARCH: "off",
     STORAGE_REGION: "wt-wt",
     STORAGE_MAX_RESULTS: 20,
     STORAGE_TIMELIMIT: "",
@@ -317,7 +317,7 @@ class StorageService:
         return await self.set(STORAGE_HISTORY, h)
 
     async def get_safe_search(self) -> str:
-        return str(await self.get(STORAGE_SAFE_SEARCH, "moderate"))
+        return str(await self.get(STORAGE_SAFE_SEARCH, "off"))
 
     async def set_safe_search(self, v: str) -> bool:
         return await self.set(STORAGE_SAFE_SEARCH, v)
