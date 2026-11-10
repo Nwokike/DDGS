@@ -108,6 +108,30 @@ def test_few_results_retry_with_every_provider_and_merge_deduped():
     )
 
 
+def test_zero_results_raise_still_retries():
+    """The case the owner actually hit: every engine challenged -> ddgs
+    RAISES 'No results found' -> raw stays empty -> the user sees 0. The
+    retry must fire on that path too, not only when a few results return."""
+    _fresh_state()
+
+    class _RaisesFirst(_FakeDDGS):
+        def text(self, query, **params):
+            self.calls.append(dict(params))
+            if len(self.calls) == 1:
+                raise RuntimeError("No results found.")
+            return [
+                {"title": "Recovered", "href": "https://c.example", "body": "z"}
+            ]
+
+    fake = _RaisesFirst([[]])
+    progress = asyncio.run(_service(fake).search("text", "onyeka nwokike", ui=False))
+
+    assert len(fake.calls) == 2, "a raised 0-result pass must still retry once"
+    assert [r.url for r in progress.results] == ["https://c.example"], (
+        "the retry recovers results the first pass never returned"
+    )
+
+
 def test_explicit_backend_outranks_the_retry():
     _fresh_state()
     from core.state import state
