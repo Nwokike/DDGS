@@ -154,6 +154,10 @@ jobs:
       MAKE_LATEST: ${{ steps.tag_info.outputs.MAKE_LATEST }}
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.15"
       - name: Generate Release Tag & Name
         id: tag_info
         run: |
@@ -172,6 +176,17 @@ jobs:
             echo "IS_PRERELEASE=true" >> $GITHUB_OUTPUT
             echo "MAKE_LATEST=false" >> $GITHUB_OUTPUT
           fi
+      - name: Generate release notes from changelog
+        # Notes come from src/core/changelog.py (the same entry the app's
+        # What's New shows) - never a hand-written body again.
+        if: github.event_name != 'pull_request'
+        run: |
+          uv sync --frozen
+          uv run --frozen python scripts/generate_release_notes.py \
+            --version "${{ env.BUILD_VERSION }}" \
+            --build "${{ env.BUILD_NUMBER }}" \
+            --output release_notes.md
+          cat release_notes.md
       - name: Create GitHub Release Placeholder
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
@@ -180,37 +195,7 @@ jobs:
           name: ${{ steps.tag_info.outputs.RELEASE_NAME }}
           prerelease: ${{ steps.tag_info.outputs.IS_PRERELEASE }}
           make_latest: ${{ steps.tag_info.outputs.MAKE_LATEST }}
-          body: |
-            **Search everything. Download anything.**
-
-            Private search across 10 engines: download videos and images, scrape any page as Markdown, HTML or text, no account, no tracking.
-
-            ## 2.1.0 - the Assistant runs on kani
-
-            - **A real agent engine**: the chat loop is now [kani](https://github.com/zhudotexe/kani)'s `full_round` - our own wrapper builds the engine, the tools and the error mapping. Reasoning capture rides kani's own SSE surface, so the Thinking block shows real reasoning again.
-            - **The router is the only source**: the api.kiri.ng gateway fallback and all hand-rolled SSE parsing are gone. Requests go to the embedded Kiri router, the model string is passed through untouched, and a 429/5xx/connection break keeps its exact honest words.
-            - **Exact token receipts**: every paid reply reports the real token count the stream returned, beside its steps and credits.
-            - **Thinking depth**: Auto / Fast / Deep in Settings, with a warm prompt cache for the system prompt and tools.
-            - **Exports and imports**: any chat writes a `.kani` archive from the chat list, and `.kani`/JSON archives import back as a new conversation.
-
-            ## The rest of the grind
-
-            - **Undo everywhere**: deleting a chat, clearing a chat, deleting a message exchange or clearing search history all offer an Undo.
-            - **Quick actions**: long-press (mobile) or right-click (desktop) any result row for open / copy link / share; the detail sheet's image preview pinch-zooms, and a QR button hands the link to your phone.
-            - **Load more**: results no longer stop at twenty - fetch the next page, deduped and appended.
-            - **Every network path honors your proxy**: downloads, YouTube, updates, license checks and the engine fetch, not just search.
-            - **Crawl schedules you can edit**: a six-preset interval picker in Settings, and finished saves buzz and share on mobile.
-            - **Desktop polish**: Esc closes dialogs, Ctrl+K jumps to search, and the Android splash matches the app's own surfaces.
-            - **Correctness**: notification bars can no longer stay on screen and block every tap, foreign URL schemes never reach a fetch or the OS, punycode hosts read as real names, YouTube's JS parser has backtracking circuit-breakers, and the Android CI job can no longer run out of memory.
-
-            ## The core, still the point
-
-            - YouTube video downloads with quality picker (best/1080p/720p/480p/360p)
-            - Image downloads with save dialog, progress and cancel
-            - Any URL to Markdown / HTML / rich text / plain text / raw source, saved to file
-            - Share, copy or open every result in one tap
-
-            *The Play Store edition blocks YouTube downloads for Play policy: this GitHub build is the full version. Feature comparison in the README.*
+          body_path: release_notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
