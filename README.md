@@ -1,6 +1,6 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="src/assets/icon_white.png">
+    <source media="(prefers-color-scheme: dark)" srcset="src/assets/icon.png">
     <source media="(prefers-color-scheme: light)" srcset="src/assets/icon.png">
     <img src="src/assets/icon.png" alt="DDGS" width="160" />
   </picture>
