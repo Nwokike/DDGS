@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import flet as ft
 
-from components.app_header import _build_version_chip
 from core import theme, tokens
 from core.state import state
 from core.styles import build_banner_ad
@@ -19,16 +18,38 @@ from core.snack import show_snack
 from components.results.content_fetcher import build_format_chip_bar
 
 
+def _page_title(content: str | None, fallback: str) -> str:
+    """The page's own name: <title> from HTML when the format carries it,
+    otherwise the URL. No hardcoded label - a page is named by its page."""
+    import re as _re
+
+    text = str(content or "")
+    match = _re.search(r"<title[^>]*>(.*?)</title>", text, _re.IGNORECASE | _re.DOTALL)
+    if match:
+        title = " ".join(match.group(1).split())
+        if title:
+            return title[:120]
+    return fallback
+
+
 def build_content_reader(
-    page: ft.Page, url: str, content: str | None = None
+    page: ft.Page,
+    url: str,
+    content: str | None = None,
+    title: str | None = None,
 ) -> ft.View:
-    """Build a full-screen content reader View with back stack."""
+    """Build a full-screen content reader View with back stack.
+
+    `title` seeds the header with the result card's name when the caller
+    has one; otherwise the page's own <title> is used, then the URL.
+    """
     # Imperative state (since this runs outside the component tree). The
     # nav is this view's own: no other surface can bleed history into it,
     # and rapid link taps are debounced instead of stacking fetches.
     _nav = FetchNav()
     _current_url = url
     _current_content = content
+    _current_title = title or _page_title(content, url)
     _is_loading = content is None
     _error = None
 
@@ -37,11 +58,13 @@ def build_content_reader(
     loading_col = ft.Ref[ft.Container]()
     error_col = ft.Ref[ft.Container]()
     url_text = ft.Ref[ft.Text]()
+    title_text = ft.Ref[ft.Text]()
     copy_btn = ft.Ref[ft.IconButton]()
     open_btn = ft.Ref[ft.IconButton]()
 
     async def _fetch(target_url: str, force: bool = False, *, same_page: bool = False):
-        nonlocal _current_url, _current_content, _is_loading, _error
+        nonlocal _current_url, _current_content, _current_title, _is_loading, _error
+        _prev_url = _current_url
         _is_loading = True
         _error = None
         _update_ui()
@@ -69,6 +92,10 @@ def build_content_reader(
             _current_content = None
         finally:
             _is_loading = False
+            # Navigating to a NEW page re-derives its name from its own
+            # content; a refresh of the same page keeps the title it has.
+            if target_url != _prev_url:
+                _current_title = _page_title(_current_content, _current_url)
             _update_ui()
             # A format switch re-renders the same page: the summary stands.
             # Navigation without force lets the per-URL cache serve a page
@@ -80,6 +107,8 @@ def build_content_reader(
         """Rebuild the content area based on current state."""
         if url_text.current:
             url_text.current.value = _current_url
+        if title_text.current:
+            title_text.current.value = _current_title or _current_url
         # Client actions must carry the URL that is current right now.
         if copy_btn.current:
             copy_btn.current.action = ft.CopyToClipboard(_current_url or "")
@@ -206,7 +235,7 @@ def build_content_reader(
 
     summary_card, start_summary = build_auto_summary(
         page,
-        get_title=lambda: _current_url or "Page",
+        get_title=lambda: _current_title or _current_url or "Page",
         get_content=lambda: (
             None
             if isinstance(_current_content, bytes)
@@ -217,70 +246,100 @@ def build_content_reader(
 
     # ── Build UI ──
 
-    appbar = ft.AppBar(
-        leading=ft.IconButton(
-            icon=ft.Icons.ARROW_BACK_ROUNDED,
-            icon_size=tokens.ICON_MD,
-            on_click=lambda _: _go_back(),
-            tooltip="Back",
-        ),
-        title=ft.Column(
-            [
-                ft.Text(
-                    "Content Reader",
-                    size=tokens.FONT_MD,
-                    weight=ft.FontWeight.W_600,
-                    font_family="Outfit",
+    # Header: the chat-header pattern - ONE row that scrolls horizontally
+    # on narrow screens (Sherlock's rule), so the page's own name shows
+    # fully and every action stays reachable by swipe. No version chip
+    # here (owner ruling): a reader shows the page, not the app version.
+    header = ft.Container(
+        content=ft.Row(
+            controls=[
+                ft.Row(
+                    [
+                        ft.IconButton(
+                            icon=ft.Icons.ARROW_BACK_ROUNDED,
+                            icon_size=tokens.ICON_MD,
+                            on_click=lambda _: _go_back(),
+                            tooltip="Back",
+                        ),
+                        ft.Icon(
+                            ft.Icons.MENU_BOOK_ROUNDED,
+                            size=20,
+                            color=AppColors.PRIMARY,
+                        ),
+                        ft.Column(
+                            [
+                                ft.Text(
+                                    ref=title_text,
+                                    value=_current_title or "",
+                                    size=tokens.FONT_MD,
+                                    weight=ft.FontWeight.W_600,
+                                    font_family="Outfit",
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                                ft.Text(
+                                    ref=url_text,
+                                    value=_current_url or "",
+                                    size=tokens.FONT_XS,
+                                    color=ft.Colors.ON_SURFACE_VARIANT,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS,
+                                ),
+                            ],
+                            spacing=2,
+                            tight=True,
+                        ),
+                    ],
+                    spacing=6,
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
-                ft.Text(
-                    ref=url_text,
-                    value=_current_url or "",
-                    size=tokens.FONT_XS,
-                    color=ft.Colors.ON_SURFACE_VARIANT,
-                    max_lines=1,
-                    overflow=ft.TextOverflow.ELLIPSIS,
+                ft.Row(
+                    [
+                        ft.IconButton(
+                            icon=ft.Icons.SAVE_ALT_ROUNDED,
+                            icon_size=tokens.ICON_SM,
+                            tooltip="Save content to file",
+                            on_click=lambda _: page.run_task(_save_content),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.REFRESH_ROUNDED,
+                            icon_size=tokens.ICON_SM,
+                            tooltip="Refresh content",
+                            on_click=lambda _: page.run_task(_fetch, _current_url, True),
+                        ),
+                        ft.IconButton(
+                            ref=copy_btn,
+                            icon=ft.Icons.CONTENT_COPY_ROUNDED,
+                            icon_size=tokens.ICON_SM,
+                            tooltip="Copy URL",
+                            action=ft.CopyToClipboard(url or ""),
+                            on_click=_copy_feedback,
+                        ),
+                        ft.IconButton(
+                            ref=open_btn,
+                            icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
+                            icon_size=tokens.ICON_SM,
+                            tooltip="Open in Browser",
+                            action=ft.OpenUrl(url or ""),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CLOSE_ROUNDED,
+                            icon_size=tokens.ICON_MD,
+                            tooltip="Exit Reader",
+                            on_click=lambda _: _exit_reader(),
+                        ),
+                    ],
+                    spacing=2,
+                    tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
-            spacing=2,
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            scroll=ft.ScrollMode.AUTO,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
         ),
-        actions=[
-            ft.IconButton(
-                icon=ft.Icons.SAVE_ALT_ROUNDED,
-                icon_size=tokens.ICON_SM,
-                tooltip="Save content to file",
-                on_click=lambda _: page.run_task(_save_content),
-            ),
-            ft.IconButton(
-                icon=ft.Icons.REFRESH_ROUNDED,
-                icon_size=tokens.ICON_SM,
-                tooltip="Refresh content",
-                on_click=lambda _: page.run_task(_fetch, _current_url, True),
-            ),
-            ft.IconButton(
-                ref=copy_btn,
-                icon=ft.Icons.CONTENT_COPY_ROUNDED,
-                icon_size=tokens.ICON_SM,
-                tooltip="Copy URL",
-                action=ft.CopyToClipboard(url or ""),
-                on_click=_copy_feedback,
-            ),
-            ft.IconButton(
-                ref=open_btn,
-                icon=ft.Icons.OPEN_IN_BROWSER_ROUNDED,
-                icon_size=tokens.ICON_SM,
-                tooltip="Open in Browser",
-                action=ft.OpenUrl(url or ""),
-            ),
-            _build_version_chip(page),
-            ft.IconButton(
-                icon=ft.Icons.CLOSE_ROUNDED,
-                icon_size=tokens.ICON_MD,
-                tooltip="Exit Reader",
-                on_click=lambda _: _exit_reader(),
-            ),
-        ],
-        bgcolor=ft.Colors.TRANSPARENT,
-        elevation=0,
+        padding=ft.Padding(6, 6, 8, 6),
     )
 
     # Loading state
@@ -396,7 +455,7 @@ def build_content_reader(
         controls=[
             ft.Container(
                 content=ft.Column(
-                    [appbar, format_bar_container, summary_card, body],
+                    [header, format_bar_container, summary_card, body],
                     spacing=0,
                     expand=True,
                 ),

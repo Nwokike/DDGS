@@ -7,7 +7,8 @@ import flet as ft
 from core.constants import REGIONS, SAFE_SEARCH_OPTIONS, TIMELIMIT_OPTIONS
 from core.state import state
 from core.theme import AppColors, AppStyles
-from core.tokens import BORDER_RADIUS_MD, FONT_MD, FONT_SM, ICON_MD, SPACING_SM
+from core.tokens import BORDER_RADIUS_MD, FONT_MD, FONT_SM, FONT_XS, ICON_MD, SPACING_SM
+from core.ui import pill_dropdown
 
 
 def build_theme_section(
@@ -106,14 +107,13 @@ def build_search_rules_section(
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",
                 ),
-                ft.Dropdown(
-                    value=state.region,
-                    options=[ft.dropdown.Option(r["key"], r["label"]) for r in REGIONS],
-                    on_select=lambda e: page.run_task(
-                        set_fn, "region", e.control.value
-                    ),
-                    filled=True,
-                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
+                pill_dropdown(
+                    "Region",
+                    ft.Icons.PUBLIC_ROUNDED,
+                    [(r["key"], r["label"]) for r in REGIONS],
+                    state.region,
+                    lambda key: page.run_task(set_fn, "region", key),
+                    tooltip="Search region",
                 ),
                 ft.Divider(
                     height=1,
@@ -161,17 +161,78 @@ def build_search_rules_section(
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",
                 ),
-                ft.Dropdown(
-                    value=state.timelimit or "",
-                    options=[
-                        ft.dropdown.Option(o["key"], o["label"])
-                        for o in TIMELIMIT_OPTIONS
+                pill_dropdown(
+                    "Time",
+                    ft.Icons.SCHEDULE_ROUNDED,
+                    [(o["key"], o["label"]) for o in TIMELIMIT_OPTIONS],
+                    state.timelimit or "",
+                    lambda key: page.run_task(set_fn, "timelimit", key),
+                    tooltip="Default time limit",
+                ),
+                ft.Divider(
+                    height=1,
+                    color=ft.Colors.with_opacity(0.04, ft.Colors.ON_SURFACE),
+                ),
+                ft.Text(
+                    "Retry Search When Few Results",
+                    size=FONT_MD,
+                    weight=ft.FontWeight.W_600,
+                    font_family="Outfit",
+                ),
+                ft.Text(
+                    "When a search returns fewer results than the minimum "
+                    "below, the same search runs once more with every "
+                    "provider, giving rate-limited sources a second chance.",
+                    size=FONT_XS,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    font_family="Outfit",
+                ),
+                ft.Row(
+                    [
+                        ft.Switch(
+                            value=state.search_retry_enabled,
+                            active_color=AppColors.PRIMARY,
+                            on_change=lambda e: page.run_task(
+                                set_fn,
+                                "search_retry_enabled",
+                                e.control.value,
+                            ),
+                        ),
+                        ft.Text(
+                            "Enabled",
+                            size=FONT_SM,
+                            font_family="Outfit",
+                            color=ft.Colors.ON_SURFACE_VARIANT,
+                        ),
                     ],
-                    on_select=lambda e: page.run_task(
-                        set_fn, "timelimit", e.control.value
-                    ),
-                    filled=True,
-                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
+                    spacing=SPACING_SM,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Row(
+                    [
+                        ft.Slider(
+                            value=float(state.search_retry_min),
+                            min=1,
+                            max=10,
+                            divisions=9,
+                            label="{value}",
+                            expand=True,
+                            active_color=AppColors.PRIMARY,
+                            on_change_end=lambda e: page.run_task(
+                                set_fn, "search_retry_min", int(e.control.value)
+                            ),
+                        ),
+                        ft.Text(
+                            f"{state.search_retry_min}",
+                            size=FONT_SM,
+                            weight=ft.FontWeight.BOLD,
+                            color=AppColors.PRIMARY,
+                            font_family="Outfit",
+                            width=24,
+                        ),
+                    ],
+                    spacing=SPACING_SM,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
             ],
             spacing=12,

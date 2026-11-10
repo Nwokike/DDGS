@@ -20,13 +20,38 @@ from components.results.empty_states import (
 from contexts.app_state_ctx import AppStateCtx
 from contexts.controller_ctx import ControllerMethodsCtx
 from core import theme, tokens
+from core.theme import AppColors
 from core.styles import build_banner_ad
 
 
 @ft.component
-def _load_more_button(page, controller) -> ft.TextButton:
-    """Plan D2: one more page of results, deduped and appended."""
+def _load_more_button(page, controller) -> ft.Control:
+    """Plan D2: one more page of results, deduped and appended.
 
+    Shows a spinner while the append is in flight - the search itself runs
+    with ui=False so nothing else on the screen moves, and the results stay
+    visible (state.load_more_running, not search_progress.is_running).
+    """
+    st = ft.use_context(AppStateCtx)
+    if st.load_more_running:
+        return ft.Row(
+            [
+                ft.ProgressRing(
+                    width=16,
+                    height=16,
+                    stroke_width=2,
+                    color=AppColors.PRIMARY,
+                ),
+                ft.Text(
+                    "Loading more…",
+                    size=tokens.FONT_XS,
+                    color=ft.Colors.ON_SURFACE_VARIANT,
+                    font_family="Outfit",
+                ),
+            ],
+            spacing=6,
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
     return ft.TextButton(
         "Load more",
         icon=ft.Icons.EXPAND_MORE_ROUNDED,

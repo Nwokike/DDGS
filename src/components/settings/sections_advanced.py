@@ -12,10 +12,10 @@ from core.constants import (
 from core.state import state
 from core.theme import AppColors, AppStyles
 from core.tokens import BORDER_RADIUS_MD, FONT_MD, FONT_SM, FONT_XS, SPACING_SM
+from core.ui import pill_dropdown
 
 
 def build_backends_section(page: ft.Page, set_fn: Callable) -> ft.Container:
-    from core.ui import pill_dropdown
 
     return AppStyles.section_card(
         "Search Sources",
@@ -44,7 +44,6 @@ def build_backends_section(page: ft.Page, set_fn: Callable) -> ft.Container:
 
 
 def build_extraction_section(page: ft.Page, set_fn: Callable) -> ft.Container:
-    from core.ui import pill_dropdown
 
     return AppStyles.section_card(
         "Content Extraction",
@@ -86,17 +85,13 @@ def build_downloads_section(page: ft.Page, set_fn: Callable) -> ft.Container:
                     weight=ft.FontWeight.W_600,
                     font_family="Outfit",
                 ),
-                ft.Dropdown(
-                    value=state.video_quality,
-                    options=[
-                        ft.dropdown.Option(q["key"], q["label"])
-                        for q in VIDEO_QUALITY_OPTIONS
-                    ],
-                    on_select=lambda e: page.run_task(
-                        set_fn, "video_quality", e.control.value
-                    ),
-                    filled=True,
-                    border=ft.OutlineInputBorder(border_radius=BORDER_RADIUS_MD),
+                pill_dropdown(
+                    "Quality",
+                    ft.Icons.HIGH_QUALITY_ROUNDED,
+                    [(q["key"], q["label"]) for q in VIDEO_QUALITY_OPTIONS],
+                    state.video_quality,
+                    lambda key: page.run_task(set_fn, "video_quality", key),
+                    tooltip="Preferred video quality",
                 ),
                 ft.Text(
                     "Preferred quality when downloading videos. "

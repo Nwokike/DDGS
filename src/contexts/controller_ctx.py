@@ -45,8 +45,8 @@ async def _noop_async_str(_s: str = "") -> None:
     """No-op async with optional string."""
 
 
-def _noop_reader(_url: str, _content: str | None = None) -> None:
-    """No-op for open_content_reader(url, content)."""
+def _noop_reader(_url: str, _content: str | None = None, _title: str | None = None) -> None:
+    """No-op for open_content_reader(url, content, title)."""
 
 
 def _noop_save(_key: str, _value=None) -> None:
@@ -73,7 +73,7 @@ class ControllerMethods:
     cancel_search: Callable[[], None] = _noop_sync
     go_home: Callable[[], Awaitable[None]] = _noop_async
     navigate_tab: Callable[[int], None] = _noop_tab
-    open_content_reader: Callable[[str, str | None], None] = _noop_reader
+    open_content_reader: Callable[..., None] = _noop_reader
     save: Callable[[str, object], None] = _noop_save  # sync: save(key, value)
     save_async: Callable[[str, object], Awaitable[None]] = (
         _noop_setting  # async version

@@ -56,6 +56,16 @@ except ImportError as e:
     logger.error(f"[{LOG_TAG}] This is critical - primp may have crashed on import")
 
 
+def _registry_providers(search_type: str) -> list[str]:
+    """Every provider ddgs ships for one category (live registry read)."""
+    try:
+        from ddgs.engines import ENGINES
+
+        return sorted(ENGINES.get(search_type, {}))
+    except Exception:
+        return []
+
+
 def _primp_client_kwargs(timeout: float) -> dict[str, Any]:
     """Shared primp 2.0 settings: current browser profile (proxy/SSL prefs
     come from services.net_clients so every primp path agrees).
@@ -383,6 +393,54 @@ class SearchService:
                             logger.debug(f"Progress callback error: {ex}")
                     if self._is_cancelled:
                         break
+
+            # Provider retry: providers answer per request - challenged pages
+            # and 429s make a whole pass come back with a single result when
+            # only one engine parsed. Re-issue the SAME ddgs call once with
+            # every provider in the registry (no search logic of our own, a
+            # second chance for the challenged engines), then merge deduped.
+            # Skipped when the user picked a specific source: their explicit
+            # choice outranks the fallback. Exposed as a setting.
+            retry_min = getattr(state, "search_retry_min", 4) or 4
+            if (
+                raw
+                and not self._is_cancelled
+                and getattr(state, "search_retry_enabled", True)
+                and len(parsed) < retry_min
+                and not params.get("backend")
+            ):
+                providers = _registry_providers(search_type)
+                if len(providers) > 1:
+                    retry_params = dict(params)
+                    retry_params["backend"] = ",".join(providers)
+                    logger.info(
+                        f"[{LOG_TAG}] only {len(parsed)} results; "
+                        "retrying once with every provider"
+                    )
+                    try:
+                        raw2 = await asyncio.to_thread(
+                            lambda: list(method(**retry_params))
+                        )
+                    except Exception as e:
+                        log_ddgs_call(search_type, query, retry_params, error=e)
+                        raw2 = []
+                    if raw2:
+                        seen_urls = {r.url for r in parsed if r.url}
+                        added = 0
+                        for i, r in enumerate(raw2):
+                            item = self._parse_one(r, search_type, i)
+                            if item.url and item.url not in seen_urls:
+                                parsed.append(item)
+                                seen_urls.add(item.url)
+                                added += 1
+                        if added:
+                            log_ddgs_call(
+                                search_type, query, retry_params, result_count=len(raw2)
+                            )
+                            logger.info(
+                                f"[{LOG_TAG}] provider retry added {added} "
+                                f"results (total {len(parsed)})"
+                            )
             elif search_type == "videos":
                 logger.info(
                     f"[{LOG_TAG}] DDGS.videos returned 0 results/rate-limited; attempting YouTube InnerTube fallback"

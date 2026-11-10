@@ -100,6 +100,12 @@ class AppState:
         self.max_results: int = 20
         self.timelimit: str = ""
         self.backend: str = "auto"
+        # Few-result provider retry: when a search comes back with fewer than
+        # search_retry_min results, the SAME ddgs call is re-issued once with
+        # every provider in the registry (challenged engines get a second
+        # chance). Both are exposed settings, not hidden behavior.
+        self.search_retry_enabled: bool = True
+        self.search_retry_min: int = 4
         # Assistant Thinking depth: auto (omit) | low (fast) | high (deep).
         # "auto" is deliberately NOT sent: the router/model decides.
         self.reasoning_effort: str = "auto"
@@ -136,6 +142,10 @@ class AppState:
         self.search_progress: SearchProgress | None = None
         self.last_results: dict[str, list[SearchResult]] = {}
         self.extract_result: dict | None = None
+        # Load-more in flight: the button shows a spinner while the next page
+        # is appended. Separate from search_progress.is_running because that
+        # flag hides the results list; a load-more must keep them on screen.
+        self.load_more_running: bool = False
 
         # ── History ──
         self.search_history: list[dict] = []

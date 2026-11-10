@@ -351,7 +351,6 @@ def HomeScreen() -> Control:
 
     active_tab, set_active_tab = ft.use_state(state.default_tab)
     search_query, set_search_query = ft.use_state(state.current_query)
-    tools_expanded, set_tools_expanded = ft.use_state(False)
 
     from flet import context as flet_context
 
@@ -681,62 +680,14 @@ def HomeScreen() -> Control:
                     tokens.SPACE_LG, tokens.SPACE_SM, tokens.SPACE_LG, 0
                 ),
             ),
-            # Tools toggle + search button
+            # Tools + search button. The filter track is ALWAYS visible -
+            # owner ruling: every ability is exposed, nothing hides behind
+            # an expander. proot's rule: ONE horizontal track that scrolls
+            # on narrow screens, START-aligned so the leading pill never
+            # clips. No wrapping.
             ft.Container(
                 content=ft.Column(
                     [
-                        ft.Row(
-                            [
-                                ft.Container(
-                                    content=ft.Row(
-                                        [
-                                            ft.Icon(
-                                                ft.Icons.TUNE_ROUNDED,
-                                                size=16,
-                                                color=AppColors.PRIMARY,
-                                            ),
-                                            ft.Text(
-                                                "Search Tools",
-                                                size=tokens.FONT_XS,
-                                                weight=ft.FontWeight.W_600,
-                                                color=AppColors.PRIMARY,
-                                                font_family="Outfit",
-                                            ),
-                                            ft.Icon(
-                                                ft.Icons.EXPAND_MORE_ROUNDED
-                                                if not tools_expanded
-                                                else ft.Icons.EXPAND_LESS_ROUNDED,
-                                                size=16,
-                                                color=AppColors.PRIMARY,
-                                            ),
-                                        ],
-                                        spacing=4,
-                                        alignment=ft.MainAxisAlignment.CENTER,
-                                        tight=True,
-                                    ),
-                                    on_click=lambda e: set_tools_expanded(
-                                        not tools_expanded
-                                    ),
-                                    padding=ft.Padding(12, 6, 12, 6),
-                                    border_radius=tokens.RADIUS_PILL,
-                                    border=ft.Border.all(
-                                        1,
-                                        ft.Colors.with_opacity(0.2, AppColors.PRIMARY),
-                                    ),
-                                    bgcolor=ft.Colors.with_opacity(
-                                        0.06, AppColors.PRIMARY
-                                    ),
-                                    animate=ft.Animation(
-                                        tokens.ANIMATION_FAST,
-                                        ft.AnimationCurve.EASE_OUT,
-                                    ),
-                                ),
-                            ],
-                            alignment=ft.MainAxisAlignment.CENTER,
-                        ),
-                        # Tools panel - proot's rule: ONE horizontal track
-                        # that scrolls on narrow screens, START-aligned so
-                        # the leading pill never clips. No wrapping.
                         ft.Container(
                             content=ft.Row(
                                 controls=tools_controls,
@@ -751,10 +702,6 @@ def HomeScreen() -> Control:
                             bgcolor=ft.Colors.with_opacity(0.04, AppColors.PRIMARY),
                             border=ft.Border.all(
                                 1, ft.Colors.with_opacity(0.08, AppColors.PRIMARY)
-                            ),
-                            visible=tools_expanded,
-                            animate=ft.Animation(
-                                tokens.ANIMATION_FAST, ft.AnimationCurve.EASE_OUT
                             ),
                         ),
                         # Search button

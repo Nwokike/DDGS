@@ -148,7 +148,7 @@ def _show_result_sheet(page: ft.Page, r: SearchResult, search_type: str):
             page.pop_dialog()
             ctrl = getattr(page, "_ddgs_controller", None)
             if ctrl:
-                ctrl.open_content_reader(r.url, None)
+                ctrl.open_content_reader(r.url, None, r.title)
 
     def _close(_):
         try:

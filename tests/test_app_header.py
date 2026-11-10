@@ -206,5 +206,8 @@ def test_every_screen_mounts_version_chip():
     results = (root / "results_screen.py").read_text(encoding="utf-8")
     assert "_build_version_chip" in results
 
+    # The reader deliberately carries NO version chip (owner ruling): its
+    # header names the PAGE (its own <title> or the URL), not the app.
     reader = (root / "content_reader_screen.py").read_text(encoding="utf-8")
-    assert "_build_version_chip" in reader
+    assert "_build_version_chip" not in reader
+    assert "Content Reader" not in reader, "the header names the page, not a hardcoded label"

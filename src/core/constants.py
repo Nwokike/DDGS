@@ -11,6 +11,8 @@ STORAGE_ONBOARDING_DONE = "onboarding_done"
 STORAGE_DEFAULT_TAB = "default_tab"
 STORAGE_TIMELIMIT = "timelimit"
 STORAGE_BACKEND = "backend"
+STORAGE_SEARCH_RETRY_ENABLED = "search_retry_enabled"
+STORAGE_SEARCH_RETRY_MIN = "search_retry_min"
 STORAGE_PROXY = "proxy"
 STORAGE_VERIFY_SSL = "verify_ssl"
 STORAGE_THREADS = "threads"
@@ -62,41 +64,56 @@ KIRI_LICENSE_TIMEOUT = 15.0
 # what must never be hardcoded is the engine itself.
 ENGINE_URL = "https://router.kiri.ng/run.py"
 
-BACKEND_OPTIONS_TEXT = [
-    {"key": "auto", "label": "Auto (recommended)"},
-    {"key": "duckduckgo", "label": "DuckDuckGo"},
-    # google was removed from ddgs 9.16.1's registry: Google serves the
-    # scraper 403s, so upstream dropped the engine entirely.
-    {"key": "brave", "label": "Brave"},
-    {"key": "yahoo", "label": "Yahoo"},
-    {"key": "startpage", "label": "Startpage"},
-    {"key": "mojeek", "label": "Mojeek"},
-    {"key": "wikipedia", "label": "Wikipedia"},
-    {"key": "grokipedia", "label": "Grokipedia"},
-]
+# Provider pickers are DERIVED from ddgs's own ENGINES registry - never
+# hand-mirrored. A mirror drifts (google served the scraper 403s and was
+# dropped from ddgs 9.16.1, leaving a stale option in the old hardcoded
+# list); deriving means whatever ddgs ships is exactly what the picker
+# offers, now and after every future bump. "auto" is ddgs's native
+# backend default, prepended as-is.
+_BACKEND_LABELS = {
+    "duckduckgo": "DuckDuckGo",
+    "brave": "Brave",
+    "yahoo": "Yahoo",
+    "startpage": "Startpage",
+    "mojeek": "Mojeek",
+    "wikipedia": "Wikipedia",
+    "grokipedia": "Grokipedia",
+    "google": "Google",
+    "bing": "Bing",
+    "annasarchive": "Anna's Archive",
+}
 
-BACKEND_OPTIONS_IMAGES = [
-    {"key": "auto", "label": "Auto (recommended)"},
-    {"key": "duckduckgo", "label": "DuckDuckGo"},
-    {"key": "bing", "label": "Bing"},
-]
 
-BACKEND_OPTIONS_NEWS = [
-    {"key": "auto", "label": "Auto (recommended)"},
-    {"key": "duckduckgo", "label": "DuckDuckGo"},
-    {"key": "bing", "label": "Bing"},
-    {"key": "yahoo", "label": "Yahoo"},
-]
+def backend_options(category: str) -> list[dict]:
+    """Providers for one category, read from ddgs's registry at runtime."""
+    try:
+        from ddgs.engines import ENGINES
 
-BACKEND_OPTIONS_VIDEOS = [
-    {"key": "auto", "label": "Auto (recommended)"},
-    {"key": "duckduckgo", "label": "DuckDuckGo"},
-]
+        keys = sorted(ENGINES.get(category, {}))
+    except Exception:
+        keys = []
+    options = [{"key": "auto", "label": "Auto (recommended)"}]
+    options.extend(
+        {"key": key, "label": _BACKEND_LABELS.get(key, key)} for key in keys
+    )
+    return options
 
-BACKEND_OPTIONS_BOOKS = [
-    {"key": "auto", "label": "Auto (recommended)"},
-    {"key": "annasarchive", "label": "Anna's Archive"},
-]
+
+def all_backend_keys() -> set[str]:
+    """Every provider key ddgs offers in any category (validation source)."""
+    try:
+        from ddgs.engines import ENGINES
+
+        return {key for engines in ENGINES.values() for key in engines}
+    except Exception:
+        return set()
+
+
+BACKEND_OPTIONS_TEXT = backend_options("text")
+BACKEND_OPTIONS_IMAGES = backend_options("images")
+BACKEND_OPTIONS_NEWS = backend_options("news")
+BACKEND_OPTIONS_VIDEOS = backend_options("videos")
+BACKEND_OPTIONS_BOOKS = backend_options("books")
 
 TIMELIMIT_OPTIONS = [
     {"key": "", "label": "Any time"},

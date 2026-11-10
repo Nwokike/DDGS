@@ -18,6 +18,8 @@ from core.constants import (
     STORAGE_AI_MODEL,
     STORAGE_ASSISTANT_HISTORY,
     STORAGE_BACKEND,
+    STORAGE_SEARCH_RETRY_ENABLED,
+    STORAGE_SEARCH_RETRY_MIN,
     STORAGE_DEFAULT_TAB,
     STORAGE_EXTRACT_FORMAT,
     STORAGE_HISTORY,
@@ -93,6 +95,8 @@ DEFAULTS: dict[str, Any] = {
     STORAGE_MAX_RESULTS: 20,
     STORAGE_TIMELIMIT: "",
     STORAGE_BACKEND: "auto",
+    STORAGE_SEARCH_RETRY_ENABLED: True,
+    STORAGE_SEARCH_RETRY_MIN: 4,
     STORAGE_PAGE: 1,
     STORAGE_PROXY: "",
     STORAGE_VERIFY_SSL: True,
@@ -336,6 +340,18 @@ class StorageService:
     async def set_timelimit(self, v: str) -> bool:
         return await self.set(STORAGE_TIMELIMIT, v)
 
+    async def get_search_retry_enabled(self) -> bool:
+        return bool(await self.get(STORAGE_SEARCH_RETRY_ENABLED, True))
+
+    async def set_search_retry_enabled(self, v: bool) -> bool:
+        return await self.set(STORAGE_SEARCH_RETRY_ENABLED, bool(v))
+
+    async def get_search_retry_min(self) -> int:
+        return int(await self.get(STORAGE_SEARCH_RETRY_MIN, 4))
+
+    async def set_search_retry_min(self, v: int) -> bool:
+        return await self.set(STORAGE_SEARCH_RETRY_MIN, int(v))
+
     async def get_image_size(self) -> str:
         return str(await self.get(STORAGE_IMAGE_SIZE, ""))
 
@@ -389,10 +405,11 @@ class StorageService:
         # Google was dropped from ddgs 9.16.1's registry (403s upstream), so
         # a value saved by an older build must not survive the load: strip it
         # here, the single chokepoint every backend read goes through, and
-        # let the persisted store be corrected on the next save.
-        from core.constants import BACKEND_OPTIONS_TEXT
+        # let the persisted store be corrected on the next save. Validation
+        # reads ddgs's live registry (every category), so it cannot drift.
+        from core.constants import all_backend_keys
 
-        valid = {b["key"] for b in BACKEND_OPTIONS_TEXT}
+        valid = all_backend_keys()
         parts = [b.strip() for b in raw.split(",") if b.strip() and b.strip() in valid]
         return ",".join(parts) if parts else "auto"
 

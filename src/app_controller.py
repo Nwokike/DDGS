@@ -347,6 +347,8 @@ class AppController:
             state.max_results = await storage.get_max_results()
             state.timelimit = await storage.get_timelimit()
             state.backend = await storage.get_backend()
+            state.search_retry_enabled = await storage.get_search_retry_enabled()
+            state.search_retry_min = await storage.get_search_retry_min()
             state.page = await storage.get_page()
             state.reasoning_effort = await storage.get_reasoning_effort()
             state.image_size = await storage.get_image_size()
@@ -415,6 +417,14 @@ class AppController:
             "max_results": (self.storage.set_max_results, "max_results"),
             "timelimit": (self.storage.set_timelimit, "timelimit"),
             "backend": (self.storage.set_backend, "backend"),
+            "search_retry_enabled": (
+                self.storage.set_search_retry_enabled,
+                "search_retry_enabled",
+            ),
+            "search_retry_min": (
+                self.storage.set_search_retry_min,
+                "search_retry_min",
+            ),
             "image_size": (self.storage.set_image_size, "image_size"),
             "image_color": (self.storage.set_image_color, "image_color"),
             "image_type": (self.storage.set_image_type, "image_type"),
@@ -501,11 +511,18 @@ class AppController:
         state.search_active = False
         state.selected_tab = 0
 
-    def open_content_reader(self, url: str, content: str | None = None):
-        """Push the full-screen content reader as a new View."""
+    def open_content_reader(
+        self, url: str, content: str | None = None, title: str | None = None
+    ):
+        """Push the full-screen content reader as a new View.
+
+        `title` seeds the header with the result card's page name when
+        the caller has one; otherwise the reader uses the page's own
+        <title> or the URL.
+        """
         from screens.content_reader_screen import build_content_reader
 
-        reader_view = build_content_reader(self.page, url, content)
+        reader_view = build_content_reader(self.page, url, content, title)
         self.page.views.append(reader_view)
         self.page.update()
 
@@ -707,14 +724,22 @@ class AppController:
         previous = list(state.last_results.get(search_type) or [])
         if not previous:
             return
+        if state.load_more_running:
+            return
         seen = {r.url for r in previous}
         state.page += 1
+        # The button shows a spinner from this flag; results stay on screen
+        # (search_progress.is_running must NOT be touched - the results
+        # container hides on it).
+        state.load_more_running = True
         try:
             progress = await self.search_service.search(search_type, query, ui=False)
         except Exception as exc:
             state.page -= 1
             logger.warning("load-more failed for %s: %r", query, exc)
             return
+        finally:
+            state.load_more_running = False
         fresh = [r for r in progress.results or [] if r.url not in seen]
         if not fresh:
             # That page held nothing new - put the counter back so the
